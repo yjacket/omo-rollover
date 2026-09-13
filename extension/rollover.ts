@@ -3,11 +3,12 @@
 //
 //   watching ──tokens ≥ budget | reread ratio──▶ armed
 //   armed    ──(turn_end | agent_settled) ∧ Σwake==0 ∧ !pending──▶ handoff_requested
-//   handoff_requested ──agent_settled ∧ <successor> found──▶ rollover (/rollover)
+//   handoff_requested ──agent_settled ∧ <successor> found ∧ Σwake==0 ∧ !pending──▶ rollover (/rollover)
+//   (successor found but children live → rollover_deferred, re-checked on every agent_settled/turn_end)
 //
 // Signals: message_end (usage), wake_source_state (shared pi.events bus),
 // turn_end (early landing inside a long single-agent run, steer-delivered),
-// agent_settled, tool_call (blocks task_create while armed).
+// agent_settled, tool_call (blocks `task` and `task_create` while not watching).
 // Inert in omo-task child sessions. Everything is logged as JSONL under
 // ~/.omo/rollover/ (override with OMO_ROLLOVER_DIR) for dashboard/build.mjs.
 // State survives /reload and --resume via ~/.omo/rollover/state/<sessionId>.json.
@@ -21,6 +22,7 @@ export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "r
 export type Config = { budgetTokens: number; rereadRatioMax: number }
 export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
+const SPAWN_TOOLS = new Set(["task", "task_create"]) // exact names; task_output/list/cancel/get/update/send stay allowed
 const CHILD_ENV = ["OMO_SENPI_TASK_RPC_CHILD", "SENPI_TASK_MEMBER", "SENPI_TASK_MEMBER_TASK_ID"]
 
 export function isChildSession(env: Record<string, string | undefined> = process.env): boolean {
@@ -82,11 +84,12 @@ export function extractSuccessor(text: string): string | null {
 export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean): string {
   const file = join(cwd, ".omo", "rollover", `handoff-${sessionId}.md`)
   return [
-    "[rollover] This session's context is over budget. Do NOT start new work and do NOT spawn tasks.",
+    "[rollover] This session's context is over budget. Stop working; hand off now.",
+    "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
     goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"paused\".",
-    `Write a handoff file at ${file} with these sections: Goal, Done, In progress, Next step, Key files, Constraints.`,
-    "Then end your reply with the exact first prompt for your successor session, wrapped as <successor>...</successor>.",
-    "The successor starts with an empty context: the prompt must tell it to read the handoff file first and what to do next.",
+    `Write ${file} from memory (single write, max ~80 lines) with sections: Goal / Done / In progress / Next step / Key files / Constraints.`,
+    "Then end your reply with the successor's first prompt wrapped as <successor>...</successor>, at most 25 lines.",
+    "The successor starts with an empty context. Its prompt must tell it to read only the handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and NOT to read ulw-execute/SKILL.md or the full ledger.",
   ]
     .filter(Boolean)
     .join("\n")
@@ -176,7 +179,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.goalPaused = await doPause(ctx)
     persist(sid(ctx))
     const why = reason === "budget" ? `budget ${config.budgetTokens} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
-    ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task_create blocked; handing off once children drain.`, "warning")
+    ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
   }
 
   // Single guard for both landing points so the instruction is injected once.
@@ -191,12 +194,18 @@ export function createRollover(pi: any, deps: Deps = {}) {
     return true
   }
 
-  // Successor in the last assistant reply → dispatch /rollover. Shared by
-  // agent_settled and session_start (a /reload between the reply and settle).
+  // Successor in the last assistant reply → dispatch /rollover, but only once
+  // nothing can wake this session (a live child would be orphaned by newSession).
+  // Shared by agent_settled, turn_end and session_start (a /reload between the reply and settle).
   function tryRollover(ctx: any): boolean {
-    const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
+    const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? [])) ?? st.successor // deferred: a child's result may have moved the last reply
     if (!found) return false
     st.successor = found
+    const total = wakeTotal()
+    if (total !== 0 || ctx.hasPendingMessages?.()) {
+      log(ctx, "rollover_deferred", { total })
+      return true // successor is in hand; stay in handoff_requested, no re-ask
+    }
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
@@ -241,7 +250,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.on("tool_call", async (ev: any, ctx: any) => {
-    if (!enabled() || st.state === "watching" || ev?.toolName !== "task_create") return
+    if (!enabled() || st.state === "watching" || !SPAWN_TOOLS.has(ev?.toolName)) return
     st.blocked++
     log(ctx, "tool_call_blocked", { tool: ev.toolName })
     persist(sid(ctx))
@@ -256,6 +265,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   pi.on("turn_end", async (_ev: any, ctx: any) => {
     lastCtx = ctx
+    if (st.state === "handoff_requested" && st.successor) { if (enabled()) tryRollover(ctx); return }
     if (st.state !== "armed") return
     log(ctx, "turn_end", { total: wakeTotal() })
     if (enabled()) requestHandoff(ctx, "turn_end")
@@ -291,12 +301,18 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.registerCommand("rollover", {
-    description: "rollover on|off|status — or no args: hand off to a fresh session now",
+    description: "rollover on|off|status|force — or no args: hand off to a fresh session now (refused while children run)",
     handler: async (args: string, ctx: any) => {
       const a = (args ?? "").trim()
       if (a === "on" || a === "off") { st.mode = a; persist(sid(ctx)); ctx.ui.notify(`rollover: ${a}`, "info"); return }
       if (a === "status") {
         ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${config.budgetTokens} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
+        return
+      }
+      const total = wakeTotal()
+      if ((total ?? 0) > 0 && a !== "force") { // unknown wake still allows the manual path
+        log(ctx, "rollover_refused", { total })
+        ctx.ui.notify(`rollover: refused, wake total=${total ?? "unknown"} (children still running). Use /rollover force to override.`, "error")
         return
       }
       const prompt = st.successor ?? extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))

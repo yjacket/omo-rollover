@@ -277,7 +277,11 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } })
   await h.fire("session_shutdown", { reason: "reload" })
   const r = harness({ dir: h.dir, branch })
-  await r.fire("session_start")
+  await r.fire("session_start") // wake sources unknown right after reload: successor kept, dispatch deferred
+  assert.equal(r.ext.st.state, "handoff_requested")
+  assert.deepEqual(r.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: null })
+  r.wake(0)
+  await r.fire("agent_settled")
   assert.equal(r.ext.st.state, "rollover")
   assert.deepEqual(r.sent, [{ text: "/rollover", opts: { expandPromptTemplates: true } }])
   await r.fire("agent_settled") // no second dispatch
@@ -329,5 +333,64 @@ test("summary counters survive a reload and land in the summary row", async () =
 test("armed notify names the trigger and the budget", async () => {
   const h = harness()
   await h.message(160_000)
-  assert.equal(h.notes.at(-1).m, "rollover: armed (budget 150000 reached, context=160000). task_create blocked; handing off once children drain.")
+  assert.equal(h.notes.at(-1).m, "rollover: armed (budget 150000 reached, context=160000). task/task_create blocked; handing off once children drain.")
+})
+
+test("spawn block: `task` blocked while armed, task_output allowed", async () => {
+  const h = harness()
+  await h.message(160_000)
+  assert.equal((await h.fire("tool_call", { toolName: "task", input: {} })).block, true)
+  assert.equal(await h.fire("tool_call", { toolName: "task_output", input: {} }), undefined)
+  assert.equal(await h.fire("tool_call", { toolName: "task_send", input: {} }), undefined)
+  assert.equal(h.ext.st.blocked, 1)
+  assert.equal(h.lines().at(-1).tool, "task")
+})
+
+test("successor found while a child is live: rollover_deferred, /rollover dispatched once after drain", async () => {
+  const branch = []
+  const h = harness({ branch })
+  await h.message(160_000)
+  h.wake(0)
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } })
+  h.wake(1) // model spawned via `task` before the block existed, or a child restarted
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.deepEqual(h.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: 1 })
+  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 0)
+  assert.equal(h.sent.filter((s) => /did not contain/.test(s.text)).length, 0, "no re-ask")
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  h.wake(0)
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "rollover")
+  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 1)
+  await h.fire("agent_settled")
+  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 1)
+})
+
+test("/rollover refuses while children run; /rollover force proceeds", async () => {
+  const branch = [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }]
+  const h = harness({ branch })
+  h.wake(1)
+  await h.commands.rollover.handler("", h.ctx)
+  assert.equal(h.notes.at(-1).k, "error")
+  assert.match(h.notes.at(-1).m, /refused.*wake total=1/)
+  assert.equal(h.lines().at(-1).ev, "rollover_refused")
+  assert.equal(h.sent.length, 0)
+  await h.commands.rollover.handler("force", h.ctx)
+  assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2" })
+  assert.equal(h.ext.st.state, "rolled_over")
+})
+
+test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {
+  const p = handoffPrompt("/w", "id", true)
+  assert.match(p, /Do NOT read any file, run any command, or spawn any task/)
+  assert.match(p, /80 lines/)
+  assert.match(p, /25 lines/)
+  assert.match(p, /Goal \/ Done \/ In progress \/ Next step \/ Key files \/ Constraints/)
+  assert.match(p, /tail -n 30 \.omo\/ulw-execute\/ledger\.jsonl/)
+  assert.match(p, /NOT to read ulw-execute\/SKILL\.md or the full ledger/)
+  assert.match(p, /<successor>\.\.\.<\/successor>/)
 })

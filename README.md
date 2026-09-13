@@ -10,11 +10,15 @@ the intended behavior.
 ```
 watching ──context ≥ budget (or, opt-in, reread ratio ≥ max for 3 messages)──▶ armed
 armed    ──(turn_end | agent_settled) ∧ Σ wake_source_state == 0 ∧ !hasPendingMessages──▶ handoff_requested
-handoff_requested ──agent_settled ∧ <successor> in last assistant reply──▶ rollover
+handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assistant reply ∧ Σ wake == 0 ∧ !hasPendingMessages──▶ rollover
 ```
 
-- **armed**: goal paused (best effort), `task_create` blocked via `tool_call`
-  with an error explaining the pending handoff. Running children drain naturally.
+- **armed**: goal paused (best effort), spawning tools blocked via `tool_call`
+  with an error explaining the pending handoff. Block list is exactly `task` and
+  `task_create` (omo-task exposes both names); `task_output`, `task_list`,
+  `task_cancel`, `task_get`, `task_update`, `task_send` stay allowed so the main
+  can still collect results. The block holds in every state except `watching`.
+  Running children drain naturally.
 - **handoff_requested**: reached at the first `turn_end` with wake sum 0 (the
   instruction is steer-delivered, so it lands before the next turn of a long
   single-agent run), or at `agent_settled` once children drain. One guard, so
@@ -22,10 +26,25 @@ handoff_requested ──agent_settled ∧ <successor> in last assistant reply─
   `<cwd>/.omo/rollover/handoff-<sessionId>.md` (goal, done, in-progress, next
   step, key files, constraints), end the reply with the successor's first prompt
   in `<successor>...</successor>`. Missing tag → asked once more → then
-  `ctx.ui.notify` and back to armed.
+  `ctx.ui.notify` and back to armed. The instruction is deliberately strict
+  (field session 01a09c07 spent 139K→234K of context on the handoff itself by
+  re-reading ledger/plan files and spawning a task): write the file from what is
+  already in context; do NOT read any file, run any command, or spawn any task;
+  ~80 lines max; sections Goal / Done / In progress / Next step / Key files /
+  Constraints; `<successor>` ≤ 25 lines telling the successor to read only the
+  handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and not
+  `ulw-execute/SKILL.md` or the full ledger. The extraction contract is unchanged.
+- **deferred rollover**: a `<successor>` found while the wake sum is unknown or
+  > 0 (or `hasPendingMessages()`) logs `rollover_deferred{total}` and stays in
+  `handoff_requested` — no re-ask, the successor prompt is kept. Re-checked on
+  every later `agent_settled` and `turn_end`; `/rollover` is dispatched once the
+  sum reaches 0. Without this, `newSession` orphaned a child spawned during the
+  handoff turn (field: task st_01a09c25 left `running` with the old parent).
 - **rollover**: dispatches `/rollover`, whose handler calls
   `ctx.newSession({parentSession, withSession})` and sends the successor prompt
-  in the new session.
+  in the new session. The handler itself refuses (notify + `rollover_refused{total}`)
+  while the wake sum is > 0; `/rollover force` overrides. An unknown sum (no
+  event yet) does not block the manual command.
 
 Inert (no logging, no arming) in omo-task child sessions, detected by env
 `OMO_SENPI_TASK_RPC_CHILD` (set for every spawned child) or `SENPI_TASK_MEMBER*`.
@@ -38,7 +57,7 @@ Inert (no logging, no arming) in omo-task child sessions, detected by env
 | `pi.events "wake_source_state"` | latest `activeCount` per source (`senpi-task`, `omo-dag`, senpi builtins); sum 0 = nothing can wake the parked main. No event yet = unknown, not zero |
 | `turn_end` | after each LLM response + its tool calls; while armed and wake sum is 0, requests the handoff mid-run via `sendUserMessage(..., {deliverAs: "steer"})` |
 | `agent_settled` | true idle; ANDed with the wake sum. Lands the handoff when children were still running at turn_end; also where the `<successor>` tag is extracted |
-| `tool_call` | blocks `task_create` while not watching |
+| `tool_call` | blocks `task` and `task_create` while not watching |
 
 ## Install
 
@@ -54,7 +73,8 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/rollover.ts`. Then
 
 - `/rollover status` – state, context, wake sum, blocked count
 - `/rollover on|off` – override auto-detect
-- `/rollover` – hand off now (needs a `<successor>` block in the last reply)
+- `/rollover` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
+- `/rollover force` – hand off even with children running (they are orphaned)
 
 ## Config
 
@@ -81,7 +101,8 @@ logged on every `message_end` (`ratio`) for the dashboard.
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
-`successor_found|successor_missing`, `state_restored{state}`, `rollover{newSession,parentSession}`.
+`successor_found|successor_missing`, `rollover_deferred{total}`, `rollover_refused{total}`,
+`state_restored{state}`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers).
 
@@ -97,9 +118,10 @@ The counters are also written on every `message_end` so the summary row
 stored and is recomputed from the next `message_end`. `session_start` (any reason) restores the file for
 its session id and logs `state_restored{state}`. If the restored state is
 `handoff_requested` (or `rollover`), the current branch is checked for a
-`<successor>` right away and `/rollover` is dispatched, so a `/reload` that
-lands between the model's reply and `agent_settled` still completes the
-handoff. After a rollover the old session's file is kept with
+`<successor>` right away and `/rollover` is dispatched (or deferred: right after
+a reload the wake sum is unknown until omo-task re-emits, so the dispatch
+usually lands at the next `agent_settled`), so a `/reload` that lands between
+the model's reply and `agent_settled` still completes the handoff. After a rollover the old session's file is kept with
 `state: "rolled_over"`; resuming that session starts fresh, and the successor
 has its own id.
 
