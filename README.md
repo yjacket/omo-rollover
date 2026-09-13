@@ -9,13 +9,16 @@ the intended behavior.
 
 ```
 watching ──context ≥ budget, or reread ratio ≥ max for 3 messages──▶ armed
-armed    ──agent_settled ∧ Σ wake_source_state == 0 ∧ !hasPendingMessages──▶ handoff_requested
+armed    ──(turn_end | agent_settled) ∧ Σ wake_source_state == 0 ∧ !hasPendingMessages──▶ handoff_requested
 handoff_requested ──agent_settled ∧ <successor> in last assistant reply──▶ rollover
 ```
 
 - **armed**: goal paused (best effort), `task_create` blocked via `tool_call`
   with an error explaining the pending handoff. Running children drain naturally.
-- **handoff_requested**: one user message is injected: finish nothing new, write
+- **handoff_requested**: reached at the first `turn_end` with wake sum 0 (the
+  instruction is steer-delivered, so it lands before the next turn of a long
+  single-agent run), or at `agent_settled` once children drain. One guard, so
+  it is injected exactly once. One user message is injected: finish nothing new, write
   `<cwd>/.omo/rollover/handoff-<sessionId>.md` (goal, done, in-progress, next
   step, key files, constraints), end the reply with the successor's first prompt
   in `<successor>...</successor>`. Missing tag → asked once more → then
@@ -33,7 +36,8 @@ Inert (no logging, no arming) in omo-task child sessions, detected by env
 |---|---|
 | `message_end` (`message.usage`) | context = `ctx.getContextUsage().tokens`, falling back to `input + cacheRead + cacheWrite` when tokens is null (right after compaction) |
 | `pi.events "wake_source_state"` | latest `activeCount` per source (`senpi-task`, `omo-dag`, senpi builtins); sum 0 = nothing can wake the parked main. No event yet = unknown, not zero |
-| `agent_settled` | true idle; ANDed with the wake sum |
+| `turn_end` | after each LLM response + its tool calls; while armed and wake sum is 0, requests the handoff mid-run via `sendUserMessage(..., {deliverAs: "steer"})` |
+| `agent_settled` | true idle; ANDed with the wake sum. Lands the handoff when children were still running at turn_end; also where the `<successor>` tag is extracted |
 | `tool_call` | blocks `task_create` while not watching |
 
 ## Install
@@ -69,8 +73,9 @@ consecutive messages over it arm the handoff even below the budget.
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, one object per line:
 `{t, session, cwd, ev, ...}` with `ev` ∈ `session_start{parent?}`,
 `message_end{input,output,cacheRead,cacheWrite,context}`,
-`wake_source_state{source,activeCount,total}`, `agent_settled{total}`,
-`armed{reason,context}`, `tool_call_blocked{tool}`, `handoff_requested`,
+`wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
+armed), `agent_settled{total}`, `armed{reason,context}`, `tool_call_blocked{tool}`,
+`handoff_requested{at: "turn_end" | "agent_settled", context}`,
 `successor_found|successor_missing`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers).
@@ -113,3 +118,8 @@ state machine; no senpi and no LLM calls.
   startup; if it never does, `/rollover` still works manually.
 - `/rollover` relies on `pi.sendUserMessage("/rollover", {expandPromptTemplates: true})`
   dispatching a registered extension command.
+- The `turn_end` landing depends on senpi honoring `deliverAs: "steer"` while
+  the agent is streaming. If steer delivery is deferred, the handoff still
+  arrives before the next model call at the latest; `agent_settled` remains
+  the fallback when children are running. A single turn that itself runs very
+  long (one huge tool call) is not interrupted.

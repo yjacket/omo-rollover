@@ -144,6 +144,49 @@ test("successor extraction, then /rollover dispatch and newSession", async () =>
   assert.equal(summary.at(-1).peakContext, 160_000)
 })
 
+test("long single-agent run: handoff steered at first turn_end with wake 0, once; successor then /rollover", async () => {
+  const branch = []
+  const h = harness({ branch })
+  h.wake(0)
+  await h.message(50_000)
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "watching")
+  assert.equal(h.sent.length, 0)
+  await h.message(160_000) // budget passed mid-run, no children, run keeps going
+  assert.equal(h.ext.st.state, "armed")
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.equal(h.sent.length, 1)
+  assert.match(h.sent[0].text, /<successor>/)
+  assert.deepEqual(h.sent[0].opts, { deliverAs: "steer" })
+  await h.fire("turn_end") // run continues before the steer lands: no second injection
+  await h.fire("turn_end")
+  await h.fire("agent_settled") // settles without successor yet: re-ask path, still no duplicate handoff
+  assert.equal(h.sent.filter((s) => /handoff-s1\.md/.test(s.text)).length, 1)
+  assert.equal(h.lines().filter((l) => l.ev === "handoff_requested").length, 1)
+  assert.equal(h.lines().find((l) => l.ev === "handoff_requested").at, "turn_end")
+  assert.equal(h.lines().filter((l) => l.ev === "turn_end").length, 1, "turn_end logged only while armed")
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } })
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "rollover")
+  assert.deepEqual(h.sent.at(-1), { text: "/rollover", opts: { expandPromptTemplates: true } })
+})
+
+test("turn_end with children running does not land; agent_settled does once they drain", async () => {
+  const h = harness()
+  h.wake(2)
+  await h.message(160_000)
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "armed")
+  assert.equal(h.sent.length, 0)
+  h.wake(0)
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.equal(h.sent.length, 1)
+  assert.equal(h.sent[0].opts, undefined)
+  assert.equal(h.lines().find((l) => l.ev === "handoff_requested").at, "agent_settled")
+})
+
 test("missing successor tag: re-ask once, then notify and stay armed", async () => {
   const branch = [{ type: "message", message: { role: "assistant", content: "no tag here" } }]
   const h = harness({ branch })

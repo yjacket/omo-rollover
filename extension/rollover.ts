@@ -2,10 +2,11 @@
 // passes a token budget.
 //
 //   watching ──tokens ≥ budget | reread ratio──▶ armed
-//   armed    ──agent_settled ∧ Σwake==0 ∧ !pending──▶ handoff_requested
+//   armed    ──(turn_end | agent_settled) ∧ Σwake==0 ∧ !pending──▶ handoff_requested
 //   handoff_requested ──agent_settled ∧ <successor> found──▶ rollover (/rollover)
 //
 // Signals: message_end (usage), wake_source_state (shared pi.events bus),
+// turn_end (early landing inside a long single-agent run, steer-delivered),
 // agent_settled, tool_call (blocks task_create while armed).
 // Inert in omo-task child sessions. Everything is logged as JSONL under
 // ~/.omo/rollover/ (override with OMO_ROLLOVER_DIR) for dashboard/build.mjs.
@@ -149,10 +150,14 @@ export function createRollover(pi: any, deps: Deps = {}) {
     ctx.ui?.notify?.(`rollover: armed (${reason}, context=${st.context}). task_create blocked; handing off once children drain.`, "warning")
   }
 
-  function requestHandoff(ctx: any) {
+  // Single guard for both landing points so the instruction is injected once.
+  function requestHandoff(ctx: any, at: "turn_end" | "agent_settled"): boolean {
+    if (st.state !== "armed" || wakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
     st.state = "handoff_requested"
-    log(ctx, "handoff_requested", { context: st.context })
-    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused))
+    log(ctx, "handoff_requested", { at, context: st.context })
+    // Mid-run: steer so it lands before the next turn instead of after the whole run settles.
+    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused), at === "turn_end" ? { deliverAs: "steer" } : undefined)
+    return true
   }
 
   pi.on("session_start", async (_ev: any, ctx: any) => {
@@ -199,13 +204,20 @@ export function createRollover(pi: any, deps: Deps = {}) {
     if (lastCtx) log(lastCtx, "wake_source_state", { source: d.source, activeCount: d.activeCount, total: wakeTotal() })
   })
 
+  pi.on("turn_end", async (_ev: any, ctx: any) => {
+    lastCtx = ctx
+    if (st.state !== "armed") return
+    log(ctx, "turn_end", { total: wakeTotal() })
+    if (enabled()) requestHandoff(ctx, "turn_end")
+  })
+
   pi.on("agent_settled", async (_ev: any, ctx: any) => {
     lastCtx = ctx
     const total = wakeTotal()
     log(ctx, "agent_settled", { total, state: st.state })
     if (!enabled()) return
     if (st.state === "armed") {
-      if (total === 0 && !ctx.hasPendingMessages?.()) requestHandoff(ctx)
+      requestHandoff(ctx, "agent_settled")
       return
     }
     if (st.state === "handoff_requested") {
