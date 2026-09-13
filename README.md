@@ -8,7 +8,7 @@ the intended behavior.
 ## What it does
 
 ```
-watching ──context ≥ budget, or reread ratio ≥ max for 3 messages──▶ armed
+watching ──context ≥ budget (or, opt-in, reread ratio ≥ max for 3 messages)──▶ armed
 armed    ──(turn_end | agent_settled) ∧ Σ wake_source_state == 0 ∧ !hasPendingMessages──▶ handoff_requested
 handoff_requested ──agent_settled ∧ <successor> in last assistant reply──▶ rollover
 ```
@@ -61,18 +61,23 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/rollover.ts`. Then
 `~/.omo/rollover/config.json` (read at load):
 
 ```json
-{ "budgetTokens": 150000, "rereadRatioMax": 150 }
+{ "budgetTokens": 150000, "rereadRatioMax": 0 }
 ```
 
-`rereadRatioMax` compares `cacheRead / output` of each assistant message; three
-consecutive messages over it arm the handoff even below the budget.
+`rereadRatioMax` (opt-in, default off) compares `cacheRead / output` of each
+assistant message; three consecutive messages over it arm the handoff even
+below the budget. It is off by default because it fires on tool loops: a turn
+that emits only a tool call has output ≈ 50 tokens, so a healthy 72K-context
+session reads as ratio ≈ 1200 and armed at 96K in the field. Set a positive
+value to re-enable; `0`, negative, or missing means off. The ratio is still
+logged on every `message_end` (`ratio`) for the dashboard.
 `OMO_ROLLOVER_DIR` overrides the data directory (used by the tests).
 
 ## Event log
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, one object per line:
 `{t, session, cwd, ev, ...}` with `ev` ∈ `session_start{parent?}`,
-`message_end{input,output,cacheRead,cacheWrite,context}`,
+`message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
@@ -86,8 +91,10 @@ The state machine is written to `~/.omo/rollover/state/<sessionId>.json` on
 every transition (arm, handoff request, successor found, re-ask, blocked
 spawn, `/rollover on|off`, rollover), atomically (tmp + rename). Fields:
 `state, mode, blocked, rereadStreak, goalPaused, rollovers, armedAt,
-handoffAskedCount, updatedAt`. Context is not stored; it is recomputed from
-the next `message_end`. `session_start` (any reason) restores the file for
+handoffAskedCount, peak, messages, cacheRead, output, startedAt, updatedAt`.
+The counters are also written on every `message_end` so the summary row
+(peak context, messages, ratio) survives a `/reload`; the live `context` is not
+stored and is recomputed from the next `message_end`. `session_start` (any reason) restores the file for
 its session id and logs `state_restored{state}`. If the restored state is
 `handoff_requested` (or `rollover`), the current branch is checked for a
 `<successor>` right away and `/rollover` is dispatched, so a `/reload` that

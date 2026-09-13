@@ -19,7 +19,7 @@ import { pathToFileURL } from "node:url"
 
 export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "rolled_over"
 export type Config = { budgetTokens: number; rereadRatioMax: number }
-export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 150 }
+export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
 const CHILD_ENV = ["OMO_SENPI_TASK_RPC_CHILD", "SENPI_TASK_MEMBER", "SENPI_TASK_MEMBER_TASK_ID"]
 
@@ -38,7 +38,7 @@ export function loadConfig(dir: string): Config {
     const raw = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"))
     return {
       budgetTokens: Number(raw.budgetTokens) > 0 ? Number(raw.budgetTokens) : DEFAULT_CONFIG.budgetTokens,
-      rereadRatioMax: Number(raw.rereadRatioMax) > 0 ? Number(raw.rereadRatioMax) : DEFAULT_CONFIG.rereadRatioMax,
+      rereadRatioMax: Number(raw.rereadRatioMax) > 0 ? Number(raw.rereadRatioMax) : 0,
     }
   } catch {
     return { ...DEFAULT_CONFIG }
@@ -58,7 +58,8 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
   renameSync(tmp, file)
 }
 
-const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount"] as const
+// Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
+const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt"] as const
 
 /** Text of the last assistant message on the current branch. */
 export function lastAssistantText(entries: any[]): string {
@@ -174,7 +175,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
     log(ctx, "armed", { reason, context: st.context })
     st.goalPaused = await doPause(ctx)
     persist(sid(ctx))
-    ctx.ui?.notify?.(`rollover: armed (${reason}, context=${st.context}). task_create blocked; handing off once children drain.`, "warning")
+    const why = reason === "budget" ? `budget ${config.budgetTokens} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
+    ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task_create blocked; handing off once children drain.`, "warning")
   }
 
   // Single guard for both landing points so the instruction is injected once.
@@ -227,11 +229,13 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.messages++
     st.cacheRead += cacheRead
     st.output += output
-    log(ctx, "message_end", { input, output, cacheRead, cacheWrite, context })
+    const ratio = +(cacheRead / Math.max(1, output)).toFixed(1)
+    log(ctx, "message_end", { input, output, cacheRead, cacheWrite, context, ratio })
+    persist(sid(ctx)) // counters above feed the summary row; keep them across /reload
     if (!enabled() || st.state !== "watching" || context <= 0) return
 
     if (context >= config.budgetTokens) return arm(ctx, "budget")
-    const ratio = cacheRead / Math.max(1, output)
+    if (config.rereadRatioMax <= 0) return // opt-in: a tool-only turn has output ≈ 50, so the ratio spikes on any healthy session
     st.rereadStreak = ratio >= config.rereadRatioMax ? st.rereadStreak + 1 : 0
     if (st.rereadStreak >= REREAD_STREAK) return arm(ctx, "reread")
   })

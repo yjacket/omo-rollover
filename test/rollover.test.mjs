@@ -1,7 +1,7 @@
 // Fake `pi` harness: no senpi, no LLM. Run: node --test test/
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs"
+import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt } from "../extension/rollover.ts"
@@ -109,8 +109,19 @@ test("tokens null after compaction: falls back to message usage, no crash", asyn
   assert.equal(h.ext.st.context, 30_000)
 })
 
-test("reread ratio arms only after 3 consecutive messages", async () => {
+test("reread ratio is off by default: tool-only turns never arm", async () => {
   const h = harness()
+  for (let i = 0; i < 5; i++) await h.message(96_000, { output: 62, cacheRead: 72_000, input: 100 })
+  assert.equal(h.ext.st.state, "watching")
+  assert.equal(h.ext.st.rereadStreak, 0)
+  assert.equal(h.lines().at(-1).ratio, 1161.3, "ratio still logged for the dashboard")
+})
+
+test("reread ratio (opt-in via config) arms only after 3 consecutive messages", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rollover-"))
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ rereadRatioMax: 150 }))
+  const h = harness({ dir })
+  assert.equal(h.ext.config.rereadRatioMax, 150)
   const hot = { output: 100, cacheRead: 20_000, input: 100 }
   await h.message(21_000, hot)
   await h.message(21_000, hot)
@@ -216,7 +227,7 @@ test("JSONL append shape and /rollover off", async () => {
     assert.equal(l.session, "s1")
     assert.equal(l.cwd, "C:/work")
   }
-  assert.deepEqual(L[1], { t: L[1].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000 })
+  assert.deepEqual(L[1], { t: L[1].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000, ratio: 18 })
   assert.equal(L[3].total, 3)
   assert.equal(L[4].total, 3)
   await h.commands.rollover.handler("off", h.ctx)
@@ -286,10 +297,37 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
   const saved = JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8"))
   assert.deepEqual(saved, {
     state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
-    armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, updatedAt: "1970-01-01T00:00:00.000Z",
+    armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
+    startedAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z",
   })
   assert.equal("context" in saved, false)
   await h.commands.rollover.handler("off", h.ctx)
   assert.equal(JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8")).mode, "off")
   assert.deepEqual(readdirSync(join(h.dir, "state")), ["s1.json"])
+})
+
+test("summary counters survive a reload and land in the summary row", async () => {
+  const h = harness()
+  await h.fire("session_start")
+  await h.message(100_000)
+  await h.message(187_000)
+  await h.fire("session_shutdown", { reason: "reload" })
+  const r = harness({ dir: h.dir })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.peak, 187_000)
+  assert.equal(r.ext.st.messages, 2)
+  await r.message(120_000)
+  await r.fire("session_shutdown", { reason: "quit" })
+  const row = readFileSync(join(h.dir, "summary.jsonl"), "utf8").trim().split("\n").map(JSON.parse).at(-1)
+  assert.equal(row.peakContext, 187_000)
+  assert.equal(row.messages, 3)
+  assert.equal(row.cacheRead, 99_000 + 186_000 + 119_000)
+  assert.equal(row.output, 1500)
+  assert.equal(row.startedAt, "1970-01-01T00:00:00.000Z")
+})
+
+test("armed notify names the trigger and the budget", async () => {
+  const h = harness()
+  await h.message(160_000)
+  assert.equal(h.notes.at(-1).m, "rollover: armed (budget 150000 reached, context=160000). task_create blocked; handing off once children drain.")
 })
