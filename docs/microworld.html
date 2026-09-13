@@ -1,0 +1,313 @@
+<title>세션 롤오버 마이크로월드</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F4F2EC; --panel:#FFFFFF; --panel2:#ECE9E1; --line:#D8D3C7;
+  --ink:#1B1F22; --ink2:#5B6166; --ink3:#8A9096;
+  --ctx:#1F8F88; --ctxfill:rgba(31,143,136,.18);
+  --budget:#D9930F; --child:#6E5FD9; --main:#2B6CB0; --handoff:#D9930F; --danger:#C93F2A; --ok:#2F8F4E;
+  --block:#C93F2A;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1418; --panel:#171E24; --panel2:#1F272E; --line:#2C3640;
+    --ink:#E6EAE7; --ink2:#A7B0B6; --ink3:#6F7A82;
+    --ctx:#3FB8AF; --ctxfill:rgba(63,184,175,.18);
+    --budget:#F2B233; --child:#9B8CFF; --main:#5EA0E6; --handoff:#F2B233; --danger:#E5573B; --ok:#4FBF74;
+    --block:#E5573B;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1418; --panel:#171E24; --panel2:#1F272E; --line:#2C3640;
+  --ink:#E6EAE7; --ink2:#A7B0B6; --ink3:#6F7A82;
+  --ctx:#3FB8AF; --ctxfill:rgba(63,184,175,.18);
+  --budget:#F2B233; --child:#9B8CFF; --main:#5EA0E6; --handoff:#F2B233; --danger:#E5573B; --ok:#4FBF74;
+  --block:#E5573B;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;padding-block:20px;padding-inline:clamp(16px,3vw,32px)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--ink2);margin:4px 0 0;max-width:70ch}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px 24px;align-items:flex-end;margin-bottom:16px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:inherit;font-weight:500;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{background:var(--panel2)}
+button:focus-visible,input:focus-visible,label:focus-within{outline:2px solid var(--ctx);outline-offset:2px}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button.primary:hover{opacity:.9}
+label.tog{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;user-select:none}
+label.tog input{accent-color:var(--ctx);margin:0}
+.range{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 10px}
+.range input{accent-color:var(--budget);width:120px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.panel h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 10px;font-weight:500}
+canvas{width:100%;display:block;border-radius:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;color:var(--ink2);font-size:12px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.stat{background:var(--panel2);border-radius:6px;padding:8px 10px}
+.stat b{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);font-weight:500}
+.stat .v{font-size:20px;line-height:1.2;margin-top:2px}
+.stat .v small{font-size:12px;color:var(--ink2);margin-left:4px}
+.fsm{display:flex;flex-direction:column;gap:0}
+.node{display:grid;grid-template-columns:14px 1fr;gap:10px;align-items:start;padding:8px 8px;border-radius:6px;position:relative}
+.node .dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--line);margin-top:6px;background:var(--panel)}
+.node.on{background:var(--panel2)}
+.node.on .dot{background:var(--ctx);border-color:var(--ctx);box-shadow:0 0 0 3px var(--ctxfill)}
+.node .n{font-weight:500}
+.node .d{color:var(--ink2);font-size:12px}
+.node.armed.on .dot{background:var(--budget);border-color:var(--budget);box-shadow:0 0 0 3px rgba(242,178,51,.2)}
+.node.req.on .dot,.node.roll.on .dot{background:var(--handoff);border-color:var(--handoff);box-shadow:0 0 0 3px rgba(242,178,51,.2)}
+.arrow{color:var(--ink3);font-size:11px;padding-left:22px;line-height:1.2}
+.log{height:280px;overflow:auto;font-size:12px;display:flex;flex-direction:column;gap:2px;padding-right:4px}
+.log div{display:grid;grid-template-columns:38px 1fr;gap:8px;padding:2px 6px;border-radius:4px}
+.log .t{color:var(--ink3)}
+.log .ev-ctx{color:var(--ctx)} .log .ev-child{color:var(--child)} .log .ev-ext{color:var(--budget)} .log .ev-block{color:var(--block)} .log .ev-roll{background:var(--panel2);font-weight:500}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
+.step{padding:12px 14px;border-top:3px solid var(--c);background:var(--panel);border-radius:0 0 6px 6px;border-left:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.step .k{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink3);letter-spacing:.04em}
+.step .h{font-weight:700;margin:2px 0 4px}
+.step p{margin:0;color:var(--ink2);font-size:13px}
+.step code{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--panel2);padding:0 4px;border-radius:3px}
+.note{margin-top:16px;color:var(--ink2);font-size:13px;max-width:80ch}
+.note code{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--panel2);padding:0 4px;border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header>
+  <div>
+    <h1>세션 롤오버 마이크로월드</h1>
+    <p class="sub">OMO 메인 세션 하나가 서브에이전트를 굴리며 컨텍스트를 키우다가, 예산을 넘으면 확장이 안전한 착륙 지점을 잡아 새 세션으로 넘기는 과정. 예시 수치, 실제 세션 아님.</p>
+  </div>
+  <div class="controls">
+    <button id="play" class="primary">▶ 재생</button>
+    <button id="step">한 틱</button>
+    <button id="reset">초기화</button>
+    <span class="range"><span>예산</span><input id="budget" type="range" min="80" max="180" step="10" value="150"><span class="mono" id="budgetv">150K</span></span>
+    <label class="tog"><input id="overlap" type="checkbox" checked>겹치기 실행 (항시 자식 존재)</label>
+    <label class="tog"><input id="block" type="checkbox" checked><code class="mono">task_create</code> 차단</label>
+    <label class="tog"><input id="fast" type="checkbox">빠르게</label>
+  </div>
+</header>
+
+<div class="grid">
+  <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+    <section class="panel">
+      <h2>타임라인</h2>
+      <canvas id="cv" height="360"></canvas>
+      <div class="legend">
+        <span style="--c:var(--ctx)">컨텍스트 토큰</span>
+        <span style="--c:var(--budget)">예산선</span>
+        <span style="--c:var(--main)">메인 턴</span>
+        <span style="--c:var(--handoff)">핸드오프 턴</span>
+        <span style="--c:var(--child)">서브에이전트</span>
+        <span style="--c:var(--block)">task_create 차단됨</span>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>확장 상태 머신</h2>
+      <div class="fsm" id="fsm">
+        <div class="node on" data-s="watching"><div class="dot"></div><div><div class="n">watching</div><div class="d">매 <code class="mono">message_end</code>마다 토큰 확인</div></div></div>
+        <div class="arrow">↓ tokens ≥ 예산</div>
+        <div class="node armed" data-s="armed"><div class="dot"></div><div><div class="n">armed</div><div class="d">Goal paused · <code class="mono">tool_call</code>에서 task_create 거부 · 자식 drain 대기</div></div></div>
+        <div class="arrow">↓ agent_settled ∧ wake source 합 0 ∧ 큐 비움</div>
+        <div class="node req" data-s="handoff"><div class="dot"></div><div><div class="n">handoff_requested</div><div class="d">"handoff.md 쓰고 &lt;successor&gt; 프롬프트로 답변 종료" 주입</div></div></div>
+        <div class="arrow">↓ agent_settled ∧ &lt;successor&gt; 발견</div>
+        <div class="node roll" data-s="rollover"><div class="dot"></div><div><div class="n">rollover</div><div class="d"><code class="mono">/rollover</code> → <code class="mono">newSession({parentSession, withSession})</code> → 새 세션 첫 프롬프트</div></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+    <section class="panel">
+      <h2>계기판</h2>
+      <div class="stats mono">
+        <div class="stat"><b>세션</b><div class="v" id="s-sess">#1</div></div>
+        <div class="stat"><b>컨텍스트</b><div class="v" id="s-tok">12K<small>/ 150K</small></div></div>
+        <div class="stat"><b>wake source 합</b><div class="v" id="s-active">0</div></div>
+        <div class="stat"><b>Goal</b><div class="v" id="s-goal">active</div></div>
+        <div class="stat"><b>메인</b><div class="v" id="s-main">parked</div></div>
+        <div class="stat"><b>차단된 spawn</b><div class="v" id="s-blocked">0</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>이벤트 로그</h2>
+      <div class="log mono" id="log"></div>
+    </section>
+  </div>
+</div>
+
+<div class="steps">
+  <div class="step" style="--c:var(--ctx)"><div class="k">신호 1</div><div class="h">message_end</div><p>어시스턴트 응답마다 usage 도착. <code>input + cacheRead + cacheWrite</code>가 현재 컨텍스트. 스트리밍 중 값은 무시.</p></div>
+  <div class="step" style="--c:var(--child)"><div class="k">신호 2</div><div class="h">wake_source_state</div><p>주차된 메인을 깨울 수 있는 것(자식, 터미널 모니터)이 생기거나 끝날 때 즉시 발행. Goal 백스톱이 쓰는 신호를 그대로 구독.</p></div>
+  <div class="step" style="--c:var(--main)"><div class="k">신호 3</div><div class="h">agent_settled</div><p>재시도·자동압축·큐가 남지 않은 진짜 idle. 자식이 돌아도 뜰 수 있으므로 신호 2와 AND.</p></div>
+  <div class="step" style="--c:var(--block)"><div class="k">레버</div><div class="h">tool_call 차단</div><p>armed 이후 task_create를 거부. 겹치기 실행에서도 진행 중 자식만 자연 drain되면 합 0에 도달.</p></div>
+</div>
+
+<p class="note">토글 실험: <b>겹치기 실행</b>을 켜고 <b>차단</b>을 끄면 자식 수가 0인 settle 시점이 오지 않아 armed에서 영원히 머무름. 차단을 다시 켜면 가장 오래 걸리는 진행 중 자식 하나만큼 기다린 뒤 착륙. 예산 슬라이더는 트리거 시점만 바꾸고 착륙 규칙은 바꾸지 않음.</p>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+
+let S;
+function reset(){
+  S={t:0,session:1,tokens:12,hist:[],main:{state:'parked',left:0,kind:'turn'},children:[],pending:0,
+     ext:'watching',goal:'active',blocked:0,nextChildId:1,bars:[],childRows:[],sessionMarks:[{t:0,n:1}],
+     pendingSpawn:false,idleTicks:0,handoffDone:false,seq:0};
+  $('log').innerHTML='';
+  log('ext','session_start · watching 진입');
+  // 시작: 메인이 첫 턴을 돔
+  startTurn('turn');
+  draw();updateUI();
+}
+function budget(){return +$('budget').value}
+function log(kind,msg,strong){
+  const el=document.createElement('div');el.className=(strong?'ev-roll ':'')+'ev-'+kind;
+  el.innerHTML='<span class="t">t'+S.t+'</span><span>'+msg+'</span>';
+  const L=$('log');L.appendChild(el);while(L.children.length>120)L.removeChild(L.firstChild);L.scrollTop=L.scrollHeight;
+}
+function activeCount(){return S.children.filter(c=>c.left>0).length}
+function startTurn(kind){
+  S.main.state='turn';S.main.kind=kind;S.main.left=kind==='handoff'?4:rnd(2,3);
+  S.bars.push({t0:S.t,t1:null,kind});
+  if(kind==='handoff')log('ext','핸드오프 지시 주입 → 메인 턴 시작');
+}
+function spawnChild(){
+  const id=S.nextChildId++;
+  const row=S.childRows.findIndex(r=>r===null);const rowIdx=row>=0?row:S.childRows.length;
+  if(row>=0)S.childRows[row]=id;else S.childRows.push(id);
+  S.children.push({id,t0:S.t,left:rnd(4,9),row:rowIdx});
+  log('child','task_create → 자식 #'+id+' 시작 · wake_source_state activeCount='+activeCount());
+}
+function endTurn(){
+  const bar=S.bars[S.bars.length-1];bar.t1=S.t;
+  const add=S.main.kind==='handoff'?6:rnd(7,14);
+  S.tokens+=add;
+  log('ctx','message_end · tokens='+S.tokens+'K');
+  // 확장: 예산 검사
+  if(S.ext==='watching'&&S.tokens>=budget()){
+    S.ext='armed';S.goal='paused';
+    log('ext','tokens ≥ '+budget()+'K → armed · Goal paused · task_create 차단 '+($('block').checked?'ON':'OFF'));
+  }
+  if(S.main.kind==='handoff'){S.handoffDone=true;log('ext','응답에서 &lt;successor&gt; 프롬프트 발견');}
+  else{
+    // 메인이 자식을 낳으려 함
+    const overlap=$('overlap').checked;
+    const want=overlap?rnd(1,2):(activeCount()===0?rnd(2,3):0);
+    for(let i=0;i<want;i++){
+      if(S.ext!=='watching'&&$('block').checked){S.blocked++;S.bars.push({t0:S.t,t1:S.t,kind:'blocked'});log('block','tool_call task_create 거부 · "핸드오프 대기 중, 새 자식 금지"');}
+      else spawnChild();
+    }
+  }
+  S.main.state='parked';
+  settle();
+}
+function settle(){
+  // agent_settled: 큐(pending)가 없을 때만
+  if(S.pending>0){log('main','완료 알림 큐 있음 → 즉시 다음 턴');S.pending--;startTurn('turn');return;}
+  log('main','agent_settled · activeCount='+activeCount());
+  const quiet=activeCount()===0;
+  if(S.ext==='armed'&&quiet){S.ext='handoff';log('ext','착륙 조건 충족 → handoff_requested');startTurn('handoff');return;}
+  if(S.ext==='handoff'&&S.handoffDone){rollover();return;}
+}
+function rollover(){
+  S.ext='rollover';updateUI();draw();
+  log('roll','/rollover → newSession({parentSession: 세션#'+S.session+'.jsonl})',true);
+  const old=S.session;S.session++;S.tokens=12;S.ext='watching';S.goal='active';S.handoffDone=false;S.blocked=0;
+  S.sessionMarks.push({t:S.t,n:S.session});
+  log('roll','session_replaced · 세션#'+S.session+' · withSession → 첫 프롬프트 전송 · watching',true);
+  startTurn('turn');
+}
+function tick(){
+  S.t++;
+  // 자식 진행
+  for(const c of S.children){
+    if(c.left>0){c.left--;if(c.left===0){c.t1=S.t;S.childRows[c.row]=null;
+      log('child','자식 #'+c.id+' 완료 → wake_source_state activeCount='+activeCount()+' · completion steer');
+      if(S.main.state==='parked'){startTurn('turn');}else{S.pending++;}
+    }}
+  }
+  if(S.main.state==='turn'){S.main.left--;if(S.main.left<=0)endTurn();}
+  S.hist.push({t:S.t,tok:S.tokens,active:activeCount()});
+  if(S.hist.length>400)S.hist.shift();
+  S.children=S.children.filter(c=>c.left>0||S.t-c.t1<400);
+  S.bars=S.bars.filter(b=>b.t1===null||S.t-b.t1<400);
+  draw();updateUI();
+}
+function updateUI(){
+  $('s-sess').textContent='#'+S.session;
+  $('s-tok').innerHTML=S.tokens+'K<small>/ '+budget()+'K</small>';
+  $('s-tok').style.color=S.tokens>=budget()?cssVar('--budget'):'';
+  $('s-active').textContent=activeCount();
+  $('s-goal').textContent=S.goal;$('s-goal').style.color=S.goal==='paused'?cssVar('--budget'):'';
+  $('s-main').textContent=S.main.state==='turn'?(S.main.kind==='handoff'?'handoff turn':'turn'):'parked';
+  $('s-blocked').textContent=S.blocked;$('s-blocked').style.color=S.blocked?cssVar('--block'):'';
+  document.querySelectorAll('#fsm .node').forEach(n=>n.classList.toggle('on',n.dataset.s===S.ext));
+}
+function draw(){
+  const W=cv.clientWidth,H=360,dpr=window.devicePixelRatio||1;
+  if(cv.width!==W*dpr){cv.width=W*dpr;cv.height=H*dpr;}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const padL=44,padR=12,win=90;const t1=Math.max(win,S.t),t0=t1-win;
+  const x=t=>padL+(t-t0)/(t1-t0)*(W-padL-padR);
+  // 영역: 컨텍스트 차트 0..170, 메인 레인 190..214, 자식 레인 228+
+  const chartTop=10,chartBot=170,maxTok=200;
+  const y=tok=>chartBot-(Math.min(tok,maxTok)/maxTok)*(chartBot-chartTop);
+  ctx.font='11px "IBM Plex Mono",monospace';ctx.fillStyle=cssVar('--ink3');ctx.textAlign='right';
+  for(const v of [0,50,100,150,200]){ctx.fillText(v+'K',padL-6,y(v)+4);ctx.strokeStyle=cssVar('--line');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(padL,y(v));ctx.lineTo(W-padR,y(v));ctx.stroke();}
+  // 세션 경계
+  for(const m of S.sessionMarks){if(m.t<t0)continue;const xx=x(m.t);ctx.strokeStyle=cssVar('--ink3');ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(xx,chartTop);ctx.lineTo(xx,H-6);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=cssVar('--ink2');ctx.textAlign='left';ctx.fillText('세션 #'+m.n,xx+4,H-8);}
+  // 컨텍스트 면적
+  const pts=S.hist.filter(h=>h.t>=t0);
+  if(pts.length){
+    let seg=[];const segs=[];let prevTok=null;
+    for(const p of pts){if(prevTok!==null&&p.tok<prevTok-30){segs.push(seg);seg=[];}seg.push(p);prevTok=p.tok;}segs.push(seg);
+    for(const s of segs){if(!s.length)continue;
+      ctx.beginPath();ctx.moveTo(x(s[0].t),chartBot);for(const p of s)ctx.lineTo(x(p.t),y(p.tok));ctx.lineTo(x(s[s.length-1].t),chartBot);ctx.closePath();ctx.fillStyle=cssVar('--ctxfill');ctx.fill();
+      ctx.beginPath();for(let i=0;i<s.length;i++){const p=s[i];i?ctx.lineTo(x(p.t),y(p.tok)):ctx.moveTo(x(p.t),y(p.tok));}ctx.strokeStyle=cssVar('--ctx');ctx.lineWidth=2;ctx.stroke();
+    }
+    const last=pts[pts.length-1];ctx.fillStyle=cssVar('--ctx');ctx.beginPath();ctx.arc(x(last.t),y(last.tok),3.5,0,7);ctx.fill();
+  }
+  // 예산선
+  ctx.strokeStyle=cssVar('--budget');ctx.lineWidth=1.5;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(padL,y(budget()));ctx.lineTo(W-padR,y(budget()));ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle=cssVar('--budget');ctx.textAlign='left';ctx.fillText('예산 '+budget()+'K',padL+4,y(budget())-4);
+  // 메인 레인
+  const mY=190,mH=22;ctx.fillStyle=cssVar('--ink3');ctx.textAlign='right';ctx.font='11px "IBM Plex Sans KR",sans-serif';ctx.fillText('메인',padL-6,mY+15);
+  ctx.fillStyle=cssVar('--panel2');ctx.fillRect(padL,mY,W-padL-padR,mH);
+  for(const b of S.bars){const e=b.t1===null?S.t:b.t1;if(e<t0)continue;
+    if(b.kind==='blocked'){ctx.fillStyle=cssVar('--block');ctx.beginPath();ctx.moveTo(x(b.t0),mY-2);ctx.lineTo(x(b.t0)-4,mY-9);ctx.lineTo(x(b.t0)+4,mY-9);ctx.closePath();ctx.fill();continue;}
+    ctx.fillStyle=b.kind==='handoff'?cssVar('--handoff'):cssVar('--main');
+    ctx.fillRect(x(Math.max(b.t0,t0)),mY+3,Math.max(2,x(e)-x(Math.max(b.t0,t0))),mH-6);
+  }
+  // 자식 레인
+  const cY=228,cH=12,gap=4;ctx.fillStyle=cssVar('--ink3');ctx.textAlign='right';ctx.fillText('자식',padL-6,cY+10);
+  for(const c of S.children){const e=c.left>0?S.t:c.t1;if(e<t0)continue;const yy=cY+c.row*(cH+gap);if(yy+cH>H-14)continue;
+    ctx.fillStyle=cssVar('--child');ctx.globalAlpha=c.left>0?1:.45;ctx.fillRect(x(Math.max(c.t0,t0)),yy,Math.max(2,x(e)-x(Math.max(c.t0,t0))),cH);ctx.globalAlpha=1;
+    ctx.fillStyle=cssVar('--bg');ctx.font='10px "IBM Plex Mono",monospace';ctx.textAlign='left';ctx.fillText('#'+c.id,x(Math.max(c.t0,t0))+3,yy+9.5);
+  }
+  // 현재 시각선
+  ctx.strokeStyle=cssVar('--ink');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x(S.t),chartTop);ctx.lineTo(x(S.t),H-6);ctx.stroke();
+}
+let timer=null;
+function setPlay(on){if(on){if(timer)return;timer=setInterval(tick,$('fast').checked?120:450);$('play').textContent='❚❚ 정지';}else{clearInterval(timer);timer=null;$('play').textContent='▶ 재생';}}
+$('play').onclick=()=>setPlay(!timer);
+$('step').onclick=()=>{setPlay(false);tick();};
+$('reset').onclick=()=>{setPlay(false);reset();};
+$('budget').oninput=()=>{$('budgetv').textContent=budget()+'K';draw();updateUI();};
+$('fast').onchange=()=>{if(timer){setPlay(false);setPlay(true);}};
+$('block').onchange=()=>log('ext','task_create 차단 '+($('block').checked?'ON':'OFF'));
+$('overlap').onchange=()=>log('main','겹치기 실행 '+($('overlap').checked?'ON':'OFF'));
+window.addEventListener('resize',draw);
+reset();
+// 처음 열었을 때 장면이 보이도록 몇 틱 진행
+for(let i=0;i<14;i++)tick();
+setPlay(true);
+})();
+</script>
