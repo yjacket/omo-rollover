@@ -1,13 +1,13 @@
 // Fake `pi` harness: no senpi, no LLM. Run: node --test test/
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync } from "node:fs"
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt } from "../extension/rollover.ts"
 
-function harness({ env = {}, branch = [] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "rollover-"))
+// Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
+function harness({ env = {}, branch = [], dir = mkdtempSync(join(tmpdir(), "rollover-")) } = {}) {
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
@@ -236,4 +236,60 @@ test("pure helpers", () => {
   assert.equal(lastAssistantText(entries), "a")
   assert.match(handoffPrompt("/w", "id", false), /update_goal/)
   assert.doesNotMatch(handoffPrompt("/w", "id", true), /update_goal/)
+})
+
+test("reload while armed: state restored from disk, not reset to watching", async () => {
+  const h = harness()
+  await h.fire("session_start")
+  await h.message(160_000)
+  await h.spawn()
+  await h.fire("session_shutdown", { reason: "reload" })
+  assert.equal(existsSync(join(h.dir, "summary.jsonl")), false, "reload skips the summary")
+  const r = harness({ dir: h.dir })
+  assert.equal(r.ext.st.state, "watching", "fresh instance before session_start")
+  await r.fire("session_start")
+  assert.equal(r.ext.st.state, "armed")
+  assert.equal(r.ext.st.blocked, 1)
+  assert.equal(r.ext.st.goalPaused, true)
+  assert.equal(r.lines().at(-1).ev, "state_restored")
+  assert.equal(r.lines().at(-1).state, "armed")
+  assert.equal((await r.spawn()).block, true, "still blocking after reload")
+})
+
+test("reload between <successor> reply and agent_settled: session_start dispatches /rollover once", async () => {
+  const branch = []
+  const h = harness({ branch })
+  await h.message(160_000)
+  h.wake(0)
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } })
+  await h.fire("session_shutdown", { reason: "reload" })
+  const r = harness({ dir: h.dir, branch })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.state, "rollover")
+  assert.deepEqual(r.sent, [{ text: "/rollover", opts: { expandPromptTemplates: true } }])
+  await r.fire("agent_settled") // no second dispatch
+  assert.equal(r.sent.length, 1)
+  await r.commands.rollover.handler("", r.ctx)
+  assert.equal(r.sent.at(-1).session, "s2")
+  assert.equal(JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8")).state, "rolled_over")
+  const again = harness({ dir: h.dir, branch }) // --resume of a rolled-over session starts fresh
+  await again.fire("session_start")
+  assert.equal(again.ext.st.state, "watching")
+})
+
+test("state file: shape, written atomically, no leftover tmp", async () => {
+  const h = harness()
+  await h.message(160_000)
+  assert.deepEqual(readdirSync(join(h.dir, "state")), ["s1.json"])
+  const saved = JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8"))
+  assert.deepEqual(saved, {
+    state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
+    armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, updatedAt: "1970-01-01T00:00:00.000Z",
+  })
+  assert.equal("context" in saved, false)
+  await h.commands.rollover.handler("off", h.ctx)
+  assert.equal(JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8")).mode, "off")
+  assert.deepEqual(readdirSync(join(h.dir, "state")), ["s1.json"])
 })

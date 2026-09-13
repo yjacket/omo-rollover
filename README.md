@@ -76,9 +76,25 @@ consecutive messages over it arm the handoff even below the budget.
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
-`successor_found|successor_missing`, `rollover{newSession,parentSession}`.
+`successor_found|successor_missing`, `state_restored{state}`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers).
+
+## State persistence
+
+The state machine is written to `~/.omo/rollover/state/<sessionId>.json` on
+every transition (arm, handoff request, successor found, re-ask, blocked
+spawn, `/rollover on|off`, rollover), atomically (tmp + rename). Fields:
+`state, mode, blocked, rereadStreak, goalPaused, rollovers, armedAt,
+handoffAskedCount, updatedAt`. Context is not stored; it is recomputed from
+the next `message_end`. `session_start` (any reason) restores the file for
+its session id and logs `state_restored{state}`. If the restored state is
+`handoff_requested` (or `rollover`), the current branch is checked for a
+`<successor>` right away and `/rollover` is dispatched, so a `/reload` that
+lands between the model's reply and `agent_settled` still completes the
+handoff. After a rollover the old session's file is kept with
+`state: "rolled_over"`; resuming that session starts fresh, and the successor
+has its own id.
 
 ## Dashboard
 
@@ -116,6 +132,10 @@ state machine; no senpi and no LLM calls.
   emitted, the sum is unknown (not zero) and an armed session will not land.
   omo-task emits `senpi-task` on session start, so in practice this resolves at
   startup; if it never does, `/rollover` still works manually.
+- Previously a `/reload` (same session id, new extension instance) reset the
+  state to `watching`, losing an armed or pending handoff; state persistence
+  above resolves this. `session_shutdown` with reason `reload` still skips the
+  summary line.
 - `/rollover` relies on `pi.sendUserMessage("/rollover", {expandPromptTemplates: true})`
   dispatching a registered extension command.
 - The `turn_end` landing depends on senpi honoring `deliverAs: "steer"` while

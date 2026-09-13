@@ -10,13 +10,14 @@
 // agent_settled, tool_call (blocks task_create while armed).
 // Inert in omo-task child sessions. Everything is logged as JSONL under
 // ~/.omo/rollover/ (override with OMO_ROLLOVER_DIR) for dashboard/build.mjs.
+// State survives /reload and --resume via ~/.omo/rollover/state/<sessionId>.json.
 
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs"
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
 
-export type State = "watching" | "armed" | "handoff_requested" | "rollover"
+export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "rolled_over"
 export type Config = { budgetTokens: number; rereadRatioMax: number }
 export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 150 }
 const REREAD_STREAK = 3
@@ -48,6 +49,16 @@ export function appendJsonl(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true })
   appendFileSync(file, JSON.stringify(obj) + "\n")
 }
+
+/** Atomic write: tmp then rename. */
+export function writeJsonAtomic(file: string, obj: unknown): void {
+  mkdirSync(dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(obj, null, 2))
+  renameSync(tmp, file)
+}
+
+const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount"] as const
 
 /** Text of the last assistant message on the current branch. */
 export function lastAssistantText(entries: any[]): string {
@@ -121,10 +132,11 @@ export function createRollover(pi: any, deps: Deps = {}) {
     rereadStreak: 0,
     wake: new Map<string, number>(),
     blocked: 0,
-    retried: false,
+    handoffAskedCount: 0,
     goalPaused: false,
     successor: null as string | null,
     startedAt: now().toISOString(),
+    armedAt: null as string | null,
     rollovers: 0,
   }
 
@@ -135,6 +147,19 @@ export function createRollover(pi: any, deps: Deps = {}) {
     appendJsonl(join(dir, "sessions", `${sid(ctx)}.jsonl`), { t: now().toISOString(), session: sid(ctx), cwd: cwdOf(ctx), ev, ...extra })
   const wakeTotal = (): number | null => (st.wake.size ? [...st.wake.values()].reduce((a, b) => a + b, 0) : null)
   const enabled = () => st.mode !== "off"
+  const stateFile = (id: string) => join(dir, "state", `${id}.json`)
+  const persist = (id: string) =>
+    writeJsonAtomic(stateFile(id), Object.fromEntries([...PERSISTED.map((k) => [k, st[k]]), ["updatedAt", now().toISOString()]]))
+  const restore = (id: string): boolean => {
+    try {
+      const saved = JSON.parse(readFileSync(stateFile(id), "utf8"))
+      if (saved.state === "rolled_over") return false
+      for (const k of PERSISTED) if (k in saved) (st as any)[k] = saved[k]
+      return true
+    } catch {
+      return false
+    }
+  }
   const summary = (ctx: any, reason: string) =>
     appendJsonl(join(dir, "summary.jsonl"), {
       t: now().toISOString(), session: sid(ctx), cwd: cwdOf(ctx), reason, startedAt: st.startedAt,
@@ -145,8 +170,10 @@ export function createRollover(pi: any, deps: Deps = {}) {
   async function arm(ctx: any, reason: string) {
     st.state = "armed"
     st.reason = reason
+    st.armedAt = now().toISOString()
     log(ctx, "armed", { reason, context: st.context })
     st.goalPaused = await doPause(ctx)
+    persist(sid(ctx))
     ctx.ui?.notify?.(`rollover: armed (${reason}, context=${st.context}). task_create blocked; handing off once children drain.`, "warning")
   }
 
@@ -154,9 +181,24 @@ export function createRollover(pi: any, deps: Deps = {}) {
   function requestHandoff(ctx: any, at: "turn_end" | "agent_settled"): boolean {
     if (st.state !== "armed" || wakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
     st.state = "handoff_requested"
+    st.handoffAskedCount = 1
     log(ctx, "handoff_requested", { at, context: st.context })
+    persist(sid(ctx))
     // Mid-run: steer so it lands before the next turn instead of after the whole run settles.
     pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused), at === "turn_end" ? { deliverAs: "steer" } : undefined)
+    return true
+  }
+
+  // Successor in the last assistant reply → dispatch /rollover. Shared by
+  // agent_settled and session_start (a /reload between the reply and settle).
+  function tryRollover(ctx: any): boolean {
+    const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
+    if (!found) return false
+    st.successor = found
+    st.state = "rollover"
+    log(ctx, "successor_found", { chars: found.length })
+    persist(sid(ctx))
+    pi.sendUserMessage("/rollover", { expandPromptTemplates: true })
     return true
   }
 
@@ -164,6 +206,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
     lastCtx = ctx
     const parent = ctx?.sessionManager?.getHeader?.()?.parentSession
     log(ctx, "session_start", parent ? { parent } : {})
+    if (!restore(sid(ctx))) return
+    log(ctx, "state_restored", { state: st.state })
+    if (enabled() && (st.state === "handoff_requested" || st.state === "rollover")) tryRollover(ctx)
   })
 
   pi.on("message_end", async (ev: any, ctx: any) => {
@@ -195,6 +240,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     if (!enabled() || st.state === "watching" || ev?.toolName !== "task_create") return
     st.blocked++
     log(ctx, "tool_call_blocked", { tool: ev.toolName })
+    persist(sid(ctx))
     return { block: true, reason: "rollover: session handoff is pending; do not spawn new tasks. Let running children finish, then stop." }
   })
 
@@ -221,21 +267,16 @@ export function createRollover(pi: any, deps: Deps = {}) {
       return
     }
     if (st.state === "handoff_requested") {
-      const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
-      if (found) {
-        st.successor = found
-        st.state = "rollover"
-        log(ctx, "successor_found", { chars: found.length })
-        pi.sendUserMessage("/rollover", { expandPromptTemplates: true })
-        return
-      }
-      log(ctx, "successor_missing", { retried: st.retried })
-      if (!st.retried) {
-        st.retried = true
+      if (tryRollover(ctx)) return
+      log(ctx, "successor_missing", { retried: st.handoffAskedCount > 1 })
+      if (st.handoffAskedCount < 2) {
+        st.handoffAskedCount = 2
+        persist(sid(ctx))
         pi.sendUserMessage("[rollover] Your reply did not contain a <successor>...</successor> block. Reply again with only the handoff file written and the successor prompt wrapped in <successor></successor>.")
         return
       }
       st.state = "armed"
+      persist(sid(ctx))
       ctx.ui?.notify?.("rollover: no <successor> prompt after two asks; staying armed. Run /rollover manually.", "error")
     }
   })
@@ -249,7 +290,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     description: "rollover on|off|status — or no args: hand off to a fresh session now",
     handler: async (args: string, ctx: any) => {
       const a = (args ?? "").trim()
-      if (a === "on" || a === "off") { st.mode = a; ctx.ui.notify(`rollover: ${a}`, "info"); return }
+      if (a === "on" || a === "off") { st.mode = a; persist(sid(ctx)); ctx.ui.notify(`rollover: ${a}`, "info"); return }
       if (a === "status") {
         ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${config.budgetTokens} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
         return
@@ -269,6 +310,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
           await c.sendUserMessage(prompt)
         },
       })
+      st.state = "rolled_over"
+      persist(oldId)
     },
   })
 
