@@ -242,7 +242,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   const enabled = () => st.mode !== "off"
   const stateFile = (id: string) => join(dir, "state", `${id}.json`)
   const persist = (id: string) => {
-    let other = {} // keep keys owned by sibling extensions (ulw-ledger-guard writes `ledgerGuard` into the same file)
+    let other = {} // keep keys owned by sibling extensions
     try { other = JSON.parse(readFileSync(stateFile(id), "utf8")) } catch {}
     writeJsonAtomic(stateFile(id), { ...other, ...Object.fromEntries(PERSISTED.map((k) => [k, st[k]])), updatedAt: now().toISOString() })
   }

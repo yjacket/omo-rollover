@@ -178,47 +178,6 @@ file range once per session; for child tasks use `task_list`/`task_get`/
 `<successor>` guidance in the handoff prompt repeats the JSONL and
 child-transcript rules for the next session.
 
-## ULW ledger guard
-
-`extension/ulw-ledger-guard.ts` is a second, standalone extension (installed by the same scripts) that addresses
-a problem outside this repo: omo-ai's `ulw-execute` skill appends 1–2 KB JSON events to
-`<project>/.omo/ulw-execute/ledger.jsonl`, never rotates it, and tells the orchestrator to "re-read the ledger
-FIRST" after any context loss. Field result (docs/field-notes.md "Ledger note"): 224 events / 315 KB, read 63
-times by one session. The orchestrator only needs the latest event per task plus the most recent few events.
-
-What it does, in every project, without touching the file:
-
-- `tool_result` for `read` whose path ends with `.omo/ulw-execute/ledger.jsonl` (backslashes normalized, any
-  offset/limit): the result content is replaced by a digest built from the real file on disk.
-- `tool_result` for `bash`/`eval`/`powershell` whose command text mentions `ledger.jsonl` and whose output is over
-  8 KB: replaced by the tail of the output (command output cannot be parsed, so tail only). Under 8 KB is untouched.
-- Every shaping is logged to `~/.omo/rollover/sessions/<sessionId>.jsonl` as
-  `ledger_read_shaped{path, bytesIn, bytesOut, tool}` and `ctx.ui.notify` fires once per session.
-
-Digest format (≤ ~12 KB; the real SearchAd ledger digests 315 KB → 11.8 KB):
-
-```
-[ulw-ledger-guard] <file>: <N> events, <bytes> bytes[, <k> malformed line(s)]. Digest by ulw-ledger-guard; full history in the file, use `tail -n N`/`grep` for specifics.
---- latest event per task (<shown> of <distinct>, most recent first) ---
-#<line>  <event>  task:<task>  session=…<last 8 of session_id>  [verdict=… status=… result=… state=… <key>.verdict=…]
-...
---- last <M> lines (raw) ---
-<raw JSONL lines, verbatim>
-```
-
-Events without a `task` are keyed per `event`. The line number stands in for a timestamp because ledger events
-have no `t` field (falls back to `t`/`timestamp`/`ts` when present). Malformed lines are counted, not parsed. When
-the table alone would exceed the cap the 40 most recent tasks are kept; then raw lines are dropped oldest-first
-(never below 3); a hard slice is the last resort.
-
-Commands: `/ledger-guard off|on|status`. The mode is persisted as `ledgerGuard` in
-`~/.omo/rollover/state/<sessionId>.json` next to rollover's fields (both extensions read-modify-write that file)
-and restored on `session_start`.
-
-Limits: inert in child sessions (same env markers as rollover); cannot shape reads done through other tools
-(grep, find, custom tools, a child session's own reads) or reads that fail; does not rotate or otherwise modify
-the ledger; the `bash` path only sees the tail, not a per-task table. The durable fix belongs upstream — see
-`docs/upstream-proposal.md`.
 
 ## Install
 
@@ -229,14 +188,13 @@ the ledger; the `bash` path only sees the tail, not a per-task table. The durabl
 sh install.sh        # Git Bash / *nix
 ```
 
-Copies `extension/rollover.ts` and `extension/ulw-ledger-guard.ts` to `~/.omo/agent/extensions/`. Then
+Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 `/reload` in a running session (or restart). Commands:
 
 - `/rollover status` – state, context, wake sum, blocked count
 - `/rollover on|off` – override auto-detect
 - `/rollover` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
 - `/rollover force` – hand off even with children running (they are orphaned)
-- `/ledger-guard status|on|off` – ULW ledger guard (see above)
 
 ## Config
 
@@ -264,8 +222,7 @@ logged on every `message_end` (`ratio`) for the dashboard.
 armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total}`, `rollover_refused{total}`,
-`state_restored{state}`, `rollover{newSession,parentSession}`, and from the ledger guard
-`ledger_read_shaped{path,bytesIn,bytesOut,tool}`.
+`state_restored{state}`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers).
 

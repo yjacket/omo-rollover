@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Two standalone single-file Senpi/OMO extensions: `extension/rollover.ts` hands a long-running OMO main session off to a fresh session once context passes a token budget, plus a JSONL event log and a static dashboard; `extension/ulw-ledger-guard.ts` rewrites `read`/`bash` results of `.omo/ulw-execute/ledger.jsonl` into a ≤12 KB digest (README "ULW ledger guard"; no shared module between the two files by design). README.md is the authoritative spec: state machine, signals, goal pause, skill continuity, event log schema. Read it before changing behavior. `docs/field-notes.md` records live defects and why each design decision exists; `docs/microworld.html` is the reference visualization.
+A single-file Senpi/OMO extension: `extension/rollover.ts` hands a long-running OMO main session off to a fresh session once context passes a token budget, plus a JSONL event log and a static dashboard. README.md is the authoritative spec: state machine, signals, goal pause, skill continuity, event log schema. Read it before changing behavior. `docs/field-notes.md` records live defects and why each design decision exists; `docs/microworld.html` is the reference visualization.
 
 ## Commands
 
