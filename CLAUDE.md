@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-file Senpi/OMO extension (`extension/rollover.ts`) that hands a long-running OMO main session off to a fresh session once context passes a token budget, plus a JSONL event log and a static dashboard. README.md is the authoritative spec: state machine, signals, goal pause, skill continuity, event log schema. Read it before changing behavior. `docs/field-notes.md` records live defects and why each design decision exists; `docs/microworld.html` is the reference visualization.
+Two standalone single-file Senpi/OMO extensions: `extension/rollover.ts` hands a long-running OMO main session off to a fresh session once context passes a token budget, plus a JSONL event log and a static dashboard; `extension/ulw-ledger-guard.ts` rewrites `read`/`bash` results of `.omo/ulw-execute/ledger.jsonl` into a ≤12 KB digest (README "ULW ledger guard"; no shared module between the two files by design). README.md is the authoritative spec: state machine, signals, goal pause, skill continuity, event log schema. Read it before changing behavior. `docs/field-notes.md` records live defects and why each design decision exists; `docs/microworld.html` is the reference visualization.
 
 ## Commands
 
@@ -14,7 +14,7 @@ node --test --test-name-pattern="reload"      # single test by name substring
 node dashboard/build.mjs                      # build dashboard/out/index.html from ~/.omo/rollover (or $OMO_ROLLOVER_DIR / dir arg)
 node dashboard/build.mjs --sample             # from dashboard/sample/
 node dashboard/sample/generate.mjs            # regenerate synthetic sample data
-sh install.sh   |   .\install.ps1             # copy extension to ~/.omo/agent/extensions/rollover.ts, then /reload in omo
+sh install.sh   |   .\install.ps1             # copy both extensions to ~/.omo/agent/extensions/, then /reload in omo
 ```
 
 No build step, no lint, no dependencies. Never test against a live paid OMO session; the fake `pi`/`ctx` harness in `test/rollover.test.mjs` is the only runtime used.

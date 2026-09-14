@@ -241,8 +241,11 @@ export function createRollover(pi: any, deps: Deps = {}) {
   const wakeTotal = (): number | null => (st.wake.size ? [...st.wake.values()].reduce((a, b) => a + b, 0) : null)
   const enabled = () => st.mode !== "off"
   const stateFile = (id: string) => join(dir, "state", `${id}.json`)
-  const persist = (id: string) =>
-    writeJsonAtomic(stateFile(id), Object.fromEntries([...PERSISTED.map((k) => [k, st[k]]), ["updatedAt", now().toISOString()]]))
+  const persist = (id: string) => {
+    let other = {} // keep keys owned by sibling extensions (ulw-ledger-guard writes `ledgerGuard` into the same file)
+    try { other = JSON.parse(readFileSync(stateFile(id), "utf8")) } catch {}
+    writeJsonAtomic(stateFile(id), { ...other, ...Object.fromEntries(PERSISTED.map((k) => [k, st[k]])), updatedAt: now().toISOString() })
+  }
   const restore = (id: string): boolean => {
     try {
       const saved = JSON.parse(readFileSync(stateFile(id), "utf8"))
