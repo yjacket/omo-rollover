@@ -13,7 +13,7 @@ armed    ──(turn_end | agent_settled) ∧ Σ wake_source_state == 0 ∧ !has
 handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assistant reply ∧ Σ wake == 0 ∧ !hasPendingMessages──▶ rollover
 ```
 
-- **armed**: goal paused (best effort), spawning tools blocked via `tool_call`
+- **armed**: goal paused (see "Goal pause" below), spawning tools blocked via `tool_call`
   with an error explaining the pending handoff. Block list is exactly `task` and
   `task_create` (omo-task exposes both names); `task_output`, `task_list`,
   `task_cancel`, `task_get`, `task_update`, `task_send` stay allowed so the main
@@ -58,6 +58,56 @@ Inert (no logging, no arming) in omo-task child sessions, detected by env
 | `turn_end` | after each LLM response + its tool calls; while armed and wake sum is 0, requests the handoff mid-run via `sendUserMessage(..., {deliverAs: "steer"})` |
 | `agent_settled` | true idle; ANDed with the wake sum. Lands the handoff when children were still running at turn_end; also where the `<successor>` tag is extracted |
 | `tool_call` | blocks `task` and `task_create` while not watching |
+| `before_agent_start` | appends the context-budget block (below) to `event.systemPrompt` on every main-session turn while mode is not `off` |
+
+### Goal pause
+
+Arming pauses senpi's built-in goal so goal-continuation stops re-firing
+between the handoff reply and the rollover (field: every state file had
+`goalPaused:false`; without the pause the continuation re-read plan, ledger
+and child transcripts for +90K context, and session 01a09c27 read the previous
+session's JSONL 3× and one child transcript 6×). The old implementation used
+`import.meta.resolve("@code-yeongyu/senpi")`, which never resolves from
+`~/.omo/agent/extensions/` (no `node_modules` there). `pauseGoal` now:
+
+1. tries the bare `import("@code-yeongyu/senpi")`, which senpi's extension
+   loader aliases through jiti to `dist/index.js`, and uses it only if it
+   exports `readGoal`, `updateGoal` and `goalStoreRef` (senpi 2026.9.13 does
+   not; the entry re-exports session, tools, TUI and CLI pieces but nothing
+   from `core/extensions/builtin/goal`);
+2. else derives senpi's `dist/` from `process.argv[1]` (omo's launcher spawns
+   `<senpi>/dist/cli.js`, so `dirname(argv[1])` is the dist; a direct
+   `node <omo-ai>/bin/omo.js` maps to
+   `<omo-ai>/node_modules/@code-yeongyu/senpi/dist`, and `OMO_BIN` set by the
+   launcher gives the same root), checks that
+   `core/extensions/builtin/goal/{store,store-ref}.js` exist, and imports them;
+3. reads the goal via `goalStoreRef(sessionManager, cwd)` and, when it is
+   `active`, calls `updateGoal(ref, {status: "paused"}, "user")` — the
+   `active→paused` transition is only legal with source `user`;
+4. logs `goal_pause{ok, method: "main"|"dist"|"none", error?}` every time.
+
+If `ok` is false the handoff prompt keeps a model-side fallback: call
+`update_goal` with status `blocked` and reason "session rollover handoff in
+progress". `paused` is impossible there — the model-facing `update_goal` only
+accepts `complete|blocked` — while `blocked` also stops goal-continuation and
+`blocked→active` is a legal transition the successor (or user) can take
+later. The tool itself may still reject `blocked` (it requires the blocker to
+survive a few goal turns), so the direct pause is the one that matters.
+
+omo's kibitzer nudges are a separate continuation source that this extension
+does not control; the system-prompt block below is what limits their cost.
+
+### Context-budget system prompt block
+
+`CONTEXT_BUDGET_BLOCK` (five lines) is appended to the system prompt of every
+turn in a main session via `before_agent_start` (child sessions never register
+the handler; `/rollover off` disables it): never read a whole ledger, plan,
+prior-session JSONL or child transcript, use `tail`/`grep`/offset+limit; read a
+file range once per session; for child tasks use `task_list`/`task_get`/
+`task_output`, and treat `running` + residency `persisted_only` as dead
+(cancel, do not investigate); write a rollover handoff from context only. The
+`<successor>` guidance in the handoff prompt repeats the JSONL and
+child-transcript rules for the next session.
 
 ## Install
 
@@ -99,7 +149,7 @@ logged on every `message_end` (`ratio`) for the dashboard.
 `{t, session, cwd, ev, ...}` with `ev` ∈ `session_start{parent?}`,
 `message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
-armed), `agent_settled{total}`, `armed{reason,context}`, `tool_call_blocked{tool}`,
+armed), `agent_settled{total}`, `armed{reason,context}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total}`, `rollover_refused{total}`,
 `state_restored{state}`, `rollover{newSession,parentSession}`.
@@ -153,10 +203,12 @@ state machine; no senpi and no LLM calls.
 
 - Never run against a paid live session. Verified only against senpi's
   `types.d.ts` / `docs/extensions.md` (2026.9.x) and the fake harness.
-- Goal pause imports `dist/core/extensions/builtin/goal/store.js` by resolving
-  `@code-yeongyu/senpi` from the extension's own module scope. If that fails
-  (different loader, version, or path) the handoff prompt instead tells the model
-  to call `update_goal` with status `paused`.
+- Goal pause depends on senpi's internal `dist/core/extensions/builtin/goal/`
+  layout and on `process.argv[1]` / `OMO_BIN` pointing into the omo-ai install
+  (see "Goal pause"). If neither route resolves, `goal_pause{ok:false}` is logged
+  and the handoff prompt falls back to `update_goal` with status `blocked`.
+- The context-budget block is advice in the system prompt, not enforcement;
+  kibitzer nudges and other omo continuation sources are outside this extension.
 - The wake-source sum trusts the shared bus. Until at least one source has
   emitted, the sum is unknown (not zero) and an armed session will not land.
   omo-task emits `senpi-task` on session start, so in practice this resolves at

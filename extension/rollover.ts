@@ -6,14 +6,14 @@
 //   handoff_requested ──agent_settled ∧ <successor> found ∧ Σwake==0 ∧ !pending──▶ rollover (/rollover)
 //   (successor found but children live → rollover_deferred, re-checked on every agent_settled/turn_end)
 //
-// Signals: message_end (usage), wake_source_state (shared pi.events bus),
+// Signals: before_agent_start (context-budget system prompt block), message_end (usage), wake_source_state (shared pi.events bus),
 // turn_end (early landing inside a long single-agent run, steer-delivered),
 // agent_settled, tool_call (blocks `task` and `task_create` while not watching).
 // Inert in omo-task child sessions. Everything is logged as JSONL under
 // ~/.omo/rollover/ (override with OMO_ROLLOVER_DIR) for dashboard/build.mjs.
 // State survives /reload and --resume via ~/.omo/rollover/state/<sessionId>.json.
 
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -86,35 +86,80 @@ export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolea
   return [
     "[rollover] This session's context is over budget. Stop working; hand off now.",
     "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
-    goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"paused\".",
+    // The model-facing update_goal only accepts complete|blocked (paused is user/system-only); blocked stops goal-continuation and blocked→active is legal later.
+    goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"blocked\" and reason \"session rollover handoff in progress\".",
     `Write ${file} from memory (single write, max ~80 lines) with sections: Goal / Done / In progress / Next step / Key files / Constraints.`,
     "Then end your reply with the successor's first prompt wrapped as <successor>...</successor>, at most 25 lines.",
-    "The successor starts with an empty context. Its prompt must tell it to read only the handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and NOT to read ulw-execute/SKILL.md or the full ledger.",
+    "The successor starts with an empty context. Its prompt must tell it to read only the handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and NOT to read ulw-execute/SKILL.md, the full ledger, any prior-session JSONL, or any child transcript.",
   ]
     .filter(Boolean)
     .join("\n")
 }
 
-// Best-effort goal pause via senpi's internal store (path is version-specific).
-async function pauseGoal(ctx: any): Promise<boolean> {
+// Appended to the system prompt of every main-session turn (field: goal-continuation re-reads of plan/ledger/child transcripts cost +90K).
+export const CONTEXT_BUDGET_BLOCK = [
+  "## Context budget",
+  "- Never read a whole ledger, plan, prior-session JSONL, or child transcript. Use `tail`, `grep`, or offset+limit ranges.",
+  "- Read a given file range at most once per session; afterwards rely on what is already in context.",
+  "- For child tasks use task_list / task_get / task_output only. A task with status `running` and residency `persisted_only` is dead: task_cancel it, do not investigate it.",
+  "- When asked to write a rollover handoff, write it from context only: no reads, no commands, no spawns.",
+].join("\n")
+
+export type PauseResult = { ok: boolean; method: "main" | "dist" | "none"; error?: string }
+export type PauseOpts = { env?: Record<string, string | undefined>; argv1?: string; importMain?: () => Promise<any> }
+const GOAL_REL = ["core", "extensions", "builtin", "goal"]
+
+// Where senpi's dist may be: omo's launcher spawns `<senpi>/dist/cli.js` (so argv[1] is inside dist)
+// and exports OMO_BIN=<omo-ai>/bin/omo.js; a direct `node bin/omo.js` has argv[1] = omo.js.
+function senpiDistCandidates(env: Record<string, string | undefined>, argv1: string | undefined): string[] {
+  const fromOmoBin = (bin: string) => join(dirname(dirname(bin)), "node_modules", "@code-yeongyu", "senpi", "dist")
+  const out: string[] = []
+  if (argv1) out.push(dirname(argv1), fromOmoBin(argv1))
+  if (env.OMO_BIN) out.push(fromOmoBin(env.OMO_BIN))
+  return out
+}
+
+// Goal pause via senpi's store. `import.meta.resolve` never worked here (no node_modules under
+// ~/.omo/agent/extensions); the loader only aliases bare `import("@code-yeongyu/senpi")`, and that
+// entry does not currently export the goal store, so the dist path derivation is the working route.
+export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseResult> {
+  const env = opts.env ?? process.env
+  const argv1 = opts.argv1 ?? process.argv[1]
+  const errors: string[] = []
+  let store: any, ref: any, method: PauseResult["method"] = "none"
   try {
-    const entry = (import.meta as any).resolve?.("@code-yeongyu/senpi") as string | undefined
-    if (!entry) return false
-    const base = dirname(new URL(entry).pathname.replace(/^\/([A-Za-z]:)/, "$1"))
-    const goal = join(base, "core", "extensions", "builtin", "goal")
-    const store = await import(pathToFileURL(join(goal, "store.js")).href)
-    const ref = await import(pathToFileURL(join(goal, "store-ref.js")).href)
+    const m = await (opts.importMain ?? (() => import("@code-yeongyu/senpi")))()
+    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) { store = ref = m; method = "main" }
+    else errors.push("main entry has no goal store exports")
+  } catch (e: any) {
+    errors.push(`main: ${e?.message ?? e}`)
+  }
+  if (!store) {
+    for (const dist of senpiDistCandidates(env, argv1)) {
+      const goal = join(dist, ...GOAL_REL)
+      if (!existsSync(join(goal, "store.js")) || !existsSync(join(goal, "store-ref.js"))) continue
+      try {
+        store = await import(pathToFileURL(join(goal, "store.js")).href)
+        ref = await import(pathToFileURL(join(goal, "store-ref.js")).href)
+        method = "dist"
+        break
+      } catch (e: any) {
+        errors.push(`dist ${dist}: ${e?.message ?? e}`)
+      }
+    }
+    if (!store) return { ok: false, method: "none", error: errors.concat("no senpi dist found").join("; ") }
+  }
+  try {
     const r = ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
     const g = await store.readGoal(r)
-    if (!g || g.status !== "active") return true
-    await store.updateGoal(r, { status: "paused" }, "user")
-    return true
-  } catch {
-    return false
+    if (g?.status === "active") await store.updateGoal(r, { status: "paused" }, "user")
+    return { ok: true, method }
+  } catch (e: any) {
+    return { ok: false, method, error: String(e?.message ?? e) }
   }
 }
 
-export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<boolean> }
+export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult> }
 
 export function createRollover(pi: any, deps: Deps = {}) {
   const env = deps.env ?? process.env
@@ -176,7 +221,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.reason = reason
     st.armedAt = now().toISOString()
     log(ctx, "armed", { reason, context: st.context })
-    st.goalPaused = await doPause(ctx)
+    const pause = await doPause(ctx)
+    st.goalPaused = pause.ok
+    log(ctx, "goal_pause", pause)
     persist(sid(ctx))
     const why = reason === "budget" ? `budget ${config.budgetTokens} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
     ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
@@ -220,6 +267,12 @@ export function createRollover(pi: any, deps: Deps = {}) {
     if (!restore(sid(ctx))) return
     log(ctx, "state_restored", { state: st.state })
     if (enabled() && (st.state === "handoff_requested" || st.state === "rollover")) tryRollover(ctx)
+  })
+
+  // Main sessions only (child sessions returned null above); off with /rollover off.
+  pi.on("before_agent_start", async (ev: any) => {
+    if (!enabled()) return
+    return { systemPrompt: `${ev?.systemPrompt ?? ""}\n\n${CONTEXT_BUDGET_BLOCK}` }
   })
 
   pi.on("message_end", async (ev: any, ctx: any) => {

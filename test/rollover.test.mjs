@@ -1,13 +1,14 @@
 // Fake `pi` harness: no senpi, no LLM. Run: node --test test/
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
 import { join } from "node:path"
-import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt } from "../extension/rollover.ts"
+import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
-function harness({ env = {}, branch = [], dir = mkdtempSync(join(tmpdir(), "rollover-")) } = {}) {
+function harness({ env = {}, branch = [], dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }) } = {}) {
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
@@ -28,7 +29,7 @@ function harness({ env = {}, branch = [], dir = mkdtempSync(join(tmpdir(), "roll
       return { cancelled: false }
     },
   }
-  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(0), pauseGoal: async () => true })
+  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(0), pauseGoal: pause })
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
     tokens = context
@@ -391,6 +392,67 @@ test("handoff instruction: no read, no command, no spawn, size caps, successor r
   assert.match(p, /25 lines/)
   assert.match(p, /Goal \/ Done \/ In progress \/ Next step \/ Key files \/ Constraints/)
   assert.match(p, /tail -n 30 \.omo\/ulw-execute\/ledger\.jsonl/)
-  assert.match(p, /NOT to read ulw-execute\/SKILL\.md or the full ledger/)
+  assert.match(p, /NOT to read ulw-execute\/SKILL\.md, the full ledger, any prior-session JSONL, or any child transcript/)
   assert.match(p, /<successor>\.\.\.<\/successor>/)
+})
+
+test("handoff fallback when direct pause failed: update_goal blocked (paused is not model-settable)", () => {
+  assert.match(handoffPrompt("/w", "id", false), /`update_goal` tool with status "blocked" and reason "session rollover handoff in progress"/)
+  assert.doesNotMatch(handoffPrompt("/w", "id", false), /status "paused"/)
+  assert.doesNotMatch(handoffPrompt("/w", "id", true), /update_goal/)
+})
+
+test("goal_pause logged on arm: ok:true via injected pause, ok:false keeps the prompt fallback", async () => {
+  const h = harness()
+  await h.message(160_000)
+  assert.deepEqual(h.lines().find((l) => l.ev === "goal_pause"), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "goal_pause", ok: true, method: "fake" })
+  const f = harness({ pause: async () => ({ ok: false, method: "none", error: "nope" }) })
+  await f.message(160_000)
+  assert.equal(f.lines().find((l) => l.ev === "goal_pause").error, "nope")
+  assert.equal(f.ext.st.goalPaused, false)
+  f.wake(0)
+  await f.fire("agent_settled")
+  assert.match(f.sent.at(-1).text, /update_goal.*"blocked"/)
+})
+
+test("pauseGoal: no main-entry exports and no senpi dist → ok:false with error", async () => {
+  const r = await pauseGoal({}, { env: {}, argv1: "/nowhere/bin/omo.js", importMain: async () => ({ VERSION: "x" }) })
+  assert.equal(r.ok, false)
+  assert.equal(r.method, "none")
+  assert.match(r.error, /main entry has no goal store exports.*no senpi dist found/)
+  const r2 = await pauseGoal({}, { env: {}, argv1: undefined, importMain: async () => { throw new Error("Cannot find package") } })
+  assert.match(r2.error, /main: Cannot find package/)
+})
+
+test("pauseGoal: dist derived from argv[1] (senpi dist/cli.js) pauses an active goal with source user", async () => {
+  const root = mkdtempSync(join(tmpdir(), "senpi-"))
+  const goal = join(root, "dist", "core", "extensions", "builtin", "goal")
+  mkdirSync(goal, { recursive: true })
+  writeFileSync(join(goal, "store.js"), `export const calls=[]; export async function readGoal(){return {status:"active"}}; export async function updateGoal(r,u,s){calls.push([r,u,s])}`)
+  writeFileSync(join(goal, "store-ref.js"), `export function goalStoreRef(sm,cwd){return {baseDir:cwd,threadId:sm.getSessionId()}}`)
+  const ctx = { cwd: "C:/work", sessionManager: { getSessionId: () => "s1" } }
+  const r = await pauseGoal(ctx, { env: {}, argv1: join(root, "dist", "cli.js"), importMain: async () => ({}) })
+  assert.deepEqual(r, { ok: true, method: "dist" })
+  const { calls } = await import(pathToFileURL(join(goal, "store.js")).href)
+  assert.deepEqual(calls, [[{ baseDir: "C:/work", threadId: "s1" }, { status: "paused" }, "user"]])
+  // OMO_BIN route (<omo-ai>/bin/omo.js → <omo-ai>/node_modules/@code-yeongyu/senpi/dist)
+  const omo = mkdtempSync(join(tmpdir(), "omo-"))
+  const dist2 = join(omo, "node_modules", "@code-yeongyu", "senpi", "dist")
+  mkdirSync(join(dist2, "core", "extensions", "builtin", "goal"), { recursive: true })
+  writeFileSync(join(dist2, "core", "extensions", "builtin", "goal", "store.js"), `export async function readGoal(){return null}; export async function updateGoal(){throw new Error("should not update")}`)
+  writeFileSync(join(dist2, "core", "extensions", "builtin", "goal", "store-ref.js"), `export function goalStoreRef(){return {}}`)
+  assert.deepEqual(await pauseGoal(ctx, { env: { OMO_BIN: join(omo, "bin", "omo.js") }, argv1: "/nowhere/x.js", importMain: async () => ({}) }), { ok: true, method: "dist" })
+})
+
+test("before_agent_start appends the context-budget block in main sessions only, not when off", async () => {
+  const h = harness()
+  const r = await h.fire("before_agent_start", { systemPrompt: "BASE" })
+  assert.equal(r.systemPrompt, "BASE\n\n" + CONTEXT_BUDGET_BLOCK)
+  assert.ok(CONTEXT_BUDGET_BLOCK.split("\n").length <= 10)
+  assert.match(CONTEXT_BUDGET_BLOCK, /persisted_only/)
+  assert.match(CONTEXT_BUDGET_BLOCK, /prior-session JSONL/)
+  await h.commands.rollover.handler("off", h.ctx)
+  assert.equal(await h.fire("before_agent_start", { systemPrompt: "BASE" }), undefined)
+  const c = harness({ env: { OMO_SENPI_TASK_RPC_CHILD: "1" } })
+  assert.equal(c.handlers.before_agent_start, undefined)
 })
