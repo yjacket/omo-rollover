@@ -5,27 +5,28 @@ import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdi
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { join } from "node:path"
-import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
+import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, detectActiveSkill, withSkillToken, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
-function harness({ env = {}, branch = [], dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }) } = {}) {
+function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }) } = {}) {
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
     events: { on: (ev, h) => (bus[ev] = h) },
     sendUserMessage: (text, opts) => sent.push({ text, opts }),
     registerCommand: (name, def) => (commands[name] = def),
+    getCommands: () => [{ name: "rollover", source: "extension" }, { name: "skill:ulw-execute", source: "skill" }, { name: "skill:ulw-loop", source: "skill" }],
   }
   let tokens = 0
   const ctx = {
-    cwd: "C:/work",
+    cwd,
     ui: { notify: (m, k) => notes.push({ m, k }) },
     getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: 0 }),
     hasPendingMessages: () => false,
     isIdle: () => true,
-    sessionManager: { getSessionId: () => "s1", getSessionFile: () => "C:/sess/s1.jsonl", getCwd: () => "C:/work", getBranch: () => branch, getHeader: () => ({}) },
+    sessionManager: { getSessionId: () => "s1", getSessionFile: () => "C:/sess/s1.jsonl", getCwd: () => cwd, getBranch: () => branch, getHeader: () => ({}) },
     newSession: async ({ withSession }) => {
-      await withSession({ sessionManager: { getSessionId: () => "s2" }, sendUserMessage: async (t) => sent.push({ text: t, session: "s2" }) })
+      await withSession({ sessionManager: { getSessionId: () => "s2" }, sendUserMessage: async (t, o) => sent.push({ text: t, session: "s2", opts: o }) })
       return { cancelled: false }
     },
   }
@@ -148,7 +149,7 @@ test("successor extraction, then /rollover dispatch and newSession", async () =>
   assert.equal(h.ext.st.state, "rollover")
   assert.deepEqual(h.sent.at(-1), { text: "/rollover", opts: { expandPromptTemplates: true } })
   await h.commands.rollover.handler("", h.ctx)
-  assert.deepEqual(h.sent.at(-1), { text: "Read handoff-s1.md then continue step 4.", session: "s2" })
+  assert.deepEqual(h.sent.at(-1), { text: "Read handoff-s1.md then continue step 4.", session: "s2", opts: { expandPromptTemplates: true } })
   const roll = h.lines().find((l) => l.ev === "rollover")
   assert.deepEqual(roll, { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover", newSession: "s2", parentSession: "C:/sess/s1.jsonl" })
   const summary = readFileSync(join(h.dir, "summary.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
@@ -303,7 +304,7 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
   assert.deepEqual(saved, {
     state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
     armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
-    startedAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z",
+    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, updatedAt: "1970-01-01T00:00:00.000Z",
   })
   assert.equal("context" in saved, false)
   await h.commands.rollover.handler("off", h.ctx)
@@ -381,7 +382,7 @@ test("/rollover refuses while children run; /rollover force proceeds", async () 
   assert.equal(h.lines().at(-1).ev, "rollover_refused")
   assert.equal(h.sent.length, 0)
   await h.commands.rollover.handler("force", h.ctx)
-  assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2" })
+  assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2", opts: { expandPromptTemplates: true } })
   assert.equal(h.ext.st.state, "rolled_over")
 })
 
@@ -455,4 +456,85 @@ test("before_agent_start appends the context-budget block in main sessions only,
   assert.equal(await h.fire("before_agent_start", { systemPrompt: "BASE" }), undefined)
   const c = harness({ env: { OMO_SENPI_TASK_RPC_CHILD: "1" } })
   assert.equal(c.handlers.before_agent_start, undefined)
+})
+
+const user = (text) => ({ type: "message", message: { role: "user", content: text } })
+const KNOWN = new Set(["ulw-execute", "ulw-loop"])
+
+test("active skill: detected from /skill:, $skill:, $name, /name, expanded block; unknown bare names ignored", () => {
+  assert.deepEqual(detectActiveSkill([user("/skill:ulw-execute plan-a")], new Set(), "/nope"), { name: "ulw-execute", source: "message" })
+  assert.deepEqual(detectActiveSkill([user("hi"), user("  $ulw-execute")], KNOWN, "/nope"), { name: "ulw-execute", source: "message" })
+  assert.deepEqual(detectActiveSkill([user("$skill:ulw-loop go")], new Set(), "/nope"), { name: "ulw-loop", source: "message" })
+  assert.deepEqual(detectActiveSkill([user("/ulw-execute stage11")], KNOWN, "/nope"), { name: "ulw-execute", source: "message" })
+  const expanded = 'The user explicitly invoked the "ulw-execute" skill.\n\n<skill-instruction name="ulw-execute" location="x">\nbody\n</skill-instruction>'
+  assert.deepEqual(detectActiveSkill([user(expanded)], new Set(), "/nope"), { name: "ulw-execute", source: "message" })
+  assert.equal(detectActiveSkill([user("$HOME is set"), user("/rollover status"), user("/ulw-execute x")], new Set(), "/nope"), null, "bare forms need a known skill")
+  assert.equal(detectActiveSkill([user("use $skill:ulw-loop inline")], new Set(), "/nope"), null, "only leading tokens count")
+  assert.equal(detectActiveSkill([user("/skill:ulw-loop"), user("/skill:ulw-execute")], new Set(), "/nope").name, "ulw-loop", "earliest wins")
+})
+
+test("active skill: .omo/boulder.json with active_work_id means ulw-execute; message token wins over it", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "boulder-"))
+  mkdirSync(join(cwd, ".omo"))
+  writeFileSync(join(cwd, ".omo", "boulder.json"), JSON.stringify({ schema_version: 2, active_work_id: "w1", works: {} }))
+  assert.deepEqual(detectActiveSkill([user("hello")], KNOWN, cwd), { name: "ulw-execute", source: "boulder" })
+  assert.deepEqual(detectActiveSkill([user("/skill:ulw-loop")], KNOWN, cwd), { name: "ulw-loop", source: "message" })
+  writeFileSync(join(cwd, ".omo", "boulder.json"), JSON.stringify({ active_work_id: null }))
+  assert.equal(detectActiveSkill([], KNOWN, cwd), null)
+  const h = harness({ cwd: mkdtempSync(join(tmpdir(), "boulder-")) })
+  mkdirSync(join(h.ctx.cwd, ".omo"))
+  writeFileSync(join(h.ctx.cwd, ".omo", "boulder.json"), JSON.stringify({ active_work_id: "w2" }))
+  return h.message(160_000).then(() => {
+    assert.equal(h.ext.st.activeSkill, "ulw-execute")
+    assert.equal(h.lines().find((l) => l.ev === "active_skill").source, "boulder")
+  })
+})
+
+test("arm records activeSkill (persisted, logged), handoff prompt demands the $skill: line, kickoff expands templates", async () => {
+  const branch = [user("/skill:ulw-execute stage11"), user("more")]
+  const h = harness({ branch })
+  await h.message(160_000)
+  assert.equal(h.ext.st.activeSkill, "ulw-execute")
+  assert.deepEqual(h.lines().find((l) => l.ev === "active_skill"), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "active_skill", name: "ulw-execute", source: "message" })
+  assert.equal(JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8")).activeSkill, "ulw-execute")
+  h.wake(0)
+  await h.fire("agent_settled")
+  const ask = h.sent.at(-1).text
+  assert.match(ask, /<successor> block must START with the line `\$skill:ulw-execute`/)
+  assert.ok(ask.indexOf("START with the line") < ask.indexOf("The successor starts with an empty context"))
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>\n$skill:ulw-execute\nRead handoff-s1.md, continue.\n</successor>" } })
+  await h.fire("agent_settled")
+  await h.commands.rollover.handler("", h.ctx)
+  assert.deepEqual(h.sent.at(-1), { text: "$skill:ulw-execute\nRead handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
+})
+
+test("kickoff: token prepended when the successor lacks it; none when no active skill", async () => {
+  const reply = { type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } }
+  const h = harness({ branch: [user("$ulw-execute"), reply] })
+  await h.message(160_000)
+  assert.equal(h.ext.st.activeSkill, "ulw-execute")
+  h.wake(0)
+  await h.commands.rollover.handler("", h.ctx)
+  assert.deepEqual(h.sent.at(-1), { text: "$skill:ulw-execute\nRead handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
+  const n = harness({ branch: [user("fix the bug"), reply] })
+  await n.message(160_000)
+  assert.equal(n.ext.st.activeSkill, null)
+  assert.equal(n.lines().some((l) => l.ev === "active_skill"), false)
+  n.wake(0)
+  await n.fire("agent_settled")
+  assert.doesNotMatch(n.sent.at(-1).text, /\$skill:/)
+  await n.commands.rollover.handler("", n.ctx)
+  assert.deepEqual(n.sent.at(-1), { text: "Read handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
+  assert.equal(withSkillToken("/skill:ulw-execute go", "ulw-execute"), "/skill:ulw-execute go", "any leading invocation form is accepted")
+  assert.equal(withSkillToken("$ulw-executed go", "ulw-execute"), "$skill:ulw-execute\n$ulw-executed go")
+})
+
+test("active skill restored across reload while armed", async () => {
+  const h = harness({ branch: [user("/ulw-execute stage11")] })
+  await h.fire("session_start")
+  await h.message(160_000)
+  await h.fire("session_shutdown", { reason: "reload" })
+  const r = harness({ dir: h.dir })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.activeSkill, "ulw-execute")
 })

@@ -97,6 +97,75 @@ survive a few goal turns), so the direct pause is the one that matters.
 omo's kibitzer nudges are a separate continuation source that this extension
 does not control; the system-prompt block below is what limits their cost.
 
+### Skill continuity
+
+Field result: a successor of a `ulw-execute` session behaved as a generic
+agent, not the orchestrator. Cause: the system prompt carries only skill
+names/descriptions; a skill's body enters context only when the user invokes
+it or the model reads SKILL.md. Our kickoff never invoked it. senpi
+`docs/skills.md` (2026.9.13, "How Skills Work" / "Skill Invocation", lines
+66-95):
+
+> 3. When a task matches, the agent uses `read` ... to load the full SKILL.md
+> (models don't always do this; use prompting or `/skill:name` to force it)
+> ...
+> ```
+> /skill:brave-search           # Load and execute the skill
+> $brave-search                 # Equivalent leading dollar invocation
+> ```
+> ...
+> OmO Desktop skill chips serialize as `$skill:name`. Senpi expands that
+> explicit form even when it appears inline. Bare inline dollar text remains
+> literal ...
+> After resolving the explicit tokens, Senpi removes only those tokens and
+> wraps the remaining text once as the user request. Unknown tokens stay
+> literal, duplicates are skipped, and at most five distinct skills expand per
+> prompt.
+
+Token grammar, from `dist/core/agent-session.js:149-150`:
+
+```js
+const LEADING_SKILL_INVOCATION_PATTERN = /^(?:\/skill:([a-zA-Z][a-zA-Z0-9:_-]*)|\$([a-zA-Z][a-zA-Z0-9:_-]*))(?=\s|$)/;
+const INLINE_DOLLAR_SKILL_INVOCATION_PATTERN = /(^|\s)\$skill:([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
+```
+
+Expansion happens only when the message is sent with the option, from
+`dist/core/extensions/types.d.ts:1412-1420` (same on `ReplacedSessionContext`,
+the `withSession` context, lines 539-542):
+
+> Set expandPromptTemplates to dispatch extension commands and expand skill
+> commands and prompt templates.
+> `sendUserMessage(content, options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean }): void;`
+
+What the extension does:
+
+1. **Detect at arm time.** `detectActiveSkill(branch, known, cwd)` scans the
+   current branch's user messages in order for the earliest leading
+   `/skill:<name>`, `$skill:<name>`, `$<name>` or `/<name>` token (`known` =
+   names from `pi.getCommands()` with `source: "skill"`; the bare `$x` / `/x`
+   forms count only when `x` is a known skill, so `/rollover status` and
+   `$HOME` never match, while omo's `/ulw-execute <plan>` does). It also
+   matches the stored form of an already-expanded invocation,
+   `<skill-instruction name="<name>"` (senpi replaces a `/skill:` or `$skill:`
+   token with the skill body before the message is persisted, so the raw
+   token is not in the branch). Else, `<cwd>/.omo/boulder.json` with a
+   truthy `active_work_id` means `ulw-execute`. Result is `st.activeSkill`
+   (persisted) and `active_skill{name, source: "message"|"boulder"}` in the log.
+2. **Handoff prompt.** With an active skill the prompt adds: the `<successor>`
+   block must START with the line `` `$skill:<name>` `` (exact token, nothing
+   before it), then the handoff instructions, because a new session only sees
+   skill names.
+3. **Kickoff.** `/rollover` sends the successor prompt with
+   `{ expandPromptTemplates: true }`, so senpi expands the leading token into
+   the skill body plus `<user-request>`. If the extracted successor lacks a
+   leading invocation of that skill, `$skill:<name>\n` is prepended
+   (`withSkillToken`). No active skill → prompt sent unchanged, still with the
+   option (harmless: no token, nothing expands).
+
+Limits: detection is text-based; a skill loaded by omo's own pointer/keyword
+mechanism (`ulw` magic word) without any of the forms above is only caught
+via boulder.json, i.e. only for `ulw-execute`.
+
 ### Context-budget system prompt block
 
 `CONTEXT_BUDGET_BLOCK` (five lines) is appended to the system prompt of every
@@ -149,7 +218,7 @@ logged on every `message_end` (`ratio`) for the dashboard.
 `{t, session, cwd, ev, ...}` with `ev` ∈ `session_start{parent?}`,
 `message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
-armed), `agent_settled{total}`, `armed{reason,context}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
+armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `handoff_requested{at: "turn_end" | "agent_settled", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total}`, `rollover_refused{total}`,
 `state_restored{state}`, `rollover{newSession,parentSession}`.
@@ -162,7 +231,7 @@ The state machine is written to `~/.omo/rollover/state/<sessionId>.json` on
 every transition (arm, handoff request, successor found, re-ask, blocked
 spawn, `/rollover on|off`, rollover), atomically (tmp + rename). Fields:
 `state, mode, blocked, rereadStreak, goalPaused, rollovers, armedAt,
-handoffAskedCount, peak, messages, cacheRead, output, startedAt, updatedAt`.
+handoffAskedCount, peak, messages, cacheRead, output, startedAt, activeSkill, updatedAt`.
 The counters are also written on every `message_end` so the summary row
 (peak context, messages, ratio) survives a `/reload`; the live `context` is not
 stored and is recomputed from the next `message_end`. `session_start` (any reason) restores the file for

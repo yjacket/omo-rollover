@@ -61,16 +61,54 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
 }
 
 // Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
-const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt"] as const
+const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill"] as const
+
+/** Text of one message entry (string or text parts). */
+function messageText(e: any): string {
+  const c = e?.message?.content
+  if (typeof c === "string") return c
+  return (Array.isArray(c) ? c : []).filter((p: any) => p?.type === "text").map((p: any) => p.text).join("\n")
+}
+
+// Name grammar = senpi's LEADING_SKILL_INVOCATION_PATTERN (dist/core/agent-session.js:149).
+const SKILL_NAME = "[a-zA-Z][a-zA-Z0-9:_-]*"
+const SKILL_TOKEN = new RegExp(`^(?:(\\/skill:|\\$skill:)|([$/]))(${SKILL_NAME})(?=\\s|$)`)
+const SKILL_BLOCK = new RegExp(`<skill-instruction name="(${SKILL_NAME})"`) // what senpi stores after expanding a /skill: or $skill: token
+export type ActiveSkill = { name: string; source: "message" | "boulder" }
+
+/**
+ * Earliest skill workflow the user invoked on this branch, else ulw-execute when
+ * `.omo/boulder.json` has an active work id. `known` = skill names from pi.getCommands();
+ * the ambiguous `$name` / `/name` forms count only when the name is known.
+ */
+export function detectActiveSkill(entries: any[], known: Set<string>, cwd: string): ActiveSkill | null {
+  for (const e of entries) {
+    if (e?.type !== "message" || e.message?.role !== "user") continue
+    const text = messageText(e)
+    const m = SKILL_TOKEN.exec(text.trimStart())
+    const name = m?.[3] ?? SKILL_BLOCK.exec(text)?.[1]
+    if (!name) continue
+    if (m?.[2] && !known.has(name)) continue // bare $x or /x: only when x is a skill (e.g. omo's `/ulw-execute plan`)
+    return { name, source: "message" }
+  }
+  try {
+    if (JSON.parse(readFileSync(join(cwd, ".omo", "boulder.json"), "utf8"))?.active_work_id) return { name: "ulw-execute", source: "boulder" }
+  } catch {}
+  return null
+}
+
+/** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
+export function withSkillToken(prompt: string, skill: string | null): string {
+  if (!skill) return prompt
+  return new RegExp(`^(?:\\/skill:|\\$skill:|\\$)${skill}(?=\\s|$)`).test(prompt) ? prompt : `$skill:${skill}\n${prompt}`
+}
 
 /** Text of the last assistant message on the current branch. */
 export function lastAssistantText(entries: any[]): string {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i]
     if (e?.type !== "message" || e.message?.role !== "assistant") continue
-    const c = e.message.content
-    if (typeof c === "string") return c
-    return (Array.isArray(c) ? c : []).filter((p: any) => p?.type === "text").map((p: any) => p.text).join("\n")
+    return messageText(e)
   }
   return ""
 }
@@ -81,8 +119,12 @@ export function extractSuccessor(text: string): string | null {
   return s ? s : null
 }
 
-export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean): string {
+export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean, activeSkill: string | null = null): string {
   const file = join(cwd, ".omo", "rollover", `handoff-${sessionId}.md`)
+  // The successor's system prompt lists skill names only; the body loads only when senpi expands an invocation token.
+  const skillLine = activeSkill
+    ? `The <successor> block must START with the line \`$skill:${activeSkill}\` (that exact token, nothing before it), then the handoff instructions: a new session only sees skill names, so this token is what loads the ${activeSkill} instructions again.`
+    : ""
   return [
     "[rollover] This session's context is over budget. Stop working; hand off now.",
     "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
@@ -90,6 +132,7 @@ export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolea
     goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"blocked\" and reason \"session rollover handoff in progress\".",
     `Write ${file} from memory (single write, max ~80 lines) with sections: Goal / Done / In progress / Next step / Key files / Constraints.`,
     "Then end your reply with the successor's first prompt wrapped as <successor>...</successor>, at most 25 lines.",
+    skillLine,
     "The successor starts with an empty context. Its prompt must tell it to read only the handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and NOT to read ulw-execute/SKILL.md, the full ledger, any prior-session JSONL, or any child transcript.",
   ]
     .filter(Boolean)
@@ -187,6 +230,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     startedAt: now().toISOString(),
     armedAt: null as string | null,
     rollovers: 0,
+    activeSkill: null as string | null,
   }
 
   let lastCtx: any = null
@@ -221,6 +265,10 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.reason = reason
     st.armedAt = now().toISOString()
     log(ctx, "armed", { reason, context: st.context })
+    const known = new Set<string>((pi.getCommands?.() ?? []).filter((c: any) => c?.source === "skill").map((c: any) => String(c.name).replace(/^skill:/, "")))
+    const skill = detectActiveSkill(ctx.sessionManager?.getBranch?.() ?? [], known, cwdOf(ctx))
+    st.activeSkill = skill?.name ?? null
+    if (skill) log(ctx, "active_skill", skill)
     const pause = await doPause(ctx)
     st.goalPaused = pause.ok
     log(ctx, "goal_pause", pause)
@@ -237,7 +285,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     log(ctx, "handoff_requested", { at, context: st.context })
     persist(sid(ctx))
     // Mid-run: steer so it lands before the next turn instead of after the whole run settles.
-    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused), at === "turn_end" ? { deliverAs: "steer" } : undefined)
+    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused, st.activeSkill), at === "turn_end" ? { deliverAs: "steer" } : undefined)
     return true
   }
 
@@ -368,8 +416,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
         ctx.ui.notify(`rollover: refused, wake total=${total ?? "unknown"} (children still running). Use /rollover force to override.`, "error")
         return
       }
-      const prompt = st.successor ?? extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
-      if (!prompt) { ctx.ui.notify("rollover: no <successor> prompt found in the last assistant message.", "error"); return }
+      const found = st.successor ?? extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
+      if (!found) { ctx.ui.notify("rollover: no <successor> prompt found in the last assistant message.", "error"); return }
+      const prompt = withSkillToken(found, st.activeSkill)
       const parentSession = ctx.sessionManager.getSessionFile()
       const oldId = sid(ctx), cwd = cwdOf(ctx)
       st.rollovers++
@@ -380,7 +429,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
           // Only plain data captured; old pi/ctx are stale here.
           const newSession = String(c.sessionManager?.getSessionId?.() ?? "unknown")
           appendJsonl(join(dir, "sessions", `${oldId}.jsonl`), { t: now().toISOString(), session: oldId, cwd, ev: "rollover", newSession, parentSession })
-          await c.sendUserMessage(prompt)
+          await c.sendUserMessage(prompt, { expandPromptTemplates: true }) // expands the leading $skill: token into the skill body
         },
       })
       st.state = "rolled_over"
