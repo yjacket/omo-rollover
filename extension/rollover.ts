@@ -63,7 +63,18 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
 }
 
 // Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
-const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill"] as const
+const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride"] as const
+
+export const ROLLOVER_HELP = [
+  "rollover commands:",
+  "  /rollover now [force]  hand off to a fresh session now (force overrides live children)",
+  "  /rollover park         idle-style handoff: successor reports and waits for the user",
+  "  /rollover auto|on|off  auto (default): force only autonomous sessions; on: always; off: never",
+  "  /rollover limit <K> [save]  session token budget in thousands (200 = 200K); save writes config.json",
+  "  /rollover idle <minutes>|off  idle-park threshold (0/off disables)",
+  "  /rollover status       state, mode, budget source, wake, idle clocks",
+  "  /rollover help         this text",
+].join("\n")
 
 /** Text of one message entry (string or text parts). */
 function messageText(e: any): string {
@@ -234,6 +245,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     armedAt: null as string | null,
     rollovers: 0,
     activeSkill: null as string | null,
+    budgetOverride: null as number | null,
   }
 
   let lastCtx: any = null
@@ -249,6 +261,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     return seen ? sum : null
   }
   const enabled = () => st.mode !== "off"
+  const budget = () => st.budgetOverride ?? config.budgetTokens
   const stateFile = (id: string) => join(dir, "state", `${id}.json`)
   const persist = (id: string) => {
     let other = {} // keep keys owned by sibling extensions
@@ -285,7 +298,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.goalPaused = pause.ok
     log(ctx, "goal_pause", pause)
     persist(sid(ctx))
-    const why = reason === "budget" ? `budget ${config.budgetTokens} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
+    const why = reason === "budget" ? `budget ${budget()} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
     ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
   }
 
@@ -356,7 +369,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     persist(sid(ctx)) // counters above feed the summary row; keep them across /reload
     if (!enabled() || st.state !== "watching" || context <= 0) return
 
-    if (context >= config.budgetTokens) return arm(ctx, "budget")
+    if (context >= budget()) return arm(ctx, "budget")
     if (config.rereadRatioMax <= 0) return // opt-in: a tool-only turn has output ≈ 50, so the ratio spikes on any healthy session
     st.rereadStreak = ratio >= config.rereadRatioMax ? st.rereadStreak + 1 : 0
     if (st.rereadStreak >= REREAD_STREAK) return arm(ctx, "reread")
@@ -414,18 +427,37 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.registerCommand("rollover", {
-    description: "rollover on|off|status|force — or no args: hand off to a fresh session now (refused while children run)",
+    description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
     handler: async (args: string, ctx: any) => {
-      const a = (args ?? "").trim()
-      if (a === "on" || a === "off") { st.mode = a; persist(sid(ctx)); ctx.ui.notify(`rollover: ${a}`, "info"); return }
-      if (a === "status") {
-        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${config.budgetTokens} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
+      const [verb = "", ...rest] = (args ?? "").trim().split(/\s+/)
+      log(ctx, "command", { verb })
+      if (verb === "" || verb === "help") { ctx.ui.notify(ROLLOVER_HELP, "info"); return }
+      if (verb === "on" || verb === "off" || verb === "auto") { st.mode = verb; persist(sid(ctx)); ctx.ui.notify(`rollover: ${verb}`, "info"); return }
+      if (verb === "status") {
+        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${budget()} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
         return
       }
+      if (verb === "limit") {
+        const m = /^(\d+)(k?)$/i.exec(rest[0] ?? "")
+        const k = m ? Number(m[1]) * (m[2] ? 1000 : (Number(m[1]) < 1000 ? 1000 : 1)) : NaN
+        if (!Number.isFinite(k) || k <= 0) { ctx.ui.notify(`rollover: limit needs a positive number, e.g. /rollover limit 200`, "error"); return }
+        st.budgetOverride = k
+        persist(sid(ctx))
+        if (rest[1] === "save") {
+          let existing: Record<string, unknown> = {}
+          try { existing = JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) } catch {}
+          writeJsonAtomic(join(dir, "config.json"), { ...existing, budgetTokens: k })
+          ctx.ui.notify(`rollover: limit=${Math.round(k / 1000)}K (saved)`, "info")
+        } else {
+          ctx.ui.notify(`rollover: limit=${Math.round(k / 1000)}K (session)`, "info")
+        }
+        return
+      }
+      if (verb !== "now") { ctx.ui.notify(`rollover: unknown verb "${verb}". ${ROLLOVER_HELP.split("\n")[0]} — /rollover help`, "error"); return }
       const total = childWakeTotal()
-      if ((total ?? 0) > 0 && a !== "force") { // unknown wake still allows the manual path
+      if ((total ?? 0) > 0 && rest[0] !== "force") { // unknown wake still allows the manual path
         log(ctx, "rollover_refused", { total })
-        ctx.ui.notify(`rollover: refused, wake total=${total ?? "unknown"} (children still running). Use /rollover force to override.`, "error")
+        ctx.ui.notify(`rollover: refused, wake total=${total ?? "unknown"} (children still running). Use /rollover now force to override.`, "error")
         return
       }
       const found = st.successor ?? extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
