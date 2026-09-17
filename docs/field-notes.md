@@ -69,6 +69,20 @@ upstream: separate state (last event per todo) from evidence, or rotate per plan
 
 When 1–3 hold, lower `budgetTokens` from 200K to 180K and re-measure.
 
+## Terminal monitors deferred a rollover (2026-09-15)
+
+- Symptom: session 01a0a5e4 deferred its rollover 17:52:27–17:55:25 because wake source
+  `terminal-monitors=1` while `senpi-task` was 0 the whole time. A persistent monitor would defer forever.
+- Root cause: `wakeTotal()` summed all six senpi wake sources (senpi-task, omo-dag, ask-user,
+  terminal-monitors, terminal-background-sessions, senpi-codemode), so a terminal monitor counted as a
+  live child.
+- Decision: the landing gate counts child sources only (`senpi-task`, `omo-dag`). `newSession` keeps PTY
+  processes alive — senpi `terminal/extension.js` `session_shutdown` only writes a manifest — so monitors
+  and servers do not need to block a handoff; the handoff prompt records them instead.
+- Known limit: the successor of a ulw-plan session cannot spawn plan-consultant/plan-reviewer until the
+  user re-runs `/skill:ulw-plan` there — the skill token alone does not reopen senpi's per-session plan
+  gate (observed 2026-09-17).
+
 ## Settings in use at the end of the observation
 
 `~/.omo/rollover/config.json`: `{"budgetTokens": 200000, "rereadRatioMax": 0}`.
