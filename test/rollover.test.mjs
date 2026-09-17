@@ -93,6 +93,40 @@ test("without blocking (harness ignores block result and keeps spawning) never l
   assert.equal(h.sent.length, 0)
 })
 
+test("terminal-monitors wake does not block landing once children drain", async () => {
+  const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
+  h.wake(1, "terminal-monitors")
+  h.wake(0, "senpi-task")
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "armed")
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.ok(h.lines().some((l) => l.ev === "handoff_requested"))
+})
+
+test("terminal-monitors: live senpi-task child still defers landing", async () => {
+  const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
+  h.wake(1, "senpi-task")
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "armed")
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "armed")
+  assert.equal(h.lines().some((l) => l.ev === "handoff_requested"), false)
+})
+
+test("terminal-monitors only (no child source reported) counts as unknown, not zero", async () => {
+  const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
+  h.wake(1, "terminal-monitors")
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "armed")
+  await h.fire("turn_end")
+  assert.equal(h.ext.st.state, "armed")
+  assert.equal(h.lines().some((l) => l.ev === "handoff_requested"), false)
+})
+
 test("wake sources unknown (no event yet) does not count as zero", async () => {
   const h = harness()
   await h.message(160_000)
@@ -281,7 +315,7 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
   const r = harness({ dir: h.dir, branch })
   await r.fire("session_start") // wake sources unknown right after reload: successor kept, dispatch deferred
   assert.equal(r.ext.st.state, "handoff_requested")
-  assert.deepEqual(r.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: null })
+  assert.deepEqual(r.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: null, wake: {} })
   r.wake(0)
   await r.fire("agent_settled")
   assert.equal(r.ext.st.state, "rollover")
@@ -359,7 +393,7 @@ test("successor found while a child is live: rollover_deferred, /rollover dispat
   h.wake(1) // model spawned via `task` before the block existed, or a child restarted
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "handoff_requested")
-  assert.deepEqual(h.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: 1 })
+  assert.deepEqual(h.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: 1, wake: { "senpi-task": 1 } })
   assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 0)
   assert.equal(h.sent.filter((s) => /did not contain/.test(s.text)).length, 0, "no re-ask")
   await h.fire("turn_end")
