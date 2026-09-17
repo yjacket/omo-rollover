@@ -354,6 +354,23 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
   assert.equal(again.ext.st.state, "watching")
 })
 
+test("reload with a persisted rollover state redispatches /rollover now", async () => {
+  const branch = []
+  const h = harness({ branch })
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } })
+  await h.fire("agent_settled")
+  assert.equal(h.ext.st.state, "rollover")
+  assert.equal(h.sent.filter((s) => s.text === "/rollover now").length, 1)
+  // A reload between the persist and the dispatch must redispatch, not stall spawn-blocked.
+  const r = harness({ dir: h.dir, branch })
+  r.wake(0)
+  await r.fire("session_start")
+  assert.equal(r.ext.st.state, "rollover")
+  assert.equal(r.sent.filter((s) => s.text === "/rollover now").length, 1)
+})
+
 test("state file: shape, written atomically, no leftover tmp", async () => {
   const h = harness()
   await h.commands.rollover.handler("on", h.ctx)
@@ -810,7 +827,7 @@ test("typed command during the pause await cancels the idle attempt", async () =
   h.advance(1)
   await h.commands.rollover.handler("status", h.ctx) // typed commands bypass the input hook but move lastUserAt
   release({ ok: true, method: "fake" })
-  await t
+  await within(t)
   assert.equal(h.ext.st.state, "watching")
   assert.equal(h.ext.st.goalPaused, false)
   assert.deepEqual(calls, ["resume"])
@@ -829,7 +846,7 @@ test("runtime busy during the timed arm cancels the idle attempt", async () => {
   await within(reached)
   h.rt.isIdle = false // runtime went busy while arm() was awaiting
   release({ ok: true, method: "fake" })
-  await t
+  await within(t)
   assert.equal(h.ext.st.state, "watching")
   assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
   assert.equal(h.sent.length, 0)
@@ -845,7 +862,7 @@ test("manual park never sends after shutdown", async () => {
   await within(reached)
   await h.fire("session_shutdown", { reason: "reload" })
   release({ ok: true, method: "fake" })
-  await t
+  await within(t)
   assert.equal(h.sent.length, 0)
   assert.equal(h.lines().some((l) => l.ev === "handoff_requested"), false)
 })
@@ -861,7 +878,7 @@ test("timed arm never sends after shutdown", async () => {
   await within(reached) // doPause is in flight before shutdown lands
   await s.fire("session_shutdown", { reason: "quit" })
   release({ ok: true, method: "fake" })
-  await t
+  await within(t)
   assert.equal(s.sent.length, 0) // no handoff sent after shutdown
   assert.equal(s.ext.st.state, "armed") // state persists for a later resume; the send is what must not happen
 })
@@ -881,7 +898,7 @@ test("user input during the pause await aborts the idle attempt and undoes the p
   await within(reached) // doPause is in flight before the input lands
   await h.fire("input", { source: "interactive" })
   release({ ok: true, method: "fake" }) // the pause lands after the abort
-  await t
+  await within(t)
   assert.equal(h.ext.st.state, "watching")
   assert.equal(h.ext.st.goalPaused, false)
   assert.deepEqual(calls, ["resume"]) // the late pause was undone
@@ -902,7 +919,7 @@ test("user input during the autonomy await aborts the idle attempt", async () =>
   await within(asked) // isAutonomous is in flight before the input lands
   await h.fire("input", { source: "interactive" })
   release(null)
-  await t
+  await within(t)
   assert.equal(h.ext.st.state, "watching")
   assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
   await h.ext.tick() // still watching: no stale handoff

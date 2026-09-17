@@ -491,7 +491,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
       return true
     }
     // Shutdown or an abort (idle input cancels synchronously during the await) invalidates the dispatch.
-    if (stopped || st.state !== "handoff_requested") return true
+    // A restored "rollover" state must still redispatch — only a non-handoff state means cancelled.
+    if (stopped || (st.state !== "handoff_requested" && st.state !== "rollover")) return true
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
