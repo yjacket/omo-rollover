@@ -1,5 +1,7 @@
 # omo-rollover
 
+English | [한국어](README.ko.md)
+
 Senpi/OMO extension that hands a long-running main session off to a fresh
 session once its context passes a token budget, plus a JSONL event log and a
 static trend dashboard. `docs/microworld.html` is the reference visualization of

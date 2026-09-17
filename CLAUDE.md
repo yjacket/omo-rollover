@@ -14,7 +14,7 @@ node --test --test-name-pattern="reload"      # single test by name substring
 node dashboard/build.mjs                      # build dashboard/out/index.html from ~/.omo/rollover (or $OMO_ROLLOVER_DIR / dir arg)
 node dashboard/build.mjs --sample             # from dashboard/sample/
 node dashboard/sample/generate.mjs            # regenerate synthetic sample data
-sh install.sh   |   .\install.ps1             # copy both extensions to ~/.omo/agent/extensions/, then /reload in omo
+sh install.sh   |   .\install.ps1             # copy extension/rollover.ts to ~/.omo/agent/extensions/, then /reload in omo
 ```
 
 No build step, no lint, no dependencies. Never test against a live paid OMO session; the fake `pi`/`ctx` harness in `test/rollover.test.mjs` is the only runtime used.
@@ -31,5 +31,6 @@ No build step, no lint, no dependencies. Never test against a live paid OMO sess
 ## Conventions
 
 - Tests drive the state machine end to end through the fake harness; add a test for every new event or transition, and check the JSONL shape when adding an event (README "Event log" lists them).
+- `README.ko.md` is a translation of `README.md`; a behavior change edits both in the same commit.
 - When changing the handoff prompt or `<successor>` contract, update README and the tests that assert the machine-consumed tokens (`handoff instruction:` and `arm records activeSkill` assert tags, paths, and tool names — never prose sentences).
 - Commit messages follow `rollover: <what changed>` (see git log).

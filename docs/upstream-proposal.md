@@ -39,7 +39,7 @@ file that only grows.
 
 ## Why upstream
 
-A client-side workaround exists (`extension/ulw-ledger-guard.ts` in this repo rewrites `read` results for the
-ledger into a digest), but it can only shape reads that go through senpi's `read`/`bash` tools in the main session,
-and it is a per-user install. The skill owns the file format and the resume instruction, so the durable fix
-belongs there: separate state from evidence and tell the orchestrator to read the small one.
+Client-side workarounds exist (a project `AGENTS.md` rule, and the context-budget system-prompt block that
+`extension/rollover.ts` in this repo injects on every main-session turn), but they are advice to the model, not
+enforcement, and they are per-user installs. The skill owns the file format and the resume instruction, so the
+durable fix belongs there: separate state from evidence and tell the orchestrator to read the small one.
