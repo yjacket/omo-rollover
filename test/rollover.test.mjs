@@ -30,7 +30,8 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
       return { cancelled: false }
     },
   }
-  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(0), pauseGoal: pause })
+  let clock = 0
+  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(clock), pauseGoal: pause })
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
     tokens = context
@@ -39,7 +40,8 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   const wake = (activeCount, source = "senpi-task") => bus.wake_source_state?.({ source, activeCount })
   const spawn = () => fire("tool_call", { toolName: "task_create", input: {} })
   const lines = () => (existsSync(join(dir, "sessions", "s1.jsonl")) ? readFileSync(join(dir, "sessions", "s1.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [])
-  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines }
+  const advance = (ms) => { clock += ms }
+  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines, advance }
 }
 
 test("child session is inert: no handlers, no commands, no log", () => {
@@ -182,7 +184,7 @@ test("successor extraction, then /rollover dispatch and newSession", async () =>
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "rollover")
   assert.deepEqual(h.sent.at(-1), { text: "/rollover", opts: { expandPromptTemplates: true } })
-  await h.commands.rollover.handler("", h.ctx)
+  await h.commands.rollover.handler("now", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "Read handoff-s1.md then continue step 4.", session: "s2", opts: { expandPromptTemplates: true } })
   const roll = h.lines().find((l) => l.ev === "rollover")
   assert.deepEqual(roll, { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover", newSession: "s2", parentSession: "C:/sess/s1.jsonl" })
@@ -322,7 +324,7 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
   assert.deepEqual(r.sent, [{ text: "/rollover", opts: { expandPromptTemplates: true } }])
   await r.fire("agent_settled") // no second dispatch
   assert.equal(r.sent.length, 1)
-  await r.commands.rollover.handler("", r.ctx)
+  await r.commands.rollover.handler("now", r.ctx)
   assert.equal(r.sent.at(-1).session, "s2")
   assert.equal(JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8")).state, "rolled_over")
   const again = harness({ dir: h.dir, branch }) // --resume of a rolled-over session starts fresh
@@ -338,7 +340,7 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
   assert.deepEqual(saved, {
     state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
     armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
-    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, updatedAt: "1970-01-01T00:00:00.000Z",
+    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, reason: "budget", updatedAt: "1970-01-01T00:00:00.000Z",
   })
   assert.equal("context" in saved, false)
   await h.commands.rollover.handler("off", h.ctx)
@@ -410,14 +412,140 @@ test("/rollover refuses while children run; /rollover force proceeds", async () 
   const branch = [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }]
   const h = harness({ branch })
   h.wake(1)
-  await h.commands.rollover.handler("", h.ctx)
+  await h.commands.rollover.handler("now", h.ctx)
   assert.equal(h.notes.at(-1).k, "error")
   assert.match(h.notes.at(-1).m, /refused.*wake total=1/)
   assert.equal(h.lines().at(-1).ev, "rollover_refused")
   assert.equal(h.sent.length, 0)
-  await h.commands.rollover.handler("force", h.ctx)
+  await h.commands.rollover.handler("now force", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2", opts: { expandPromptTemplates: true } })
   assert.equal(h.ext.st.state, "rolled_over")
+})
+
+test("bare /rollover and help print help; now performs the handoff", async () => {
+  for (const arg of ["", "help"]) {
+    const h = harness()
+    await h.commands.rollover.handler(arg, h.ctx)
+    assert.match(h.notes.at(-1).m, /now \[force\]/)
+    assert.equal(h.sent.some((s) => s.session === "s2"), false, "no newSession")
+    assert.equal(h.sent.some((s) => s.text === "/rollover"), false)
+  }
+  const branch = [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }]
+  const h = harness({ branch })
+  await h.commands.rollover.handler("now", h.ctx)
+  assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2", opts: { expandPromptTemplates: true } })
+  assert.equal(h.ext.st.state, "rolled_over")
+})
+
+test("/rollover now refuses while children run; now force proceeds", async () => {
+  const branch = [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }]
+  const h = harness({ branch })
+  h.wake(1)
+  await h.commands.rollover.handler("now", h.ctx)
+  assert.equal(h.notes.at(-1).k, "error")
+  assert.equal(h.sent.length, 0)
+  await h.commands.rollover.handler("now force", h.ctx)
+  assert.deepEqual(h.sent.at(-1), { text: "go", session: "s2", opts: { expandPromptTemplates: true } })
+})
+
+test("/rollover limit <K> overrides the budget for this session and persists", async () => {
+  const h = harness()
+  await h.commands.rollover.handler("limit 200", h.ctx)
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "watching")
+  await h.message(200_000)
+  assert.equal(h.ext.st.state, "armed")
+  const r = harness({ dir: h.dir })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.budgetOverride, 200_000)
+})
+
+test("/rollover limit <K> save writes config.json; invalid input is an error", async () => {
+  const h = harness()
+  await h.commands.rollover.handler("limit 200 save", h.ctx)
+  assert.equal(JSON.parse(readFileSync(join(h.dir, "config.json"), "utf8")).budgetTokens, 200_000)
+  await h.commands.rollover.handler("limit abc", h.ctx)
+  assert.equal(h.notes.at(-1).k, "error")
+  assert.equal(h.ext.st.budgetOverride, 200_000)
+})
+
+test("input hook: user clock moves on interactive/rpc, not extension; user_input logged", async () => {
+  const h = harness()
+  h.fire("input", { source: "extension" })
+  assert.equal(h.ext.clocks().lastUserAt, 0)
+  h.advance(60_000)
+  h.fire("input", { source: "interactive" })
+  assert.equal(h.ext.clocks().lastUserAt, 60_000)
+  h.advance(30_000)
+  h.fire("input", { source: "rpc" })
+  assert.equal(h.ext.clocks().lastUserAt, 90_000)
+  const ui = h.lines().filter((l) => l.ev === "user_input")
+  assert.equal(ui.length, 3)
+  assert.equal(ui[0].source, "extension")
+  await h.message(1000)
+  assert.equal(h.ext.clocks().lastActivityAt, 90_000)
+  assert.equal(h.ext.clocks().lastUserAt, 90_000, "message_end does not move the user clock")
+  const saved = JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8"))
+  assert.equal("lastUserAt" in saved, false)
+  assert.equal("lastActivityAt" in saved, false)
+})
+
+test("/rollover park: idle-style arm + handoff, refused while children run", async () => {
+  const h = harness()
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  const evs = h.lines().map((l) => l.ev)
+  assert.ok(evs.includes("armed"))
+  assert.equal(h.lines().find((l) => l.ev === "armed").reason, "idle")
+  assert.equal(h.lines().find((l) => l.ev === "handoff_requested").at, "idle")
+  assert.match(h.sent[0].text, /parking this session/)
+  const h2 = harness()
+  h2.wake(1)
+  await h2.commands.rollover.handler("park", h2.ctx)
+  assert.equal(h2.ext.st.state, "watching")
+  assert.equal(h2.notes.at(-1).k, "error")
+})
+
+test("idle reason persists; idle successor kickoff ends with the wait line", async () => {
+  const branch = []
+  const h = harness({ branch })
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  assert.equal(h.ext.st.state, "handoff_requested")
+  const r = harness({ dir: h.dir, branch })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.reason, "idle")
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md.</successor>" } })
+  await r.fire("agent_settled")
+  await r.commands.rollover.handler("now", r.ctx)
+  const kick = r.sent.at(-1)
+  assert.equal(kick.session, "s2")
+  assert.match(kick.text, /then wait for the user\.$/)
+})
+
+test("status shows state, mode, budget source, wake, and idle clocks", async () => {
+  const h = harness()
+  h.advance(60_000)
+  h.fire("input", { source: "interactive" })
+  h.advance(30_000)
+  await h.message(1000)
+  await h.commands.rollover.handler("status", h.ctx)
+  const m = h.notes.at(-1).m
+  assert.match(m, /state=watching/)
+  assert.match(m, /mode=auto/)
+  assert.match(m, /context=1000\/150000 \(config\)/)
+  assert.match(m, /wake=unknown/)
+  assert.match(m, /childWake=unknown/)
+  assert.match(m, /sinceUser=0\.0m/) // the status command itself is user input
+  assert.match(m, /sinceActivity=\d+\.\dm/)
+  assert.match(m, /autonomous=unknown/)
+  await h.commands.rollover.handler("limit 200", h.ctx)
+  await h.commands.rollover.handler("status", h.ctx)
+  assert.match(h.notes.at(-1).m, /context=1000\/200000 \(session\)/)
+  h.wake(2, "terminal-monitors")
+  h.wake(0)
+  await h.commands.rollover.handler("status", h.ctx)
+  assert.match(h.notes.at(-1).m, /wake=2 childWake=0/)
 })
 
 test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {
@@ -539,7 +667,7 @@ test("arm records activeSkill (persisted, logged), handoff prompt demands the $s
   assert.ok(ask.indexOf("START with the line") < ask.indexOf("The successor starts with an empty context"))
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>\n$skill:ulw-execute\nRead handoff-s1.md, continue.\n</successor>" } })
   await h.fire("agent_settled")
-  await h.commands.rollover.handler("", h.ctx)
+  await h.commands.rollover.handler("now", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "$skill:ulw-execute\nRead handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
 })
 
@@ -549,7 +677,7 @@ test("kickoff: token prepended when the successor lacks it; none when no active 
   await h.message(160_000)
   assert.equal(h.ext.st.activeSkill, "ulw-execute")
   h.wake(0)
-  await h.commands.rollover.handler("", h.ctx)
+  await h.commands.rollover.handler("now", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "$skill:ulw-execute\nRead handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
   const n = harness({ branch: [user("fix the bug"), reply] })
   await n.message(160_000)
@@ -558,7 +686,7 @@ test("kickoff: token prepended when the successor lacks it; none when no active 
   n.wake(0)
   await n.fire("agent_settled")
   assert.doesNotMatch(n.sent.at(-1).text, /\$skill:/)
-  await n.commands.rollover.handler("", n.ctx)
+  await n.commands.rollover.handler("now", n.ctx)
   assert.deepEqual(n.sent.at(-1), { text: "Read handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
   assert.equal(withSkillToken("/skill:ulw-execute go", "ulw-execute"), "/skill:ulw-execute go", "any leading invocation form is accepted")
   assert.equal(withSkillToken("$ulw-executed go", "ulw-execute"), "$skill:ulw-execute\n$ulw-executed go")
