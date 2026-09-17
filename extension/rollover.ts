@@ -2,8 +2,8 @@
 // passes a token budget.
 //
 //   watching ──tokens ≥ budget | reread ratio──▶ armed
-//   armed    ──(turn_end | agent_settled) ∧ Σwake==0 ∧ !pending──▶ handoff_requested
-//   handoff_requested ──agent_settled ∧ <successor> found ∧ Σwake==0 ∧ !pending──▶ rollover (/rollover)
+//   armed    ──(turn_end | agent_settled) ∧ Σ child wake==0 ∧ !pending──▶ handoff_requested
+//   handoff_requested ──agent_settled ∧ <successor> found ∧ Σ child wake==0 ∧ !pending──▶ rollover (/rollover)
 //   (successor found but children live → rollover_deferred, re-checked on every agent_settled/turn_end)
 //
 // Signals: before_agent_start (context-budget system prompt block), message_end (usage), wake_source_state (shared pi.events bus),
@@ -23,6 +23,8 @@ export type Config = { budgetTokens: number; rereadRatioMax: number }
 export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
 const SPAWN_TOOLS = new Set(["task", "task_create"]) // exact names; task_output/list/cancel/get/update/send stay allowed
+// Only child sessions would be orphaned by newSession; monitors/servers survive it, so they never gate landing.
+const CHILD_WAKE_SOURCES = new Set(["senpi-task", "omo-dag"])
 const CHILD_ENV = ["OMO_SENPI_TASK_RPC_CHILD", "SENPI_TASK_MEMBER", "SENPI_TASK_MEMBER_TASK_ID"]
 
 export function isChildSession(env: Record<string, string | undefined> = process.env): boolean {
@@ -128,6 +130,7 @@ export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolea
   return [
     "[rollover] This session's context is over budget. Stop working; hand off now.",
     "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
+    "Do NOT kill any server, monitor, or background shell you started; under Key files list each one as `port/PID/command` so the successor can reuse or stop it.",
     // The model-facing update_goal only accepts complete|blocked (paused is user/system-only); blocked stops goal-continuation and blocked→active is legal later.
     goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"blocked\" and reason \"session rollover handoff in progress\".",
     `Write ${file} from memory (single write, max ~80 lines) with sections: Goal / Done / In progress / Next step / Key files / Constraints.`,
@@ -239,6 +242,12 @@ export function createRollover(pi: any, deps: Deps = {}) {
   const log = (ctx: any, ev: string, extra: Record<string, unknown> = {}) =>
     appendJsonl(join(dir, "sessions", `${sid(ctx)}.jsonl`), { t: now().toISOString(), session: sid(ctx), cwd: cwdOf(ctx), ev, ...extra })
   const wakeTotal = (): number | null => (st.wake.size ? [...st.wake.values()].reduce((a, b) => a + b, 0) : null)
+  // null while no child source has reported (unknown != zero); otherwise the sum over child sources only.
+  const childWakeTotal = (): number | null => {
+    let seen = false, sum = 0
+    for (const s of CHILD_WAKE_SOURCES) if (st.wake.has(s)) { seen = true; sum += st.wake.get(s)! }
+    return seen ? sum : null
+  }
   const enabled = () => st.mode !== "off"
   const stateFile = (id: string) => join(dir, "state", `${id}.json`)
   const persist = (id: string) => {
@@ -282,7 +291,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   // Single guard for both landing points so the instruction is injected once.
   function requestHandoff(ctx: any, at: "turn_end" | "agent_settled"): boolean {
-    if (st.state !== "armed" || wakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
+    if (st.state !== "armed" || childWakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
     st.state = "handoff_requested"
     st.handoffAskedCount = 1
     log(ctx, "handoff_requested", { at, context: st.context })
@@ -299,9 +308,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
     const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? [])) ?? st.successor // deferred: a child's result may have moved the last reply
     if (!found) return false
     st.successor = found
-    const total = wakeTotal()
+    const total = childWakeTotal()
     if (total !== 0 || ctx.hasPendingMessages?.()) {
-      log(ctx, "rollover_deferred", { total })
+      log(ctx, "rollover_deferred", { total, wake: Object.fromEntries(st.wake) })
       return true // successor is in hand; stay in handoff_requested, no re-ask
     }
     st.state = "rollover"
@@ -413,7 +422,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
         ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${config.budgetTokens} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
         return
       }
-      const total = wakeTotal()
+      const total = childWakeTotal()
       if ((total ?? 0) > 0 && a !== "force") { // unknown wake still allows the manual path
         log(ctx, "rollover_refused", { total })
         ctx.ui.notify(`rollover: refused, wake total=${total ?? "unknown"} (children still running). Use /rollover force to override.`, "error")

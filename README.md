@@ -31,7 +31,9 @@ handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assis
   re-reading ledger/plan files and spawning a task): write the file from what is
   already in context; do NOT read any file, run any command, or spawn any task;
   ~80 lines max; sections Goal / Done / In progress / Next step / Key files /
-  Constraints; `<successor>` ≤ 25 lines telling the successor to read only the
+  Constraints; Do NOT kill any server, monitor, or background shell — list each
+  under Key files as `port/PID/command` so the successor can reuse or stop it;
+  `<successor>` ≤ 25 lines telling the successor to read only the
   handoff file plus `tail -n 30 .omo/ulw-execute/ledger.jsonl`, and not
   `ulw-execute/SKILL.md` or the full ledger. The extraction contract is unchanged.
 - **deferred rollover**: a `<successor>` found while the wake sum is unknown or
