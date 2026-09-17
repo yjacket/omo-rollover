@@ -513,7 +513,13 @@ export function createRollover(pi: any, deps: Deps = {}) {
       log(ctx, "idle_skip", { reason: v.reason })
     }
   }
-  let idleTimer: unknown = timer.setInterval(tick, 60_000)
+  // No timer while idle is disabled (idleMinutes 0) — the plan's Must-NOT.
+  let idleTimer: unknown = null
+  const syncIdleTimer = () => {
+    if (idleMinutes() > 0 && idleTimer == null) idleTimer = timer.setInterval(tick, 60_000)
+    else if (idleMinutes() <= 0 && idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
+  }
+  syncIdleTimer()
 
   pi.registerCommand("rollover", {
     description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
@@ -533,6 +539,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
         if (!Number.isFinite(m) || m < 0) { ctx.ui.notify(`rollover: idle needs minutes or off, e.g. /rollover idle 30`, "error"); return }
         st.idleOverride = m
         persist(sid(ctx))
+        syncIdleTimer()
         ctx.ui.notify(`rollover: idle=${m > 0 ? m + "m" : "off"} (session)`, "info")
         return
       }

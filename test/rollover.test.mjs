@@ -637,6 +637,7 @@ test("/rollover idle <minutes>|off sets the override and persists", async () => 
   assert.equal(r.ext.st.idleOverride, 10)
   await h.commands.rollover.handler("idle off", h.ctx)
   assert.equal(h.ext.st.idleOverride, 0)
+  assert.equal(h.timer.fns[0], null, "interval cleared when idle is off")
   await h.commands.rollover.handler("idle abc", h.ctx)
   assert.equal(h.notes.at(-1).k, "error")
 })
