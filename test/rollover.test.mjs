@@ -30,7 +30,8 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
       return { cancelled: false }
     },
   }
-  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(0), pauseGoal: pause })
+  let clock = 0
+  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(clock), pauseGoal: pause })
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
     tokens = context
@@ -39,7 +40,8 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   const wake = (activeCount, source = "senpi-task") => bus.wake_source_state?.({ source, activeCount })
   const spawn = () => fire("tool_call", { toolName: "task_create", input: {} })
   const lines = () => (existsSync(join(dir, "sessions", "s1.jsonl")) ? readFileSync(join(dir, "sessions", "s1.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [])
-  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines }
+  const advance = (ms) => { clock += ms }
+  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines, advance }
 }
 
 test("child session is inert: no handlers, no commands, no log", () => {
@@ -338,7 +340,7 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
   assert.deepEqual(saved, {
     state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
     armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
-    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, updatedAt: "1970-01-01T00:00:00.000Z",
+    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, reason: "budget", updatedAt: "1970-01-01T00:00:00.000Z",
   })
   assert.equal("context" in saved, false)
   await h.commands.rollover.handler("off", h.ctx)
@@ -465,6 +467,60 @@ test("/rollover limit <K> save writes config.json; invalid input is an error", a
   await h.commands.rollover.handler("limit abc", h.ctx)
   assert.equal(h.notes.at(-1).k, "error")
   assert.equal(h.ext.st.budgetOverride, 200_000)
+})
+
+test("input hook: user clock moves on interactive/rpc, not extension; user_input logged", async () => {
+  const h = harness()
+  h.fire("input", { source: "extension" })
+  assert.equal(h.ext.clocks().lastUserAt, 0)
+  h.advance(60_000)
+  h.fire("input", { source: "interactive" })
+  assert.equal(h.ext.clocks().lastUserAt, 60_000)
+  h.advance(30_000)
+  h.fire("input", { source: "rpc" })
+  assert.equal(h.ext.clocks().lastUserAt, 90_000)
+  const ui = h.lines().filter((l) => l.ev === "user_input")
+  assert.equal(ui.length, 3)
+  assert.equal(ui[0].source, "extension")
+  await h.message(1000)
+  assert.equal(h.ext.clocks().lastActivityAt, 90_000)
+  assert.equal(h.ext.clocks().lastUserAt, 90_000, "message_end does not move the user clock")
+  const saved = JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8"))
+  assert.equal("lastUserAt" in saved, false)
+  assert.equal("lastActivityAt" in saved, false)
+})
+
+test("/rollover park: idle-style arm + handoff, refused while children run", async () => {
+  const h = harness()
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  const evs = h.lines().map((l) => l.ev)
+  assert.ok(evs.includes("armed"))
+  assert.equal(h.lines().find((l) => l.ev === "armed").reason, "idle")
+  assert.equal(h.lines().find((l) => l.ev === "handoff_requested").at, "idle")
+  assert.match(h.sent[0].text, /parking this session/)
+  const h2 = harness()
+  h2.wake(1)
+  await h2.commands.rollover.handler("park", h2.ctx)
+  assert.equal(h2.ext.st.state, "watching")
+  assert.equal(h2.notes.at(-1).k, "error")
+})
+
+test("idle reason persists; idle successor kickoff ends with the wait line", async () => {
+  const branch = []
+  const h = harness({ branch })
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  assert.equal(h.ext.st.state, "handoff_requested")
+  const r = harness({ dir: h.dir, branch })
+  await r.fire("session_start")
+  assert.equal(r.ext.st.reason, "idle")
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md.</successor>" } })
+  await r.fire("agent_settled")
+  await r.commands.rollover.handler("now", r.ctx)
+  const kick = r.sent.at(-1)
+  assert.equal(kick.session, "s2")
+  assert.match(kick.text, /then wait for the user\.$/)
 })
 
 test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {

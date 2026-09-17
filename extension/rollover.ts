@@ -63,7 +63,7 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
 }
 
 // Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
-const PERSISTED = ["state", "mode", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride"] as const
+const PERSISTED = ["state", "mode", "reason", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride"] as const
 
 export const ROLLOVER_HELP = [
   "rollover commands:",
@@ -132,14 +132,19 @@ export function extractSuccessor(text: string): string | null {
   return s ? s : null
 }
 
-export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean, activeSkill: string | null = null): string {
+export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean, activeSkill: string | null = null, reason: "budget" | "reread" | "idle" = "budget"): string {
   const file = join(cwd, ".omo", "rollover", `handoff-${sessionId}.md`)
   // The successor's system prompt lists skill names only; the body loads only when senpi expands an invocation token.
   const skillLine = activeSkill
     ? `The <successor> block must START with the line \`$skill:${activeSkill}\` (that exact token, nothing before it), then the handoff instructions: a new session only sees skill names, so this token is what loads the ${activeSkill} instructions again.`
     : ""
   return [
-    "[rollover] This session's context is over budget. Stop working; hand off now.",
+    reason === "idle"
+      ? "[rollover] No user input for a while; parking this session. Stop working; hand off now."
+      : "[rollover] This session's context is over budget. Stop working; hand off now.",
+    reason === "idle"
+      ? "If your last reply asked the user something or is waiting on a decision, add a `Waiting on user` section with the question verbatim and make the successor's first line re-ask it."
+      : "",
     "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
     "Do NOT kill any server, monitor, or background shell you started; under Key files list each one as `port/PID/command` so the successor can reuse or stop it.",
     // The model-facing update_goal only accepts complete|blocked (paused is user/system-only); blocked stops goal-continuation and blocked→active is legal later.
@@ -249,6 +254,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
   }
 
   let lastCtx: any = null
+  // In-memory clocks only: a resumed/reloaded session must never park immediately.
+  let lastUserAt = now().getTime()
+  let lastActivityAt = now().getTime()
   const sid = (ctx: any) => String(ctx?.sessionManager?.getSessionId?.() ?? "unknown")
   const cwdOf = (ctx: any) => String(ctx?.cwd ?? ctx?.sessionManager?.getCwd?.() ?? process.cwd())
   const log = (ctx: any, ev: string, extra: Record<string, unknown> = {}) =>
@@ -298,19 +306,19 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.goalPaused = pause.ok
     log(ctx, "goal_pause", pause)
     persist(sid(ctx))
-    const why = reason === "budget" ? `budget ${budget()} reached` : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
+    const why = reason === "budget" ? `budget ${budget()} reached` : reason === "idle" ? "idle park" : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
     ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
   }
 
   // Single guard for both landing points so the instruction is injected once.
-  function requestHandoff(ctx: any, at: "turn_end" | "agent_settled"): boolean {
+  function requestHandoff(ctx: any, at: "turn_end" | "agent_settled" | "idle"): boolean {
     if (st.state !== "armed" || childWakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
     st.state = "handoff_requested"
     st.handoffAskedCount = 1
     log(ctx, "handoff_requested", { at, context: st.context })
     persist(sid(ctx))
     // Mid-run: steer so it lands before the next turn instead of after the whole run settles.
-    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused, st.activeSkill), at === "turn_end" ? { deliverAs: "steer" } : undefined)
+    pi.sendUserMessage(handoffPrompt(cwdOf(ctx), sid(ctx), st.goalPaused, st.activeSkill, st.reason === "idle" ? "idle" : (st.reason as "budget" | "reread")), at === "turn_end" ? { deliverAs: "steer" } : undefined)
     return true
   }
 
@@ -348,8 +356,15 @@ export function createRollover(pi: any, deps: Deps = {}) {
     return { systemPrompt: `${ev?.systemPrompt ?? ""}\n\n${CONTEXT_BUDGET_BLOCK}` }
   })
 
+  pi.on("input", async (ev: any, ctx: any) => {
+    lastCtx = ctx
+    log(ctx, "user_input", { source: ev?.source, streaming: ev?.streamingBehavior ?? null })
+    if (ev?.source !== "extension") lastUserAt = now().getTime()
+  })
+
   pi.on("message_end", async (ev: any, ctx: any) => {
     lastCtx = ctx
+    lastActivityAt = now().getTime()
     const m = ev?.message
     if (m?.role !== "assistant" || !m.usage) return
     const u = m.usage
@@ -399,6 +414,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   pi.on("agent_settled", async (_ev: any, ctx: any) => {
     lastCtx = ctx
+    lastActivityAt = now().getTime()
     const total = wakeTotal()
     log(ctx, "agent_settled", { total, state: st.state })
     if (!enabled()) return
@@ -429,6 +445,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   pi.registerCommand("rollover", {
     description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
     handler: async (args: string, ctx: any) => {
+      lastUserAt = now().getTime() // typed commands bypass the input hook
       const [verb = "", ...rest] = (args ?? "").trim().split(/\s+/)
       log(ctx, "command", { verb })
       if (verb === "" || verb === "help") { ctx.ui.notify(ROLLOVER_HELP, "info"); return }
@@ -453,6 +470,15 @@ export function createRollover(pi: any, deps: Deps = {}) {
         }
         return
       }
+      if (verb === "park") {
+        if (st.state !== "watching" || childWakeTotal() !== 0) {
+          ctx.ui.notify(`rollover: park refused (state=${st.state}, childWake=${childWakeTotal() ?? "unknown"})`, "error")
+          return
+        }
+        await arm(ctx, "idle")
+        requestHandoff(ctx, "idle")
+        return
+      }
       if (verb !== "now") { ctx.ui.notify(`rollover: unknown verb "${verb}". ${ROLLOVER_HELP.split("\n")[0]} — /rollover help`, "error"); return }
       const total = childWakeTotal()
       if ((total ?? 0) > 0 && rest[0] !== "force") { // unknown wake still allows the manual path
@@ -462,7 +488,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       }
       const found = st.successor ?? extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? []))
       if (!found) { ctx.ui.notify("rollover: no <successor> prompt found in the last assistant message.", "error"); return }
-      const prompt = withSkillToken(found, st.activeSkill)
+      const prompt = withSkillToken(found, st.activeSkill) + (st.reason === "idle" ? `\n[rollover] Parked idle at ${now().toISOString()}. Read the handoff, report in <= 5 lines, then wait for the user.` : "")
       const parentSession = ctx.sessionManager.getSessionFile()
       const oldId = sid(ctx), cwd = cwdOf(ctx)
       st.rollovers++
@@ -481,7 +507,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     },
   })
 
-  return { st, config }
+  return { st, config, clocks: () => ({ lastUserAt, lastActivityAt }) }
 }
 
 export default function (pi: any): void {
