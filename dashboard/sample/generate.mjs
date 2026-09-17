@@ -18,7 +18,7 @@ function session(id, { parent, rollTo, budget = 150_000, spawnEvery = 2, hot = f
   const push = (ev, x = {}) => L.push({ t: T(), session: id, cwd, ev, ...x })
   const started = T()
   push("session_start", parent ? { parent } : {})
-  let ctx = 12_000, active = 0, state = "watching", blocked = 0, msgs = 0, cr = 0, outp = 0, peak = 0
+  let ctx = 12_000, active = 0, state = "watching", blocked = 0, msgs = 0, cr = 0, outp = 0, peak = 0, armReason = null
   const wake = (n) => { active = n; push("wake_source_state", { source: "senpi-task", activeCount: n, total: n }) }
   const children = []
   for (let turn = 0; turn < 60; turn++) {
@@ -27,10 +27,11 @@ function session(id, { parent, rollTo, budget = 150_000, spawnEvery = 2, hot = f
     ctx = hot ? Math.min(ctx + rnd(2000, 5000), 120_000) : ctx + input + rnd(1500, 4000) + output
     msgs++; cr += cacheRead; outp += output; peak = Math.max(peak, ctx)
     push("message_end", { input, output, cacheRead, cacheWrite: rnd(0, 800), context: ctx })
-    if (state === "watching" && (ctx >= budget || (hot && turn >= 6))) { state = "armed"; push("armed", { reason: ctx >= budget ? "budget" : "reread", context: ctx }) }
+    if (state === "watching" && (ctx >= budget || (hot && turn >= 6))) { state = "armed"; armReason = ctx >= budget ? "budget" : "reread"; push("armed", { reason: armReason, context: ctx }) }
     if (idle && state === "watching" && turn === 20 && ctx >= 100_000) {
+      clock += 51 * 60_000 // the idle gap the telemetry describes
       push("idle_park", { sinceUserMin: 51, sinceActivityMin: 51, context: ctx, childWake: 0 })
-      state = "armed"; push("armed", { reason: "idle", context: ctx })
+      state = "armed"; armReason = "idle"; push("armed", { reason: "idle", context: ctx })
     }
     if (turn % spawnEvery === 0) {
       if (state === "watching") { children.push(clock + rnd(150, 400) * 1000); wake(active + 1) }
@@ -46,7 +47,7 @@ function session(id, { parent, rollTo, budget = 150_000, spawnEvery = 2, hot = f
       push("message_end", { input: 2000, output: 900, cacheRead: ctx - 3000, cacheWrite: 200, context: ctx })
       push("agent_settled", { total: 0, state })
       push("successor_found", { chars: 320 })
-      const row = { t: T(), session: id, cwd, reason: "rollover", startedAt: started, peakContext: peak, messages: msgs, cacheRead: cr, output: outp, rereadRatio: +(cr / outp).toFixed(1), rollovers: 1, blocked, state: "rollover", armReason: idle ? "idle" : "budget" }
+      const row = { t: T(), session: id, cwd, reason: "rollover", startedAt: started, peakContext: peak, messages: msgs, cacheRead: cr, output: outp, rereadRatio: +(cr / outp).toFixed(1), rollovers: 1, blocked, state: "rollover", armReason }
       summary.push(row)
       clock += 3000
       push("rollover", { newSession: rollTo, parentSession: `C:/Users/u/.omo/agent/sessions/${id}.jsonl` })

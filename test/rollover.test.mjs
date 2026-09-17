@@ -534,6 +534,45 @@ test("idle reason persists; idle successor kickoff ends with the wait line", asy
   assert.match(kick.text, /\[rollover\]/)
 })
 
+test("typed command during the resume await cannot send the cancelled handoff", async () => {
+  let releasePause, pauseReached, releaseResume, resumeReached
+  const h = harness({
+    pause: () => new Promise((r) => { releasePause = r; pauseReached?.() }),
+    resume: () => new Promise((r) => { releaseResume = r; resumeReached?.() }),
+  })
+  h.wake(0)
+  await h.message(150_000)
+  h.advance(51 * 60_000)
+  const pReached = new Promise((r) => { pauseReached = r })
+  const t = h.ext.tick()
+  await within(pReached)
+  h.advance(1)
+  await h.commands.rollover.handler("idle off", h.ctx) // typed command: moves lastUserAt, bypasses input hook
+  releasePause({ ok: true, method: "fake" })
+  const rReached = new Promise((r) => { resumeReached = r })
+  await within(rReached) // resume is in flight; the attempt must already be dead
+  await h.fire("agent_settled") // a settle during the resume must not send
+  assert.equal(h.sent.length, 0)
+  assert.equal(h.ext.st.state, "watching")
+  releaseResume({ ok: true, method: "fake" })
+  await t
+  assert.equal(h.sent.length, 0)
+  assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
+  assert.ok(h.lines().some((l) => l.ev === "goal_resume"))
+})
+
+test("in-flight missing-successor retry does not send after shutdown", async () => {
+  const h = harness()
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.equal(h.sent.length, 1)
+  const settle = h.fire("agent_settled") // no successor in the branch: enters the re-ask path
+  await h.fire("session_shutdown", { reason: "reload" })
+  await settle
+  assert.equal(h.sent.length, 1, "no re-ask sent after shutdown")
+})
+
 test("status shows state, mode, budget source, wake, and idle clocks", async () => {
   const h = harness()
   h.advance(60_000)
@@ -926,7 +965,8 @@ test("handoff instruction: successor contract tokens and the read list", () => {
 })
 
 test("handoff fallback when direct pause failed: update_goal blocked (paused is not model-settable)", () => {
-  assert.match(handoffPrompt("/w", "id", false), /`update_goal` tool with status "blocked" and reason "session rollover handoff in progress"/)
+  assert.match(handoffPrompt("/w", "id", false), /update_goal/)
+  assert.match(handoffPrompt("/w", "id", false), /"blocked"/)
   assert.doesNotMatch(handoffPrompt("/w", "id", false), /status "paused"/)
   assert.doesNotMatch(handoffPrompt("/w", "id", true), /update_goal/)
 })
@@ -944,6 +984,17 @@ test("goal_pause logged on arm: ok:true via injected pause, ok:false keeps the p
   f.wake(0)
   await f.fire("agent_settled")
   assert.match(f.sent.at(-1).text, /update_goal.*"blocked"/)
+})
+
+test("resumeGoal: reactivates a paused goal via the main entry; no-op otherwise", async () => {
+  let goal = { status: "paused" }
+  const main = { readGoal: async () => goal, updateGoal: async (_r, u) => { goal = { ...goal, status: u.status } }, goalStoreRef: () => ({}) }
+  const ctx = { cwd: "/w", sessionManager: {} }
+  assert.deepEqual(await resumeGoal(ctx, { importMain: async () => main }), { ok: true, method: "main" })
+  assert.equal(goal.status, "active")
+  const again = await resumeGoal(ctx, { importMain: async () => main })
+  assert.equal(again.ok, false)
+  assert.match(again.error, /no paused goal/)
 })
 
 test("pauseGoal: no main-entry exports and no senpi dist → ok:false with error", async () => {

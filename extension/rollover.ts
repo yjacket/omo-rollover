@@ -196,8 +196,14 @@ export const CONTEXT_BUDGET_BLOCK = [
 
 export type PauseResult = { ok: boolean; method: "main" | "dist" | "none"; error?: string }
 // The slice of senpi's main entry we probe for; the goal store may or may not be re-exported there.
-export type SenpiMain = Partial<GoalStoreModule & GoalRefModule>
-export type PauseOpts = { env?: Record<string, string | undefined>; argv1?: string; importMain?: () => Promise<SenpiMain> }
+export type PauseOpts = { env?: Record<string, string | undefined>; argv1?: string; importMain?: () => Promise<unknown> }
+const errMsg = (e: unknown) => String(e instanceof Error ? e.message : e)
+const goalCwd = (ctx: GoalCtx) => ctx.cwd ?? ctx.sessionManager?.getCwd?.() ?? process.cwd()
+// Type guard: the main entry only counts when it re-exports the whole goal-store surface.
+const isGoalStoreMain = (m: unknown): m is GoalStoreModule & GoalRefModule => {
+  const o = m as Partial<GoalStoreModule & GoalRefModule> | null | undefined
+  return typeof o?.readGoal === "function" && typeof o?.updateGoal === "function" && typeof o?.goalStoreRef === "function"
+}
 // The ctx surface the goal-store boundary needs.
 export type GoalCtx = { cwd?: string; sessionManager?: { getCwd?: () => string; getSessionId?: () => unknown; getBranch?: () => unknown[] } }
 const GOAL_REL = ["core", "extensions", "builtin", "goal"]
@@ -227,21 +233,21 @@ export async function loadGoalStore(opts: PauseOpts = {}): Promise<GoalStore | {
   const argv1 = opts.argv1 ?? process.argv[1]
   const errors: string[] = []
   try {
-    const m = await (opts.importMain ?? (() => import("@code-yeongyu/senpi") as Promise<SenpiMain>))()
-    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) return { store: m, ref: m, method: "main" }
+    const m: unknown = await (opts.importMain ?? (() => import("@code-yeongyu/senpi")))()
+    if (isGoalStoreMain(m)) return { store: m, ref: m, method: "main" }
     errors.push("main entry has no goal store exports")
-  } catch (e: any) {
-    errors.push(`main: ${e?.message ?? e}`)
+  } catch (e) {
+    errors.push(`main: ${errMsg(e)}`)
   }
   for (const dist of senpiDistCandidates(env, argv1)) {
     const goal = join(dist, ...GOAL_REL)
     if (!existsSync(join(goal, "store.js")) || !existsSync(join(goal, "store-ref.js"))) continue
     try {
-      const store = (await import(pathToFileURL(join(goal, "store.js")).href)) as GoalStoreModule
-      const ref = (await import(pathToFileURL(join(goal, "store-ref.js")).href)) as GoalRefModule
+      const store: GoalStoreModule = await import(pathToFileURL(join(goal, "store.js")).href)
+      const ref: GoalRefModule = await import(pathToFileURL(join(goal, "store-ref.js")).href)
       return { store, ref, method: "dist" }
-    } catch (e: any) {
-      errors.push(`dist ${dist}: ${e?.message ?? e}`)
+    } catch (e) {
+      errors.push(`dist ${dist}: ${errMsg(e)}`)
     }
   }
   return { error: errors.concat("no senpi dist found").join("; ") }
@@ -252,7 +258,7 @@ export async function goalStatus(ctx: GoalCtx, opts: PauseOpts = {}): Promise<st
   try {
     const loaded = await loadGoalStore(opts)
     if (!("store" in loaded)) return null
-    const r = loaded.ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
+    const r = loaded.ref.goalStoreRef(ctx.sessionManager, goalCwd(ctx))
     const g = await loaded.store.readGoal(r)
     return g?.status ?? null
   } catch {
@@ -266,13 +272,13 @@ export async function pauseGoal(ctx: GoalCtx, opts: PauseOpts = {}): Promise<Pau
   if (!("store" in loaded)) return { ok: false, method: "none", error: loaded.error }
   const { store, ref, method } = loaded
   try {
-    const r = ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
+    const r = ref.goalStoreRef(ctx.sessionManager, goalCwd(ctx))
     const g = await store.readGoal(r)
     if (g?.status !== "active") return { ok: false, method, error: `no active goal (status=${g?.status ?? "none"})` }
     await store.updateGoal(r, { status: "paused" }, "user")
     return { ok: true, method }
-  } catch (e: any) {
-    return { ok: false, method, error: String(e?.message ?? e) }
+  } catch (e) {
+    return { ok: false, method, error: errMsg(e) }
   }
 }
 
@@ -282,13 +288,13 @@ export async function resumeGoal(ctx: GoalCtx, opts: PauseOpts = {}): Promise<Pa
   if (!("store" in loaded)) return { ok: false, method: "none", error: loaded.error }
   const { store, ref, method } = loaded
   try {
-    const r = ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
+    const r = ref.goalStoreRef(ctx.sessionManager, goalCwd(ctx))
     const g = await store.readGoal(r)
     if (g?.status !== "paused") return { ok: false, method, error: `no paused goal (status=${g?.status ?? "none"})` }
     await store.updateGoal(r, { status: "active" }, "user")
     return { ok: true, method }
-  } catch (e: any) {
-    return { ok: false, method, error: String(e?.message ?? e) }
+  } catch (e) {
+    return { ok: false, method, error: errMsg(e) }
   }
 }
 
@@ -443,8 +449,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
     }
     if (reason === "idle" && lastUserAt !== seenUserAt) {
       // A typed command bypasses the input hook but still moves lastUserAt: the attempt is cancelled.
-      if (pause.ok) { const resume = await doResume(ctx); log(ctx, "goal_resume", resume) }
+      // Invalidate FIRST (abortIdle flips state synchronously) so no hook can send while the resume awaits.
       await abortIdle(ctx)
+      if (pause.ok) { const resume = await doResume(ctx); log(ctx, "goal_resume", resume) }
       return
     }
     st.goalPaused = pause.ok
@@ -482,6 +489,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       notice(ctx, "rollover: auto mode — not an autonomous session; staying. /rollover now to hand off.", "warning")
       return true
     }
+    if (stopped) return true // shutdown landed during the autonomy await: successor stays held, nothing sends
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
@@ -581,6 +589,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     }
     if (st.state === "handoff_requested") {
       if (await tryRollover(ctx)) return
+      if (stopped) return // shutdown during the tryRollover await: the old session must not send
       log(ctx, "successor_missing", { retried: st.handoffAskedCount > 1 })
       if (st.handoffAskedCount < 2) {
         st.handoffAskedCount = 2

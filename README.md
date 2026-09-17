@@ -99,6 +99,11 @@ accepts `complete|blocked` — while `blocked` also stops goal-continuation and
 later. The tool itself may still reject `blocked` (it requires the blocker to
 survive a few goal turns), so the direct pause is the one that matters.
 
+When an idle park is aborted by user input, `resumeGoal` reverses a pause this
+extension made (`paused→active`, source `user`) and logs
+`goal_resume{ok,method,error?}`; a goal the user paused independently is left
+paused.
+
 omo's kibitzer nudges are a separate continuation source that this extension
 does not control; the system-prompt block below is what limits their cost.
 
@@ -226,7 +231,8 @@ logged on every `message_end` (`ratio`) for the dashboard.
 
 A 60-second timer (injected as `deps.timer` in tests) parks the session when it
 has been idle: no user-typed input for `idleMinutes` (default 50), context >=
-`idleMinTokens` (default 100K), agent not busy, no pending messages, and the
+`idleMinTokens` (default 100K), no activity for `idleGraceMinutes` (default 5),
+agent not busy, no pending messages, and the
 child wake sum is 0 (unknown never parks). Parking is `arm(ctx, "idle")` then
 `handoff_requested{at:"idle"}`; the handoff prompt says the session is being
 parked and the successor's kickoff ends with "report in <= 5 lines, then wait
@@ -309,7 +315,7 @@ state machine; no senpi and no LLM calls.
 - The wake-source sum trusts the shared bus. Until at least one source has
   emitted, the sum is unknown (not zero) and an armed session will not land.
   omo-task emits `senpi-task` on session start, so in practice this resolves at
-  startup; if it never does, `/rollover` still works manually.
+  startup; if it never does, `/rollover now` still works manually.
 - Previously a `/reload` (same session id, new extension instance) reset the
   state to `watching`, losing an armed or pending handoff; state persistence
   above resolves this. `session_shutdown` with reason `reload` still skips the

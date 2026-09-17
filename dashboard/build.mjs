@@ -105,6 +105,7 @@ function draw(){
   if(e.ev==='message_end'){if(prev!=null){ctx.fillStyle=handoff?css('--handoff'):css('--main');ctx.fillRect(x(prev),mY+3,Math.max(2,x(t)-x(prev)),mH-6)}prev=t;handoff=false}
   else if(e.ev==='agent_settled'||e.ev==='session_start'||e.ev==='handoff_requested')prev=t;
   if(e.ev==='tool_call_blocked'){ctx.fillStyle=css('--block');ctx.beginPath();ctx.moveTo(x(t),mY-2);ctx.lineTo(x(t)-4,mY-9);ctx.lineTo(x(t)+4,mY-9);ctx.closePath();ctx.fill()}
+  if(e.ev==='idle_park'||e.ev==='idle_skip'||e.ev==='idle_aborted'||e.ev==='autonomy'||e.ev==='goal_resume'||e.ev==='budget_notice'){ctx.fillStyle=css('--ink3');ctx.beginPath();ctx.arc(x(t),mY+mH+7,2.5,0,7);ctx.fill();ctx.textAlign='left';ctx.fillText(e.ev,x(t)+5,mY+mH+10)}
   if(e.ev==='armed'||e.ev==='rollover'){ctx.strokeStyle=css('--handoff');ctx.lineWidth=e.ev==='rollover'?2:1;ctx.beginPath();ctx.moveTo(x(t),cTop);ctx.lineTo(x(t),mY+mH);ctx.stroke();ctx.fillStyle=css('--handoff');ctx.textAlign='left';ctx.fillText(e.ev==='armed'?'armed:'+e.reason:'rollover',x(t)+3,cTop+10)}}}
  // wake lane: step chart of total
  const wY=300,wH=80;ctx.fillStyle=css('--ink3');ctx.textAlign='right';ctx.fillText('wake',padL-6,wY+wH/2);

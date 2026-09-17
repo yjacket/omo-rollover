@@ -100,8 +100,9 @@ When 1–3 hold, lower `budgetTokens` from 200K to 180K and re-measure.
   cached prefix instead of paying a cold write), and 100K is the floor where a handoff is worth the
   re-read cost — below it the successor's cold-start reads cost more than the context saved.
 - Why not a keepalive ping instead of parking: a synthetic turn every ~4 min would hold the cache warm
-  but burns output tokens forever and keeps a dead session looking alive; parking hands off once and
-  stops paying. Deferral is deliberately not TTL-based: the timer checks wall-clock idleness
+  but burns output tokens forever — at ~150K context a keepalive turn costs roughly 150K cache-read +
+  ~1K output every 4 minutes, i.e. ~2.2M cache-read tokens/hour just to keep a dead session warm — and
+  keeps a dead session looking alive; parking hands off once and stops paying. Deferral is deliberately not TTL-based: the timer checks wall-clock idleness
   (lastUserAt/lastActivityAt), not cache expiry — a session with live children or pending messages
   skips parking regardless of how warm the cache is (wake_unknown never parks).
 
