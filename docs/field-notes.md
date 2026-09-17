@@ -83,6 +83,19 @@ When 1–3 hold, lower `budgetTokens` from 200K to 180K and re-measure.
   user re-runs `/skill:ulw-plan` there — the skill token alone does not reopen senpi's per-session plan
   gate (observed 2026-09-17).
 
+## Prompt-cache TTL measured; no TTL knob needed (2026-09-16)
+
+- Anthropic-lane sessions stayed warm across 48-59 min gaps (01a0a635, 01a0a77e) — 1h retention is
+  active; child-live gaps of 5-30 min produced 14 turns, 0 cold, so promptCache.goalBackstopMaxSeconds=1770
+  lands warm. OpenAI-codex lane goes cold after 8-13 min gaps (01a0a0fb, 28/155 cold) = fixed 5m TTL, but
+  there is no write premium there.
+- TTL resolves per model.api in pi-ai prompt-cache-ttl.js: anthropic-messages 5m (1h with
+  cacheRetention=long on api.anthropic.com), openai-codex-responses fixed 5m. senpi has no promptCache.ttl
+  key — rejected: nothing to configure.
+- Overnight evidence (searchad 01a0a77e): idle gaps 65min/3h/4h with all wake sources 0; each return was a
+  user-typed message paying a cold cache write at 165K/184K/196K context (~$16 of writes overnight). This
+  is the cost the idle park exists to cap.
+
 ## Settings in use at the end of the observation
 
 `~/.omo/rollover/config.json`: `{"budgetTokens": 200000, "rereadRatioMax": 0}`.

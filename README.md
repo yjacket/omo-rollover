@@ -207,7 +207,7 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 `~/.omo/rollover/config.json` (read at load):
 
 ```json
-{ "budgetTokens": 150000, "rereadRatioMax": 0 }
+{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000 }
 ```
 
 `rereadRatioMax` (opt-in, default off) compares `cacheRead / output` of each
@@ -219,6 +219,20 @@ value to re-enable; `0`, negative, or missing means off. The ratio is still
 logged on every `message_end` (`ratio`) for the dashboard.
 `OMO_ROLLOVER_DIR` overrides the data directory (used by the tests).
 
+## Idle park
+
+A 60-second timer (injected as `deps.timer` in tests) parks the session when it
+has been idle: no user-typed input for `idleMinutes` (default 50), context >=
+`idleMinTokens` (default 100K), agent not busy, no pending messages, and the
+child wake sum is 0 (unknown never parks). Parking is `arm(ctx, "idle")` then
+`handoff_requested{at:"idle"}`; the handoff prompt says the session is being
+parked and the successor's kickoff ends with "report in <= 5 lines, then wait
+for the user". Any interactive/rpc input while armed-for-idle aborts back to
+`watching` (`idle_aborted`). `/rollover idle <minutes>|off` sets a session
+override; `/rollover park` triggers the same path manually. The idle clocks are
+in-memory only — a reload or resume resets them, so a restored session never
+parks immediately.
+
 ## Event log
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, one object per line:
@@ -227,6 +241,7 @@ logged on every `message_end` (`ratio`) for the dashboard.
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context}`,
+`idle_park`, `idle_skip{reason}`, `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
 `state_restored{state}`, `rollover{newSession,parentSession}`.
