@@ -111,6 +111,12 @@ export function detectActiveSkill(entries: any[], known: Set<string>, cwd: strin
 }
 
 /** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
+// Autonomous = a goal is active or a ulw-family skill is driving this session.
+export function isAutonomous(ctx: any, activeSkill: string | null = null): boolean {
+  const s = ctx?.getGoalStatus?.()?.status
+  return s === "active" || (activeSkill ?? "").startsWith("ulw-")
+}
+
 export function withSkillToken(prompt: string, skill: string | null): string {
   if (!skill) return prompt
   return new RegExp(`^(?:\\/skill:|\\$skill:|\\$)${skill}(?=\\s|$)`).test(prompt) ? prompt : `$skill:${skill}\n${prompt}`
@@ -294,19 +300,25 @@ export function createRollover(pi: any, deps: Deps = {}) {
     })
 
   async function arm(ctx: any, reason: string) {
-    st.state = "armed"
-    st.reason = reason
-    st.armedAt = now().toISOString()
-    log(ctx, "armed", { reason, context: st.context })
     const known = new Set<string>((pi.getCommands?.() ?? []).filter((c: any) => c?.source === "skill").map((c: any) => String(c.name).replace(/^skill:/, "")))
     const skill = detectActiveSkill(ctx.sessionManager?.getBranch?.() ?? [], known, cwdOf(ctx))
     st.activeSkill = skill?.name ?? null
     if (skill) log(ctx, "active_skill", skill)
+    const why = reason === "budget" ? `budget ${budget()} reached` : reason === "idle" ? "idle park" : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
+    // auto (the default) only forces a handoff in autonomous sessions; manual park (idle) always arms.
+    if (st.mode === "auto" && reason !== "idle" && !isAutonomous(ctx, st.activeSkill)) {
+      log(ctx, "budget_notice", { reason, context: st.context })
+      ctx.ui?.notify?.(`rollover: budget reached (${why}) — auto mode, not an autonomous session (no active goal, no ulw skill). /rollover on to force, /rollover now to hand off now.`, "warning")
+      return
+    }
+    st.state = "armed"
+    st.reason = reason
+    st.armedAt = now().toISOString()
+    log(ctx, "armed", { reason, context: st.context })
     const pause = await doPause(ctx)
     st.goalPaused = pause.ok
     log(ctx, "goal_pause", pause)
     persist(sid(ctx))
-    const why = reason === "budget" ? `budget ${budget()} reached` : reason === "idle" ? "idle park" : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
     ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
   }
 
@@ -333,6 +345,11 @@ export function createRollover(pi: any, deps: Deps = {}) {
     if (total !== 0 || ctx.hasPendingMessages?.()) {
       log(ctx, "rollover_deferred", { total, wake: Object.fromEntries(st.wake) })
       return true // successor is in hand; stay in handoff_requested, no re-ask
+    }
+    if (st.mode === "auto" && !isAutonomous(ctx, st.activeSkill)) {
+      log(ctx, "rollover_deferred", { total, wake: Object.fromEntries(st.wake), reason: "not_autonomous" })
+      ctx.ui?.notify?.("rollover: auto mode — not an autonomous session; staying. /rollover now to hand off.", "warning")
+      return true
     }
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
@@ -452,7 +469,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (verb === "on" || verb === "off" || verb === "auto") { st.mode = verb; persist(sid(ctx)); ctx.ui.notify(`rollover: ${verb}`, "info"); return }
       if (verb === "status") {
         const mins = (ms: number) => `${(ms / 60_000).toFixed(1)}m`
-        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=- sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=- autonomous=unknown`, "info")
+        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=- sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=- autonomous=${isAutonomous(ctx, st.activeSkill)}`, "info")
         return
       }
       if (verb === "limit") {
