@@ -193,10 +193,14 @@ sh install.sh        # Git Bash / *nix
 Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 `/reload` in a running session (or restart). Commands:
 
-- `/rollover status` – state, context, wake sum, blocked count
-- `/rollover on|off` – override auto-detect
-- `/rollover` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
-- `/rollover force` – hand off even with children running (they are orphaned)
+- `/rollover` or `/rollover help` – print the command list
+- `/rollover status` – state, mode, reason, context/budget (source), wake sums, blocked count, idle clocks
+- `/rollover auto|on|off` – `auto` (default) forces the handoff only in autonomous sessions (active goal or a ulw-* skill) and otherwise warns at budget; `on` always forces; `off` disables
+- `/rollover now` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
+- `/rollover now force` – hand off even with children running (they are orphaned)
+- `/rollover park` – manual idle-style handoff: the successor reports and waits for the user
+- `/rollover limit <K> [save]` – session token budget in thousands; `save` also writes `config.json`
+- `/rollover idle <minutes>|off` – idle-park threshold (see "Idle park")
 
 ## Config
 
@@ -222,8 +226,9 @@ logged on every `message_end` (`ratio`) for the dashboard.
 `message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
-`handoff_requested{at: "turn_end" | "agent_settled", context}`,
-`successor_found|successor_missing`, `rollover_deferred{total}`, `rollover_refused{total}`,
+`command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context}`,
+`handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
+`successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
 `state_restored{state}`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers).
@@ -234,7 +239,7 @@ The state machine is written to `~/.omo/rollover/state/<sessionId>.json` on
 every transition (arm, handoff request, successor found, re-ask, blocked
 spawn, `/rollover on|off`, rollover), atomically (tmp + rename). Fields:
 `state, mode, blocked, rereadStreak, goalPaused, rollovers, armedAt,
-handoffAskedCount, peak, messages, cacheRead, output, startedAt, activeSkill, updatedAt`.
+handoffAskedCount, peak, messages, cacheRead, output, startedAt, activeSkill, reason, budgetOverride, updatedAt`.
 The counters are also written on every `message_end` so the summary row
 (peak context, messages, ratio) survives a `/reload`; the live `context` is not
 stored and is recomputed from the next `message_end`. `session_start` (any reason) restores the file for
