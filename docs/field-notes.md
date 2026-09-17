@@ -83,22 +83,46 @@ When 1–3 hold, lower `budgetTokens` from 200K to 180K and re-measure.
   user re-runs `/skill:ulw-plan` there — the skill token alone does not reopen senpi's per-session plan
   gate (observed 2026-09-17).
 
-## Prompt-cache TTL measured; no TTL knob needed (2026-09-16)
+## Prompt-cache TTL is per lane; only claude-sdk-oauth holds 1h (2026-09-16, re-measured 2026-09-18)
 
-- Anthropic-lane sessions stayed warm across 48-59 min gaps (01a0a635, 01a0a77e) — 1h retention is
-  active; child-live gaps of 5-30 min produced 14 turns, 0 cold, so promptCache.goalBackstopMaxSeconds=1770
-  lands warm. OpenAI-codex lane goes cold after 8-13 min gaps (01a0a0fb, 28/155 cold) = fixed 5m TTL, but
-  there is no write premium there.
-- TTL resolves per model.api in pi-ai prompt-cache-ttl.js: anthropic-messages 5m (1h with
-  cacheRetention=long on api.anthropic.com), openai-codex-responses fixed 5m. senpi has no promptCache.ttl
-  key — rejected: nothing to configure.
-- Overnight evidence (searchad 01a0a77e): idle gaps 65min/3h/4h with all wake sources 0; each return was a
+Method: for every assistant turn in the senpi transcript take `provider`, `usage.cacheRead`,
+`usage.cacheWrite`, and the timestamp; list every gap >= 5 min between consecutive turns and read the
+returning turn's cacheRead. A TTL expiry shows as cacheRead 0 + full rewrite; a partial read followed by a
+large write is a prompt-prefix change, not expiry. Sessions mix lanes under model fallback, so the lane is
+read per turn, never per session (the first pass in 2026-09-16 labelled whole sessions and got two of three
+wrong; `message_end.provider` now logs it directly).
+
+| lane | session | gaps (min) -> returning cacheRead | reading |
+|---|---|---|---|
+| claude-sdk-oauth / claude-fable-5-1 | 01a0a635 | 59 -> 222K read / 1.4K write (full hit); 249 -> 0 | >= 59 min retention. One data point. The 20-min gap (15.7K read / 90K write) was a prefix change, not expiry |
+| github-copilot / claude-fable-5-1 | 01a0a77e | 7, 13, 14, 20, 54, 63, 169, 245 -> all 0 | < 7 min, i.e. the 5m tier. Eight of eight cold |
+| devin / swe-2-max | 01a0a0fb | 5-26 -> mostly 0; one 7-min gap warm (161K), one 10-min partial (8K) | ~5-10 min, noisy; cacheWrite is always 0 on this lane so the Anthropic 5m/1h framing does not map |
+| pi-ai direct Anthropic (api.anthropic.com), OpenAI lanes | - | unmeasured | code default 5m (see below) |
+
+- The 59-min claude-sdk-oauth hit is genuine: the transcript has no entry of any kind between the two
+  turns (no goal backstop turn, no cache-keepalive ping), so nothing re-warmed the prefix.
+- Why claude-sdk-oauth differs: that lane streams through the bundled Claude Code binary, which picks the
+  TTL itself — env `ENABLE_PROMPT_CACHING_1H` -> 1h, else a remote flag
+  (`tengu_prompt_cache_1h_config.allowlist`) -> `{ttl:"1h", reason:"subscriber"}`, else 5m. The 1h branch
+  is inferred from the hit, not observed: senpi persists usage normalized to
+  `{input,output,cacheRead,cacheWrite,totalTokens,cost}` and the API's `cache_creation.ephemeral_1h_input_tokens`
+  breakdown never reaches the transcript. It depends on the remote flag and can change without notice.
+- Every other lane goes through pi-ai `anthropic-messages.js getCacheControl`: `ttl:"1h"` only when
+  `cacheRetention === "long"` (model/provider config or env `PI_CACHE_RETENTION=long`) AND the base URL host
+  is `api.anthropic.com`; otherwise 5m. github-copilot fails the host check, so it can never be 1h through
+  config. senpi has no `promptCache.ttl` key — nothing to configure for the copilot lane.
+- `promptCache.goalBackstopMaxSeconds` is the goal-monitor re-check period (senpi `goal/cache-warm.js`), a
+  real LLM turn. Its default 270s is "5m TTL minus 30s so the re-check lands inside the cache"; the 1770s in
+  use places re-checks ~30 min apart, inside the cache only on the claude-sdk-oauth lane.
+- Overnight evidence (searchad 01a0a77e, copilot lane): idle gaps 65min/3h/4h with all wake sources 0; each return was a
   user-typed message paying a cold cache write at 165K/184K/196K context (~$16 of writes overnight). This
   is the cost the idle park exists to cap.
-- Why idleMinutes=50 / idleMinTokens=100K: the Anthropic 1h retention window means a park before ~50 min
-  of silence still lands the successor inside the warm window (the successor's first turn reuses the
-  cached prefix instead of paying a cold write), and 100K is the floor where a handoff is worth the
-  re-read cost — below it the successor's cold-start reads cost more than the context saved.
+- Why idleMinutes=50 / idleMinTokens=100K: on the claude-sdk-oauth lane a park before ~50 min of silence
+  still lands the successor inside the warm window (the successor's first turn reuses the cached prefix
+  instead of paying a cold write), and 100K is the floor where a handoff is worth the re-read cost — below
+  it the successor's cold-start reads cost more than the context saved. On the copilot lane the cache is
+  gone by 7 min, so 50 min buys nothing there: the return pays a cold write whether it parks or not, and a
+  per-lane idle default (short for 5m lanes) is the open follow-up.
 - Why not a keepalive ping instead of parking: a synthetic turn every ~4 min would hold the cache warm
   but burns output tokens forever — at ~150K context a keepalive turn costs roughly 150K cache-read +
   ~1K output every 4 minutes, i.e. ~2.2M cache-read tokens/hour just to keep a dead session warm — and
