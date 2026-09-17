@@ -5,10 +5,10 @@ import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdi
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { join } from "node:path"
-import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, detectActiveSkill, withSkillToken, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
+import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, detectActiveSkill, withSkillToken, isAutonomous, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
-function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }) } = {}) {
+function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), goal = null } = {}) {
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
@@ -19,6 +19,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   }
   let tokens = 0
   const ctx = {
+    getGoalStatus: () => goal,
     cwd,
     ui: { notify: (m, k) => notes.push({ m, k }) },
     getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: 0 }),
@@ -54,6 +55,7 @@ test("child session is inert: no handlers, no commands, no log", () => {
 
 test("overlap-spawning main with blocking lands after existing children drain", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.fire("session_start")
   await h.message(50_000)
   await h.fire("agent_settled")
@@ -79,6 +81,7 @@ test("overlap-spawning main with blocking lands after existing children drain", 
 
 test("without blocking (harness ignores block result and keeps spawning) never lands", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.equal(h.ext.st.state, "armed")
   let active = 1
@@ -131,6 +134,7 @@ test("terminal-monitors only (no child source reported) counts as unknown, not z
 
 test("wake sources unknown (no event yet) does not count as zero", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "armed")
@@ -159,6 +163,7 @@ test("reread ratio (opt-in via config) arms only after 3 consecutive messages", 
   const dir = mkdtempSync(join(tmpdir(), "rollover-"))
   writeFileSync(join(dir, "config.json"), JSON.stringify({ rereadRatioMax: 150 }))
   const h = harness({ dir })
+  await h.commands.rollover.handler("on", h.ctx)
   assert.equal(h.ext.config.rereadRatioMax, 150)
   const hot = { output: 100, cacheRead: 20_000, input: 100 }
   await h.message(21_000, hot)
@@ -176,6 +181,7 @@ test("reread ratio (opt-in via config) arms only after 3 consecutive messages", 
 test("successor extraction, then /rollover dispatch and newSession", async () => {
   const branch = []
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   h.wake(0)
   await h.fire("agent_settled")
@@ -196,6 +202,7 @@ test("successor extraction, then /rollover dispatch and newSession", async () =>
 test("long single-agent run: handoff steered at first turn_end with wake 0, once; successor then /rollover", async () => {
   const branch = []
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   h.wake(0)
   await h.message(50_000)
   await h.fire("turn_end")
@@ -223,6 +230,7 @@ test("long single-agent run: handoff steered at first turn_end with wake 0, once
 
 test("turn_end with children running does not land; agent_settled does once they drain", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   h.wake(2)
   await h.message(160_000)
   await h.fire("turn_end")
@@ -239,6 +247,7 @@ test("turn_end with children running does not land; agent_settled does once they
 test("missing successor tag: re-ask once, then notify and stay armed", async () => {
   const branch = [{ type: "message", message: { role: "assistant", content: "no tag here" } }]
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   h.wake(0)
   await h.fire("agent_settled")
@@ -253,21 +262,22 @@ test("missing successor tag: re-ask once, then notify and stay armed", async () 
 
 test("JSONL append shape and /rollover off", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.fire("session_start")
   await h.message(10_000)
   h.wake(1, "omo-dag")
   h.wake(2, "senpi-task")
   await h.fire("agent_settled")
   const L = h.lines()
-  assert.deepEqual(L.map((l) => l.ev), ["session_start", "message_end", "wake_source_state", "wake_source_state", "agent_settled"])
+  assert.deepEqual(L.map((l) => l.ev), ["command", "session_start", "state_restored", "message_end", "wake_source_state", "wake_source_state", "agent_settled"])
   for (const l of L) {
     assert.equal(l.t, "1970-01-01T00:00:00.000Z")
     assert.equal(l.session, "s1")
     assert.equal(l.cwd, "C:/work")
   }
-  assert.deepEqual(L[1], { t: L[1].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000, ratio: 18 })
-  assert.equal(L[3].total, 3)
-  assert.equal(L[4].total, 3)
+  assert.deepEqual(L[3], { t: L[3].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000, ratio: 18 })
+  assert.equal(L[5].total, 3)
+  assert.equal(L[6].total, 3)
   await h.commands.rollover.handler("off", h.ctx)
   await h.message(160_000)
   assert.equal(h.ext.st.state, "watching")
@@ -289,6 +299,7 @@ test("pure helpers", () => {
 
 test("reload while armed: state restored from disk, not reset to watching", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.fire("session_start")
   await h.message(160_000)
   await h.spawn()
@@ -308,6 +319,7 @@ test("reload while armed: state restored from disk, not reset to watching", asyn
 test("reload between <successor> reply and agent_settled: session_start dispatches /rollover once", async () => {
   const branch = []
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   h.wake(0)
   await h.fire("agent_settled")
@@ -334,11 +346,12 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
 
 test("state file: shape, written atomically, no leftover tmp", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.deepEqual(readdirSync(join(h.dir, "state")), ["s1.json"])
   const saved = JSON.parse(readFileSync(join(h.dir, "state", "s1.json"), "utf8"))
   assert.deepEqual(saved, {
-    state: "armed", mode: "auto", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
+    state: "armed", mode: "on", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
     armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
     startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, reason: "budget", updatedAt: "1970-01-01T00:00:00.000Z",
   })
@@ -350,6 +363,7 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
 
 test("summary counters survive a reload and land in the summary row", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.fire("session_start")
   await h.message(100_000)
   await h.message(187_000)
@@ -370,12 +384,14 @@ test("summary counters survive a reload and land in the summary row", async () =
 
 test("armed notify names the trigger and the budget", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.equal(h.notes.at(-1).m, "rollover: armed (budget 150000 reached, context=160000). task/task_create blocked; handing off once children drain.")
 })
 
 test("spawn block: `task` blocked while armed, task_output allowed", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.equal((await h.fire("tool_call", { toolName: "task", input: {} })).block, true)
   assert.equal(await h.fire("tool_call", { toolName: "task_output", input: {} }), undefined)
@@ -387,6 +403,7 @@ test("spawn block: `task` blocked while armed, task_output allowed", async () =>
 test("successor found while a child is live: rollover_deferred, /rollover dispatched once after drain", async () => {
   const branch = []
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   h.wake(0)
   await h.fire("agent_settled")
@@ -450,6 +467,7 @@ test("/rollover now refuses while children run; now force proceeds", async () =>
 
 test("/rollover limit <K> overrides the budget for this session and persists", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.commands.rollover.handler("limit 200", h.ctx)
   await h.message(160_000)
   assert.equal(h.ext.st.state, "watching")
@@ -538,7 +556,7 @@ test("status shows state, mode, budget source, wake, and idle clocks", async () 
   assert.match(m, /childWake=unknown/)
   assert.match(m, /sinceUser=0\.0m/) // the status command itself is user input
   assert.match(m, /sinceActivity=\d+\.\dm/)
-  assert.match(m, /autonomous=unknown/)
+  assert.match(m, /autonomous=false/)
   await h.commands.rollover.handler("limit 200", h.ctx)
   await h.commands.rollover.handler("status", h.ctx)
   assert.match(h.notes.at(-1).m, /context=1000\/200000 \(session\)/)
@@ -546,6 +564,51 @@ test("status shows state, mode, budget source, wake, and idle clocks", async () 
   h.wake(0)
   await h.commands.rollover.handler("status", h.ctx)
   assert.match(h.notes.at(-1).m, /wake=2 childWake=0/)
+})
+
+test("isAutonomous: goal status or ulw-family skill", () => {
+  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "active" }) }), true)
+  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "paused" }) }), false)
+  assert.equal(isAutonomous({ getGoalStatus: () => null }), false)
+  assert.equal(isAutonomous({}), false)
+  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "active" }) }, "ulw-execute"), true)
+  assert.equal(isAutonomous({}, "ulw-execute"), true)
+  assert.equal(isAutonomous({}, "frontend"), false)
+})
+
+test("auto mode: non-autonomous session gets budget_notice, not armed", async () => {
+  const h = harness()
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "watching")
+  assert.ok(h.notes.some((n) => n.m.includes("budget reached")))
+  assert.ok(h.lines().some((l) => l.ev === "budget_notice"))
+  await h.commands.rollover.handler("on", h.ctx)
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "armed")
+})
+
+test("auto mode: active goal arms; ulw skill arms", async () => {
+  const g = harness({ goal: { status: "active" } })
+  await g.message(160_000)
+  assert.equal(g.ext.st.state, "armed")
+  const s = harness({ branch: [{ type: "message", message: { role: "user", content: "$skill:ulw-execute" } }] })
+  await s.message(160_000)
+  assert.equal(s.ext.st.state, "armed")
+})
+
+test("auto mode: tryRollover refuses to land a non-autonomous session", async () => {
+  const branch = []
+  const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
+  h.wake(0)
+  await h.message(160_000)
+  assert.equal(h.ext.st.state, "armed")
+  await h.commands.rollover.handler("auto", h.ctx)
+  branch.push({ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } })
+  await h.fire("agent_settled")
+  assert.equal(h.sent.some((s) => s.session === "s2"), false)
+  assert.ok(h.notes.some((n) => n.m.includes("auto")))
+  assert.equal(h.ext.st.state, "handoff_requested")
 })
 
 test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {
@@ -568,9 +631,11 @@ test("handoff fallback when direct pause failed: update_goal blocked (paused is 
 
 test("goal_pause logged on arm: ok:true via injected pause, ok:false keeps the prompt fallback", async () => {
   const h = harness()
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.deepEqual(h.lines().find((l) => l.ev === "goal_pause"), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "goal_pause", ok: true, method: "fake" })
   const f = harness({ pause: async () => ({ ok: false, method: "none", error: "nope" }) })
+  await f.commands.rollover.handler("on", f.ctx)
   await f.message(160_000)
   assert.equal(f.lines().find((l) => l.ev === "goal_pause").error, "nope")
   assert.equal(f.ext.st.goalPaused, false)
@@ -636,7 +701,7 @@ test("active skill: detected from /skill:, $skill:, $name, /name, expanded block
   assert.equal(detectActiveSkill([user("/skill:ulw-loop"), user("/skill:ulw-execute")], new Set(), "/nope").name, "ulw-loop", "earliest wins")
 })
 
-test("active skill: .omo/boulder.json with active_work_id means ulw-execute; message token wins over it", () => {
+test("active skill: .omo/boulder.json with active_work_id means ulw-execute; message token wins over it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "boulder-"))
   mkdirSync(join(cwd, ".omo"))
   writeFileSync(join(cwd, ".omo", "boulder.json"), JSON.stringify({ schema_version: 2, active_work_id: "w1", works: {} }))
@@ -645,6 +710,7 @@ test("active skill: .omo/boulder.json with active_work_id means ulw-execute; mes
   writeFileSync(join(cwd, ".omo", "boulder.json"), JSON.stringify({ active_work_id: null }))
   assert.equal(detectActiveSkill([], KNOWN, cwd), null)
   const h = harness({ cwd: mkdtempSync(join(tmpdir(), "boulder-")) })
+  await h.commands.rollover.handler("on", h.ctx)
   mkdirSync(join(h.ctx.cwd, ".omo"))
   writeFileSync(join(h.ctx.cwd, ".omo", "boulder.json"), JSON.stringify({ active_work_id: "w2" }))
   return h.message(160_000).then(() => {
@@ -656,6 +722,7 @@ test("active skill: .omo/boulder.json with active_work_id means ulw-execute; mes
 test("arm records activeSkill (persisted, logged), handoff prompt demands the $skill: line, kickoff expands templates", async () => {
   const branch = [user("/skill:ulw-execute stage11"), user("more")]
   const h = harness({ branch })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.equal(h.ext.st.activeSkill, "ulw-execute")
   assert.deepEqual(h.lines().find((l) => l.ev === "active_skill"), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "active_skill", name: "ulw-execute", source: "message" })
@@ -674,12 +741,14 @@ test("arm records activeSkill (persisted, logged), handoff prompt demands the $s
 test("kickoff: token prepended when the successor lacks it; none when no active skill", async () => {
   const reply = { type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } }
   const h = harness({ branch: [user("$ulw-execute"), reply] })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
   assert.equal(h.ext.st.activeSkill, "ulw-execute")
   h.wake(0)
   await h.commands.rollover.handler("now", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "$skill:ulw-execute\nRead handoff-s1.md, continue.", session: "s2", opts: { expandPromptTemplates: true } })
   const n = harness({ branch: [user("fix the bug"), reply] })
+  await n.commands.rollover.handler("on", n.ctx)
   await n.message(160_000)
   assert.equal(n.ext.st.activeSkill, null)
   assert.equal(n.lines().some((l) => l.ev === "active_skill"), false)
@@ -694,6 +763,7 @@ test("kickoff: token prepended when the successor lacks it; none when no active 
 
 test("active skill restored across reload while armed", async () => {
   const h = harness({ branch: [user("/ulw-execute stage11")] })
+  await h.commands.rollover.handler("on", h.ctx)
   await h.fire("session_start")
   await h.message(160_000)
   await h.fire("session_shutdown", { reason: "reload" })
