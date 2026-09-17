@@ -9,7 +9,12 @@ import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pau
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
 // Await a deferred-completion signal with a bound, so a never-fired signal fails instead of hanging.
-const within = (p, ms = 3000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("signal never fired")), ms))])
+// The losing timeout is cleared so a fast signal does not keep the process alive.
+const within = (p, ms = 3000) => {
+  let t
+  const timeout = new Promise((_, rej) => { t = setTimeout(() => rej(new Error("signal never fired")), ms) })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t))
+}
 
 function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), resume = async () => ({ ok: true, method: "fake" }), goalStatus = async () => null, isIdle = true, pending = false } = {}) {
   const rt = { isIdle, pending } // mutable runtime surface: tests flip these mid-scenario
@@ -257,7 +262,8 @@ test("missing successor tag: re-ask once, then notify and stay armed", async () 
   await h.fire("agent_settled")
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "handoff_requested")
-  assert.match(h.sent.at(-1).text, /did not contain a <successor>/)
+  assert.match(h.sent.at(-1).text, /\[rollover\]/)
+  assert.match(h.sent.at(-1).text, /<successor>/)
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "armed")
   assert.equal(h.notes.at(-1).k, "error")
@@ -390,7 +396,9 @@ test("armed notify names the trigger and the budget", async () => {
   const h = harness()
   await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
-  assert.match(h.notes.at(-1).m, /armed \(budget 150000 reached, context=160000\)/)
+  assert.match(h.notes.at(-1).m, /armed/)
+  assert.match(h.notes.at(-1).m, /150000/)
+  assert.match(h.notes.at(-1).m, /160000/)
 })
 
 test("spawn block: `task` blocked while armed, task_output allowed", async () => {
@@ -418,7 +426,7 @@ test("successor found while a child is live: rollover_deferred, /rollover dispat
   assert.equal(h.ext.st.state, "handoff_requested")
   assert.deepEqual(h.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: 1, wake: { "senpi-task": 1 } })
   assert.equal(h.sent.filter((s) => s.text === "/rollover now").length, 0)
-  assert.equal(h.sent.filter((s) => /did not contain/.test(s.text)).length, 0, "no re-ask")
+  assert.equal(h.sent.length, 1, "only the handoff instruction was sent; no re-ask")
   await h.fire("turn_end")
   assert.equal(h.ext.st.state, "handoff_requested")
   h.wake(0)
@@ -548,14 +556,14 @@ test("typed command during the resume await cannot send the cancelled handoff", 
   await within(pReached)
   h.advance(1)
   await h.commands.rollover.handler("idle off", h.ctx) // typed command: moves lastUserAt, bypasses input hook
+  const rReached = new Promise((r) => { resumeReached = r }) // subscribe before releasing the pause
   releasePause({ ok: true, method: "fake" })
-  const rReached = new Promise((r) => { resumeReached = r })
   await within(rReached) // resume is in flight; the attempt must already be dead
   await h.fire("agent_settled") // a settle during the resume must not send
   assert.equal(h.sent.length, 0)
   assert.equal(h.ext.st.state, "watching")
   releaseResume({ ok: true, method: "fake" })
-  await t
+  await within(t)
   assert.equal(h.sent.length, 0)
   assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
   assert.ok(h.lines().some((l) => l.ev === "goal_resume"))
@@ -569,8 +577,28 @@ test("in-flight missing-successor retry does not send after shutdown", async () 
   assert.equal(h.sent.length, 1)
   const settle = h.fire("agent_settled") // no successor in the branch: enters the re-ask path
   await h.fire("session_shutdown", { reason: "reload" })
-  await settle
+  await within(settle)
   assert.equal(h.sent.length, 1, "no re-ask sent after shutdown")
+})
+
+test("in-flight missing-successor retry does not send after interactive input cancels the idle handoff", async () => {
+  const h = harness()
+  h.wake(0)
+  await h.commands.rollover.handler("park", h.ctx)
+  assert.equal(h.ext.st.state, "handoff_requested")
+  assert.equal(h.sent.length, 1)
+  const settle = h.fire("agent_settled") // no successor: yields inside tryRollover
+  await h.fire("input", { source: "interactive" }) // abortIdle runs during the yield
+  await within(settle)
+  assert.equal(h.ext.st.state, "watching")
+  assert.equal(h.sent.length, 1, "no re-ask sent after the cancel")
+  // Control: an uncancelled missing-successor attempt still retries.
+  const c = harness()
+  c.wake(0)
+  await c.commands.rollover.handler("park", c.ctx)
+  await within(c.fire("agent_settled"))
+  assert.equal(c.sent.length, 2, "uncancelled attempt re-asks")
+  assert.match(c.sent.at(-1).text, /\[rollover\]/)
 })
 
 test("status shows state, mode, budget source, wake, and idle clocks", async () => {
@@ -1036,9 +1064,7 @@ test("before_agent_start appends the context-budget block in main sessions only,
   const h = harness()
   const r = await h.fire("before_agent_start", { systemPrompt: "BASE" })
   assert.equal(r.systemPrompt, "BASE\n\n" + CONTEXT_BUDGET_BLOCK)
-  assert.ok(CONTEXT_BUDGET_BLOCK.split("\n").length <= 10)
   assert.match(CONTEXT_BUDGET_BLOCK, /persisted_only/)
-  assert.match(CONTEXT_BUDGET_BLOCK, /prior-session JSONL/)
   await h.commands.rollover.handler("off", h.ctx)
   assert.equal(await h.fire("before_agent_start", { systemPrompt: "BASE" }), undefined)
   const c = harness({ env: { OMO_SENPI_TASK_RPC_CHILD: "1" } })

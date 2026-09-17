@@ -236,8 +236,13 @@ agent not busy, no pending messages, and the
 child wake sum is 0 (unknown never parks). Parking is `arm(ctx, "idle")` then
 `handoff_requested{at:"idle"}`; the handoff prompt says the session is being
 parked and the successor's kickoff ends with "report in <= 5 lines, then wait
-for the user". Any interactive/rpc input while armed-for-idle aborts back to
-`watching` (`idle_aborted`). `/rollover idle <minutes>|off` sets a session
+for the user". Any interactive/rpc input — or a typed `/rollover` command,
+which bypasses the input hook but still moves the user clock — while an idle
+attempt is in flight aborts it back to `watching` (`idle_aborted`): the held
+successor is dropped and a goal pause this extension made is resumed
+(`goal_resume`). An armed-for-idle retry also re-checks `enabled()` and
+`ctx.isIdle()`, so `/rollover off` or a busy runtime cancels the send.
+`/rollover idle <minutes>|off` sets a session
 override; `/rollover park` triggers the same path manually. The idle clocks are
 in-memory only — a reload or resume resets them, so a restored session never
 parks immediately.

@@ -201,8 +201,9 @@ const errMsg = (e: unknown) => String(e instanceof Error ? e.message : e)
 const goalCwd = (ctx: GoalCtx) => ctx.cwd ?? ctx.sessionManager?.getCwd?.() ?? process.cwd()
 // Type guard: the main entry only counts when it re-exports the whole goal-store surface.
 const isGoalStoreMain = (m: unknown): m is GoalStoreModule & GoalRefModule => {
-  const o = m as Partial<GoalStoreModule & GoalRefModule> | null | undefined
-  return typeof o?.readGoal === "function" && typeof o?.updateGoal === "function" && typeof o?.goalStoreRef === "function"
+  if (typeof m !== "object" || m === null) return false
+  return "readGoal" in m && "updateGoal" in m && "goalStoreRef" in m
+    && typeof m.readGoal === "function" && typeof m.updateGoal === "function" && typeof m.goalStoreRef === "function"
 }
 // The ctx surface the goal-store boundary needs.
 export type GoalCtx = { cwd?: string; sessionManager?: { getCwd?: () => string; getSessionId?: () => unknown; getBranch?: () => unknown[] } }
@@ -489,7 +490,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
       notice(ctx, "rollover: auto mode — not an autonomous session; staying. /rollover now to hand off.", "warning")
       return true
     }
-    if (stopped) return true // shutdown landed during the autonomy await: successor stays held, nothing sends
+    // Shutdown or an abort (idle input cancels synchronously during the await) invalidates the dispatch.
+    if (stopped || st.state !== "handoff_requested") return true
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
@@ -589,7 +591,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
     }
     if (st.state === "handoff_requested") {
       if (await tryRollover(ctx)) return
-      if (stopped) return // shutdown during the tryRollover await: the old session must not send
+      // Shutdown, mode-off, or an idle abort during the await: the old session must not send.
+      if (stopped || !enabled() || st.state !== "handoff_requested") return
       log(ctx, "successor_missing", { retried: st.handoffAskedCount > 1 })
       if (st.handoffAskedCount < 2) {
         st.handoffAskedCount = 2
