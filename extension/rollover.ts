@@ -130,6 +130,7 @@ export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolea
   return [
     "[rollover] This session's context is over budget. Stop working; hand off now.",
     "Do NOT read any file, run any command, or spawn any task (task/task_create). Use only what is already in your context.",
+    "Do NOT kill any server, monitor, or background shell you started; under Key files list each one as `port/PID/command` so the successor can reuse or stop it.",
     // The model-facing update_goal only accepts complete|blocked (paused is user/system-only); blocked stops goal-continuation and blocked→active is legal later.
     goalPaused ? "" : "First, if a goal is active, call the `update_goal` tool with status \"blocked\" and reason \"session rollover handoff in progress\".",
     `Write ${file} from memory (single write, max ~80 lines) with sections: Goal / Done / In progress / Next step / Key files / Constraints.`,

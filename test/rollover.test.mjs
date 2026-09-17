@@ -429,6 +429,7 @@ test("handoff instruction: no read, no command, no spawn, size caps, successor r
   assert.match(p, /tail -n 30 \.omo\/ulw-execute\/ledger\.jsonl/)
   assert.match(p, /NOT to read ulw-execute\/SKILL\.md, the full ledger, any prior-session JSONL, or any child transcript/)
   assert.match(p, /<successor>\.\.\.<\/successor>/)
+  assert.match(p, /Do NOT kill any server/)
 })
 
 test("handoff fallback when direct pause failed: update_goal blocked (paused is not model-settable)", () => {
