@@ -113,7 +113,6 @@ export function detectActiveSkill(entries: any[], known: Set<string>, cwd: strin
   return null
 }
 
-/** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
 export type IdleInput = {
   nowMs: number; lastUserAtMs: number; lastActivityAtMs: number; context: number
   childWake: number | null; idle: boolean; pending: boolean; state: State
@@ -138,6 +137,7 @@ export function idleVerdict(cfg: Config, i: IdleInput): IdleVerdict {
 
 export const AUTONOMOUS_SKILLS = new Set(["ulw-execute", "ulw-loop", "ultrawork", "mass-ulw", "hyperplan"])
 
+/** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
 export function withSkillToken(prompt: string, skill: string | null): string {
   if (!skill) return prompt
   return new RegExp(`^(?:\\/skill:|\\$skill:|\\$)${skill}(?=\\s|$)`).test(prompt) ? prompt : `$skill:${skill}\n${prompt}`
@@ -195,7 +195,11 @@ export const CONTEXT_BUDGET_BLOCK = [
 ].join("\n")
 
 export type PauseResult = { ok: boolean; method: "main" | "dist" | "none"; error?: string }
-export type PauseOpts = { env?: Record<string, string | undefined>; argv1?: string; importMain?: () => Promise<any> }
+// The slice of senpi's main entry we probe for; the goal store may or may not be re-exported there.
+export type SenpiMain = Partial<GoalStoreModule & GoalRefModule>
+export type PauseOpts = { env?: Record<string, string | undefined>; argv1?: string; importMain?: () => Promise<SenpiMain> }
+// The ctx surface the goal-store boundary needs.
+export type GoalCtx = { cwd?: string; sessionManager?: { getCwd?: () => string; getSessionId?: () => unknown; getBranch?: () => unknown[] } }
 const GOAL_REL = ["core", "extensions", "builtin", "goal"]
 
 // Where senpi's dist may be: omo's launcher spawns `<senpi>/dist/cli.js` (so argv[1] is inside dist)
@@ -223,8 +227,8 @@ export async function loadGoalStore(opts: PauseOpts = {}): Promise<GoalStore | {
   const argv1 = opts.argv1 ?? process.argv[1]
   const errors: string[] = []
   try {
-    const m = await (opts.importMain ?? (() => import("@code-yeongyu/senpi")))()
-    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) return { store: m as GoalStoreModule, ref: m as unknown as GoalRefModule, method: "main" }
+    const m = await (opts.importMain ?? (() => import("@code-yeongyu/senpi") as Promise<SenpiMain>))()
+    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) return { store: m, ref: m, method: "main" }
     errors.push("main entry has no goal store exports")
   } catch (e: any) {
     errors.push(`main: ${e?.message ?? e}`)
@@ -244,7 +248,7 @@ export async function loadGoalStore(opts: PauseOpts = {}): Promise<GoalStore | {
 }
 
 // Read the goal's status without mutating it. Returns null on any failure.
-export async function goalStatus(ctx: any, opts: PauseOpts = {}): Promise<string | null> {
+export async function goalStatus(ctx: GoalCtx, opts: PauseOpts = {}): Promise<string | null> {
   try {
     const loaded = await loadGoalStore(opts)
     if (!("store" in loaded)) return null
@@ -257,7 +261,7 @@ export async function goalStatus(ctx: any, opts: PauseOpts = {}): Promise<string
 }
 
 // ok:true means an active goal was actually paused by us — a no-op store read is not a pause.
-export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseResult> {
+export async function pauseGoal(ctx: GoalCtx, opts: PauseOpts = {}): Promise<PauseResult> {
   const loaded = await loadGoalStore(opts)
   if (!("store" in loaded)) return { ok: false, method: "none", error: loaded.error }
   const { store, ref, method } = loaded
@@ -273,7 +277,7 @@ export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseRe
 }
 
 // Undo a pause this extension made (idle park aborted). ok:true only when a paused goal was reactivated.
-export async function resumeGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseResult> {
+export async function resumeGoal(ctx: GoalCtx, opts: PauseOpts = {}): Promise<PauseResult> {
   const loaded = await loadGoalStore(opts)
   if (!("store" in loaded)) return { ok: false, method: "none", error: loaded.error }
   const { store, ref, method } = loaded
@@ -288,8 +292,8 @@ export async function resumeGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseR
   }
 }
 
-export type TimerHandle = { unref?: () => void }
-export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult>; resumeGoal?: (ctx: any) => Promise<PauseResult>; goalStatus?: (ctx: any) => Promise<string | null>; timer?: { setInterval: (fn: () => void, ms: number) => TimerHandle; clearInterval: (id: TimerHandle) => void } }
+export type TimerHandle = ReturnType<typeof setInterval>
+export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: GoalCtx) => Promise<PauseResult>; resumeGoal?: (ctx: GoalCtx) => Promise<PauseResult>; goalStatus?: (ctx: GoalCtx) => Promise<string | null>; timer?: { setInterval: (fn: () => void, ms: number) => TimerHandle; clearInterval: (id: TimerHandle) => void } }
 
 export function createRollover(pi: any, deps: Deps = {}) {
   const env = deps.env ?? process.env
@@ -335,7 +339,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   const knownSkills = () => new Set<string>((pi.getCommands?.() ?? []).filter((c: any) => c?.source === "skill").map((c: any) => String(c.name).replace(/^skill:/, "")))
   // Autonomous = a ulw-family skill is driving this session or a goal is active. Never throws;
   // the verdict is stored on st.autonomous so /rollover status reflects the last evaluation.
-  const isAutonomous = async (ctx: any): Promise<boolean> => {
+  const isAutonomous = async (ctx: GoalCtx): Promise<boolean> => {
     let skill: ActiveSkill | null = null
     let goal: string | null = null
     try {
@@ -398,7 +402,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   }
 
   // Cancel an idle-park attempt: back to watching, drop the held successor, and undo a goal pause we made.
-  async function abortIdle(ctx: any) {
+  async function abortIdle(ctx: GoalCtx) {
     st.state = "watching"
     st.reason = ""
     st.handoffAskedCount = 0
@@ -437,6 +441,12 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (reason === "idle" && pause.ok) { const resume = await doResume(ctx); log(ctx, "goal_resume", resume) }
       return
     }
+    if (reason === "idle" && lastUserAt !== seenUserAt) {
+      // A typed command bypasses the input hook but still moves lastUserAt: the attempt is cancelled.
+      if (pause.ok) { const resume = await doResume(ctx); log(ctx, "goal_resume", resume) }
+      await abortIdle(ctx)
+      return
+    }
     st.goalPaused = pause.ok
     persist(sid(ctx))
     notice(ctx, `rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
@@ -444,7 +454,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   // Single guard for both landing points so the instruction is injected once.
   function requestHandoff(ctx: any, at: "turn_end" | "agent_settled" | "idle"): boolean {
-    if (!enabled() || st.state !== "armed" || childWakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
+    if (stopped || !enabled() || st.state !== "armed" || childWakeTotal() !== 0 || ctx.hasPendingMessages?.()) return false
     st.state = "handoff_requested"
     st.handoffAskedCount = 1
     log(ctx, "handoff_requested", { at, context: st.context })
@@ -591,7 +601,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     summary(ctx, String(ev?.reason ?? "unknown"))
   })
 
-  const timer = deps.timer ?? { setInterval, clearInterval: clearInterval as (id: TimerHandle) => void }
+  const timer = deps.timer ?? { setInterval, clearInterval }
   const effectiveIdleMinutes = () => st.idleOverride ?? config.idleMinutes
   let idleTimer: TimerHandle | null = null
   let stopped = false
@@ -631,6 +641,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
     log(ctx, "idle_park", { sinceUserMin, sinceActivityMin, context: input.context, childWake: input.childWake })
     await arm(ctx, "idle") // arm() itself aborts on mid-arm user input
     if (stopped || st.state !== "armed") return
+    // The runtime may have gone busy while arm() was awaiting; re-check before sending.
+    if (ctx.isIdle?.() !== true) { await abortIdle(ctx); return }
     requestHandoff(ctx, "idle")
   }
   rearm()

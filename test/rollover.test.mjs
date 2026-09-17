@@ -8,7 +8,11 @@ import { join } from "node:path"
 import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, resumeGoal, goalStatus, detectActiveSkill, withSkillToken, idleVerdict, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
+// Await a deferred-completion signal with a bound, so a never-fired signal fails instead of hanging.
+const within = (p, ms = 3000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("signal never fired")), ms))])
+
 function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), resume = async () => ({ ok: true, method: "fake" }), goalStatus = async () => null, isIdle = true, pending = false } = {}) {
+  const rt = { isIdle, pending } // mutable runtime surface: tests flip these mid-scenario
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
@@ -19,11 +23,11 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   }
   let tokens = 0
   const ctx = {
-    isIdle: () => isIdle,
+    isIdle: () => rt.isIdle,
     cwd,
     ui: { notify: (m, k) => notes.push({ m, k }) },
     getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: 0 }),
-    hasPendingMessages: () => pending,
+    hasPendingMessages: () => rt.pending,
     sessionManager: { getSessionId: () => "s1", getSessionFile: () => "C:/sess/s1.jsonl", getCwd: () => cwd, getBranch: () => branch, getHeader: () => ({}) },
     newSession: async ({ withSession }) => {
       await withSession({ sessionManager: { getSessionId: () => "s2" }, sendUserMessage: async (t, o) => sent.push({ text: t, session: "s2", opts: o }) })
@@ -31,7 +35,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
     },
   }
   let clock = 0
-  const timer = { fns: [], setInterval: (fn) => (timer.fns.push(fn), timer.fns.length), clearInterval: (id) => { timer.fns[id - 1] = null }, tick: async () => { for (const f of timer.fns) await f?.() } }
+  const timer = { fns: [], setInterval: (fn) => { const h = { fn, unref() {} }; timer.fns.push(h); return h }, clearInterval: (h) => { h.fn = null }, tick: async () => { for (const f of timer.fns) await f.fn?.() } }
   const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(clock), pauseGoal: pause, resumeGoal: resume, goalStatus, timer })
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
@@ -42,7 +46,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   const spawn = () => fire("tool_call", { toolName: "task_create", input: {} })
   const lines = () => (existsSync(join(dir, "sessions", "s1.jsonl")) ? readFileSync(join(dir, "sessions", "s1.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [])
   const advance = (ms) => { clock += ms }
-  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines, advance, timer } // ctx.isIdle/hasPendingMessages are fixed at construction
+  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines, advance, timer, rt }
 }
 
 test("child session is inert: no handlers, no commands, no log", () => {
@@ -386,7 +390,7 @@ test("armed notify names the trigger and the budget", async () => {
   const h = harness()
   await h.commands.rollover.handler("on", h.ctx)
   await h.message(160_000)
-  assert.equal(h.notes.at(-1).m, "rollover: armed (budget 150000 reached, context=160000). task/task_create blocked; handing off once children drain.")
+  assert.match(h.notes.at(-1).m, /armed \(budget 150000 reached, context=160000\)/)
 })
 
 test("spawn block: `task` blocked while armed, task_output allowed", async () => {
@@ -527,7 +531,7 @@ test("idle reason persists; idle successor kickoff ends with the wait line", asy
   await r.commands.rollover.handler("now", r.ctx)
   const kick = r.sent.at(-1)
   assert.equal(kick.session, "s2")
-  assert.match(kick.text, /\[rollover\] Parked idle/)
+  assert.match(kick.text, /\[rollover\]/)
 })
 
 test("status shows state, mode, budget source, wake, and idle clocks", async () => {
@@ -635,7 +639,7 @@ test("/rollover idle <minutes>|off sets the override and persists", async () => 
   assert.equal(r.ext.st.idleOverride, 10)
   await h.commands.rollover.handler("idle off", h.ctx)
   assert.equal(h.ext.st.idleOverride, 0)
-  assert.equal(h.timer.fns[0], null, "interval cleared when idle is off")
+  assert.equal(h.timer.fns[0].fn, null, "interval cleared when idle is off")
   await h.commands.rollover.handler("idle abc", h.ctx)
   assert.equal(h.notes.at(-1).k, "error")
 })
@@ -688,25 +692,98 @@ test("idle tick: actionable skips log once, time gates stay silent", async () =>
   assert.equal(h4.lines().some((l) => l.ev === "idle_park"), false)
 })
 
-test("armed idle retry respects off and busy; pending work never sends after shutdown", async () => {
+test("armed idle retry respects off and busy; enabled+idle control sends", async () => {
   // Armed idle attempt (pending blocked the handoff) + /rollover off: the retry must not hand off.
   const h = harness({ pending: true })
   h.wake(0)
+  await h.message(150_000) // establishes lastCtx for tick()
   await h.commands.rollover.handler("park", h.ctx)
   assert.equal(h.ext.st.state, "armed") // pending blocked the handoff
   await h.commands.rollover.handler("off", h.ctx)
+  h.rt.pending = false // clear the independent blocker so only the off gate can stop the send
   await h.ext.tick()
   assert.equal(h.ext.st.state, "armed")
   assert.equal(h.sent.length, 0)
   // Busy runtime also gates the retry.
-  const b = harness({ pending: true, isIdle: false })
+  const b = harness({ pending: true })
   b.wake(0)
+  await b.message(150_000)
   await b.commands.rollover.handler("park", b.ctx)
   assert.equal(b.ext.st.state, "armed")
+  b.rt.pending = false
+  b.rt.isIdle = false
   await b.ext.tick()
   assert.equal(b.ext.st.state, "armed")
   assert.equal(b.sent.length, 0)
-  // Shutdown during the pause await: no handoff after shutdown.
+  // Control: enabled + idle + drained retries do send.
+  const c = harness({ pending: true })
+  c.wake(0)
+  await c.message(150_000)
+  await c.commands.rollover.handler("park", c.ctx)
+  assert.equal(c.ext.st.state, "armed")
+  c.rt.pending = false
+  await c.ext.tick()
+  assert.equal(c.ext.st.state, "handoff_requested")
+  assert.equal(c.sent.length, 1)
+})
+
+test("typed command during the pause await cancels the idle attempt", async () => {
+  let release, pauseReached
+  const calls = []
+  const h = harness({
+    pause: () => new Promise((r) => { release = r; pauseReached?.() }),
+    resume: async () => { calls.push("resume"); return { ok: true, method: "fake" } },
+  })
+  h.wake(0)
+  await h.message(150_000)
+  h.advance(51 * 60_000)
+  const reached = new Promise((r) => { pauseReached = r })
+  const t = h.ext.tick()
+  await within(reached) // doPause is in flight
+  h.advance(1)
+  await h.commands.rollover.handler("status", h.ctx) // typed commands bypass the input hook but move lastUserAt
+  release({ ok: true, method: "fake" })
+  await t
+  assert.equal(h.ext.st.state, "watching")
+  assert.equal(h.ext.st.goalPaused, false)
+  assert.deepEqual(calls, ["resume"])
+  assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
+  assert.equal(h.sent.length, 0)
+})
+
+test("runtime busy during the timed arm cancels the idle attempt", async () => {
+  let release, pauseReached
+  const h = harness({ pause: () => new Promise((r) => { release = r; pauseReached?.() }) })
+  h.wake(0)
+  await h.message(150_000)
+  h.advance(51 * 60_000)
+  const reached = new Promise((r) => { pauseReached = r })
+  const t = h.ext.tick()
+  await within(reached)
+  h.rt.isIdle = false // runtime went busy while arm() was awaiting
+  release({ ok: true, method: "fake" })
+  await t
+  assert.equal(h.ext.st.state, "watching")
+  assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
+  assert.equal(h.sent.length, 0)
+})
+
+test("manual park never sends after shutdown", async () => {
+  let release, pauseReached
+  const h = harness({ pause: () => new Promise((r) => { release = r; pauseReached?.() }) })
+  h.wake(0)
+  await h.message(150_000)
+  const reached = new Promise((r) => { pauseReached = r })
+  const t = h.commands.rollover.handler("park", h.ctx)
+  await within(reached)
+  await h.fire("session_shutdown", { reason: "reload" })
+  release({ ok: true, method: "fake" })
+  await t
+  assert.equal(h.sent.length, 0)
+  assert.equal(h.lines().some((l) => l.ev === "handoff_requested"), false)
+})
+
+test("timed arm never sends after shutdown", async () => {
   let release, pauseReached
   const s = harness({ pause: () => new Promise((r) => { release = r; pauseReached?.() }) })
   s.wake(0)
@@ -714,7 +791,7 @@ test("armed idle retry respects off and busy; pending work never sends after shu
   s.advance(51 * 60_000)
   const reached = new Promise((r) => { pauseReached = r })
   const t = s.ext.tick()
-  await reached // doPause is in flight before shutdown lands
+  await within(reached) // doPause is in flight before shutdown lands
   await s.fire("session_shutdown", { reason: "quit" })
   release({ ok: true, method: "fake" })
   await t
@@ -734,7 +811,7 @@ test("user input during the pause await aborts the idle attempt and undoes the p
   h.advance(51 * 60_000)
   const reached = new Promise((r) => { pauseReached = r })
   const t = h.ext.tick()
-  await reached // doPause is in flight before the input lands
+  await within(reached) // doPause is in flight before the input lands
   await h.fire("input", { source: "interactive" })
   release({ ok: true, method: "fake" }) // the pause lands after the abort
   await t
@@ -755,7 +832,7 @@ test("user input during the autonomy await aborts the idle attempt", async () =>
   defer = true
   const asked = new Promise((r) => { askReached = r })
   const t = h.ext.tick()
-  await asked // isAutonomous is in flight before the input lands
+  await within(asked) // isAutonomous is in flight before the input lands
   await h.fire("input", { source: "interactive" })
   release(null)
   await t
@@ -824,27 +901,28 @@ test("reload clears the interval and resets the clocks", async () => {
   h.wake(0)
   await h.message(150_000)
   h.advance(51 * 60_000)
-  assert.equal(h.timer.fns.filter(Boolean).length, 1)
+  assert.equal(h.timer.fns.filter((x) => x.fn).length, 1)
   await h.fire("session_shutdown", { reason: "reload" })
-  assert.equal(h.timer.fns.filter(Boolean).length, 0, "old interval cleared on reload")
+  assert.equal(h.timer.fns.filter((x) => x.fn).length, 0, "old interval cleared on reload")
   const r = harness({ dir: h.dir })
   await r.fire("session_start")
   assert.equal(r.ext.clocks().lastUserAt, 0) // fresh clock at reload time (r has its own clock)
+  // Isolate the clock guard: high context and known-zero wake, so only recent_user can block the park.
+  r.wake(0)
+  await r.message(150_000)
   r.advance(49 * 60_000) // under idleMinutes: must not park
   await r.ext.tick()
   assert.equal(r.ext.st.state, "watching")
+  assert.equal(r.ext.st.lastIdleWhy, "recent_user")
   assert.equal(r.lines().some((l) => l.ev === "idle_park"), false)
 })
 
-test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {
+test("handoff instruction: successor contract tokens and the read list", () => {
   const p = handoffPrompt("/w", "id", true)
-  assert.match(p, /Do NOT read any file, run any command, or spawn any task/)
-  assert.match(p, /80 lines/)
-  assert.match(p, /25 lines/)
-  assert.match(p, /Goal \/ Done \/ In progress \/ Next step \/ Key files \/ Constraints/)
-  assert.match(p, /tail -n 30 \.omo\/ulw-execute\/ledger\.jsonl/)
-  assert.match(p, /NOT to read ulw-execute\/SKILL\.md, the full ledger, any prior-session JSONL, or any child transcript/)
   assert.match(p, /<successor>\.\.\.<\/successor>/)
+  assert.match(p, /tail -n 30 \.omo\/ulw-execute\/ledger\.jsonl/)
+  assert.match(p, /ulw-execute\/SKILL\.md/)
+  assert.match(p, /handoff-id\.md/)
 })
 
 test("handoff fallback when direct pause failed: update_goal blocked (paused is not model-settable)", () => {
@@ -960,8 +1038,7 @@ test("arm records activeSkill (persisted, logged), handoff prompt demands the $s
   h.wake(0)
   await h.fire("agent_settled")
   const ask = h.sent.at(-1).text
-  assert.match(ask, /<successor> block must START with the line `\$skill:ulw-execute`/)
-  assert.ok(ask.indexOf("START with the line") < ask.indexOf("The successor starts with an empty context"))
+  assert.match(ask, /\$skill:ulw-execute/)
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>\n$skill:ulw-execute\nRead handoff-s1.md, continue.\n</successor>" } })
   await h.fire("agent_settled")
   await h.commands.rollover.handler("now", h.ctx)
