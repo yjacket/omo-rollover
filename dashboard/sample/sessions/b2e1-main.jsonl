@@ -21,7 +21,7 @@
 {"t":"2026-09-10T09:57:01.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"tool_call_blocked","tool":"task_create"}
 {"t":"2026-09-10T09:57:03.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"wake_source_state","source":"senpi-task","activeCount":0,"total":0}
 {"t":"2026-09-10T09:57:09.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"agent_settled","total":0,"state":"armed"}
-{"t":"2026-09-10T09:57:09.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"handoff_requested","context":37842}
+{"t":"2026-09-10T09:57:09.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"handoff_requested","at":"agent_settled","context":37842}
 {"t":"2026-09-10T09:58:39.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"message_end","input":2000,"output":900,"cacheRead":38842,"cacheWrite":200,"context":41842}
 {"t":"2026-09-10T09:58:39.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"agent_settled","total":0,"state":"handoff_requested"}
 {"t":"2026-09-10T09:58:39.000Z","session":"b2e1-main","cwd":"C:/dev/example","ev":"successor_found","chars":320}

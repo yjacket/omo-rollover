@@ -9,8 +9,9 @@ the intended behavior.
 
 ```
 watching ──context ≥ budget (or, opt-in, reread ratio ≥ max for 3 messages)──▶ armed
-armed    ──(turn_end | agent_settled) ∧ Σ wake_source_state == 0 ∧ !hasPendingMessages──▶ handoff_requested
-handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assistant reply ∧ Σ wake == 0 ∧ !hasPendingMessages──▶ rollover
+watching ──idle timer (no user input ≥ idleMinutes ∧ context ≥ idleMinTokens ∧ isIdle ∧ Σ child wake == 0)──▶ armed(reason=idle)
+armed    ──(turn_end | agent_settled | idle tick) ∧ Σ child wake == 0 ∧ !hasPendingMessages──▶ handoff_requested
+handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assistant reply ∧ Σ child wake == 0 ∧ !hasPendingMessages──▶ rollover
 ```
 
 - **armed**: goal paused (see "Goal pause" below), spawning tools blocked via `tool_call`
@@ -39,13 +40,13 @@ handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assis
 - **deferred rollover**: a `<successor>` found while the wake sum is unknown or
   > 0 (or `hasPendingMessages()`) logs `rollover_deferred{total}` and stays in
   `handoff_requested` — no re-ask, the successor prompt is kept. Re-checked on
-  every later `agent_settled` and `turn_end`; `/rollover` is dispatched once the
+  every later `agent_settled` and `turn_end`; `/rollover now` is dispatched once the
   sum reaches 0. Without this, `newSession` orphaned a child spawned during the
   handoff turn (field: task st_01a09c25 left `running` with the old parent).
-- **rollover**: dispatches `/rollover`, whose handler calls
+- **rollover**: dispatches `/rollover now`, whose handler calls
   `ctx.newSession({parentSession, withSession})` and sends the successor prompt
   in the new session. The handler itself refuses (notify + `rollover_refused{total}`)
-  while the wake sum is > 0; `/rollover force` overrides. An unknown sum (no
+  while the wake sum is > 0; `/rollover now force` overrides. An unknown sum (no
   event yet) does not block the manual command.
 
 Inert (no logging, no arming) in omo-task child sessions, detected by env
@@ -60,6 +61,8 @@ Inert (no logging, no arming) in omo-task child sessions, detected by env
 | `turn_end` | after each LLM response + its tool calls; while armed and wake sum is 0, requests the handoff mid-run via `sendUserMessage(..., {deliverAs: "steer"})` |
 | `agent_settled` | true idle; ANDed with the wake sum. Lands the handoff when children were still running at turn_end; also where the `<successor>` tag is extracted |
 | `tool_call` | blocks `task` and `task_create` while not watching |
+| `input` | moves the user clock on interactive/rpc input (extension-injected input does not); aborts an armed-for-idle handoff back to `watching` (`idle_aborted`, held successor dropped, owned goal pause resumed) |
+| `deps.timer` (60s interval) | idle-park tick; created only when the effective idle threshold is > 0, cleared on `session_shutdown`, re-armed on `session_start` and `/rollover idle` |
 | `before_agent_start` | appends the context-budget block (below) to `event.systemPrompt` on every main-session turn while mode is not `off` |
 
 ### Goal pause
@@ -157,7 +160,7 @@ What the extension does:
    block must START with the line `` `$skill:<name>` `` (exact token, nothing
    before it), then the handoff instructions, because a new session only sees
    skill names.
-3. **Kickoff.** `/rollover` sends the successor prompt with
+3. **Kickoff.** `/rollover now` sends the successor prompt with
    `{ expandPromptTemplates: true }`, so senpi expands the leading token into
    the skill body plus `<user-request>`. If the extracted successor lacks a
    leading invocation of that skill, `$skill:<name>\n` is prepended
@@ -195,19 +198,19 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 
 - `/rollover` or `/rollover help` – print the command list
 - `/rollover status` – state, mode, reason, context/budget (source), wake sums, blocked count, idle clocks
-- `/rollover auto|on|off` – `auto` (default) forces the handoff only in autonomous sessions (active goal or a ulw-* skill) and otherwise warns at budget; `on` always forces; `off` disables
+- `/rollover auto|on|off` – `auto` (default) forces the handoff only in autonomous sessions (active goal, or a skill in `AUTONOMOUS_SKILLS` = ulw-execute, ulw-loop, ultrawork, mass-ulw, hyperplan) and otherwise warns at budget; `on` always forces; `off` disables
 - `/rollover now` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
 - `/rollover now force` – hand off even with children running (they are orphaned)
 - `/rollover park` – manual idle-style handoff: the successor reports and waits for the user
 - `/rollover limit <K> [save]` – session token budget in thousands; `save` also writes `config.json`
-- `/rollover idle <minutes>|off` – idle-park threshold (see "Idle park")
+- `/rollover idle <minutes>|off` – idle-park threshold in whole minutes (see "Idle park"); bare `/rollover idle` shows the effective value and clocks
 
 ## Config
 
 `~/.omo/rollover/config.json` (read at load):
 
 ```json
-{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000 }
+{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000, "idleGraceMinutes": 5 }
 ```
 
 `rereadRatioMax` (opt-in, default off) compares `cacheRead / output` of each
@@ -240,13 +243,14 @@ parks immediately.
 `message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
-`command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context}`,
-`idle_park`, `idle_skip{reason}`, `idle_aborted`,
+`command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context,budget}` (throttled with the UI notice),
+`autonomy{autonomous,skill,goal}` (logged on every evaluation), `goal_resume{ok,method,error?}` (idle abort undoing an owned pause),
+`idle_park{sinceUserMin,sinceActivityMin,context,childWake}`, `idle_skip{why,sinceUserMin,sinceActivityMin,context,childWake}` (actionable whys only, once per change), `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
 `state_restored{state}`, `rollover{newSession,parentSession}`.
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
-(peak context, messages, cacheRead/output ratio, blocked, rollovers).
+(peak context, messages, cacheRead/output ratio, blocked, rollovers, `armReason`).
 
 ## State persistence
 
@@ -254,7 +258,8 @@ The state machine is written to `~/.omo/rollover/state/<sessionId>.json` on
 every transition (arm, handoff request, successor found, re-ask, blocked
 spawn, `/rollover on|off`, rollover), atomically (tmp + rename). Fields:
 `state, mode, blocked, rereadStreak, goalPaused, rollovers, armedAt,
-handoffAskedCount, peak, messages, cacheRead, output, startedAt, activeSkill, reason, budgetOverride, updatedAt`.
+handoffAskedCount, peak, messages, cacheRead, output, startedAt, activeSkill, reason, budgetOverride, idleOverride, lastNoticeContext, updatedAt`.
+The arm-time `autonomous` verdict and the in-memory idle clocks are deliberately not persisted.
 The counters are also written on every `message_end` so the summary row
 (peak context, messages, ratio) survives a `/reload`; the live `context` is not
 stored and is recomputed from the next `message_end`. `session_start` (any reason) restores the file for
@@ -309,10 +314,16 @@ state machine; no senpi and no LLM calls.
   state to `watching`, losing an armed or pending handoff; state persistence
   above resolves this. `session_shutdown` with reason `reload` still skips the
   summary line.
-- `/rollover` relies on `pi.sendUserMessage("/rollover", {expandPromptTemplates: true})`
+- `/rollover now` relies on `pi.sendUserMessage("/rollover now", {expandPromptTemplates: true})`
   dispatching a registered extension command.
 - The `turn_end` landing depends on senpi honoring `deliverAs: "steer"` while
   the agent is streaming. If steer delivery is deferred, the handoff still
   arrives before the next model call at the latest; `agent_settled` remains
   the fallback when children are running. A single turn that itself runs very
   long (one huge tool call) is not interrupted.
+- Idle-park caveats: typed `/commands` of other extensions do not reset the
+  idle clock (only interactive/rpc `input` does); the clocks reset on `/reload`
+  and `--resume`, so a restored session never parks immediately; a wake sum
+  that is still unknown blocks parking entirely; and the timer defers on
+  wall-clock idleness, not prompt-cache TTL — a warm cache does not keep a
+  parked session alive.

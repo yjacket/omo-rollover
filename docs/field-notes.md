@@ -95,6 +95,15 @@ When 1–3 hold, lower `budgetTokens` from 200K to 180K and re-measure.
 - Overnight evidence (searchad 01a0a77e): idle gaps 65min/3h/4h with all wake sources 0; each return was a
   user-typed message paying a cold cache write at 165K/184K/196K context (~$16 of writes overnight). This
   is the cost the idle park exists to cap.
+- Why idleMinutes=50 / idleMinTokens=100K: the Anthropic 1h retention window means a park before ~50 min
+  of silence still lands the successor inside the warm window (the successor's first turn reuses the
+  cached prefix instead of paying a cold write), and 100K is the floor where a handoff is worth the
+  re-read cost — below it the successor's cold-start reads cost more than the context saved.
+- Why not a keepalive ping instead of parking: a synthetic turn every ~4 min would hold the cache warm
+  but burns output tokens forever and keeps a dead session looking alive; parking hands off once and
+  stops paying. Deferral is deliberately not TTL-based: the timer checks wall-clock idleness
+  (lastUserAt/lastActivityAt), not cache expiry — a session with live children or pending messages
+  skips parking regardless of how warm the cache is (wake_unknown never parks).
 
 ## Settings in use at the end of the observation
 
