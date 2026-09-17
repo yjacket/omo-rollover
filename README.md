@@ -256,7 +256,7 @@ parks immediately.
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, one object per line:
 `{t, session, cwd, ev, ...}` with `ev` ∈ `session_start{parent?}`,
-`message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
+`message_end{input,output,cacheRead,cacheWrite,context,ratio,provider}` (`provider` = the lane the turn ran on, from `message.provider`; a session mixes lanes under model fallback and prompt-cache TTL differs per lane),
 `wake_source_state{source,activeCount,total}`, `turn_end{total}` (only while
 armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context,budget}` (throttled with the UI notice),

@@ -548,7 +548,9 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.cacheRead += cacheRead
     st.output += output
     const ratio = +(cacheRead / Math.max(1, output)).toFixed(1)
-    log(ctx, "message_end", { input, output, cacheRead, cacheWrite, context, ratio })
+    // Lane the turn actually ran on (a session mixes lanes under model fallback); prompt-cache TTL is per lane.
+    const provider = typeof m.provider === "string" ? m.provider : ctx.model?.provider
+    log(ctx, "message_end", { input, output, cacheRead, cacheWrite, context, ratio, provider })
     persist(sid(ctx)) // counters above feed the summary row; keep them across /reload
     if (!enabled() || st.state !== "watching" || context <= 0) return
 

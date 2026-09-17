@@ -45,7 +45,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
     tokens = context
-    return fire("message_end", { message: { role: "assistant", usage: { input: 1000, output: 500, cacheRead: context - 1000, cacheWrite: 0, ...extra } } })
+    return fire("message_end", { message: { role: "assistant", provider: "claude-sdk-oauth", usage: { input: 1000, output: 500, cacheRead: context - 1000, cacheWrite: 0, ...extra } } })
   }
   const wake = (activeCount, source = "senpi-task") => bus.wake_source_state?.({ source, activeCount })
   const spawn = () => fire("tool_call", { toolName: "task_create", input: {} })
@@ -285,7 +285,7 @@ test("JSONL append shape and /rollover off", async () => {
     assert.equal(l.session, "s1")
     assert.equal(l.cwd, "C:/work")
   }
-  assert.deepEqual(L[3], { t: L[3].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000, ratio: 18 })
+  assert.deepEqual(L[3], { t: L[3].t, session: "s1", cwd: "C:/work", ev: "message_end", input: 1000, output: 500, cacheRead: 9000, cacheWrite: 0, context: 10_000, ratio: 18, provider: "claude-sdk-oauth" })
   assert.equal(L[5].total, 3)
   assert.equal(L[6].total, 3)
   await h.commands.rollover.handler("off", h.ctx)

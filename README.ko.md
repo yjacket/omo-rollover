@@ -253,7 +253,7 @@ resume이 초기화하므로 복원된 세션이 즉시 주차되는 일은 없�
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, 한 줄에 객체 하나:
 `{t, session, cwd, ev, ...}`. `ev` ∈ `session_start{parent?}`,
-`message_end{input,output,cacheRead,cacheWrite,context,ratio}`,
+`message_end{input,output,cacheRead,cacheWrite,context,ratio,provider}`(`provider` = 그 턴이 실제로 실행된 lane, `message.provider`에서 가져옴. 모델 fallback으로 한 세션 안에 여러 lane이 섞이고 프롬프트 캐시 TTL이 lane마다 다름),
 `wake_source_state{source,activeCount,total}`, `turn_end{total}`(armed일 때만),
 `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,source}`, `goal_pause{ok,method,error?}`, `tool_call_blocked{tool}`,
 `command{verb}`, `user_input{source,streaming}`, `budget_notice{reason,context,budget}`(UI 알림과 함께 throttle됨),
