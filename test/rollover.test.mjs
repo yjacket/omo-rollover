@@ -5,10 +5,10 @@ import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdi
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { join } from "node:path"
-import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, detectActiveSkill, withSkillToken, isAutonomous, idleVerdict, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
+import { createRollover, extractSuccessor, lastAssistantText, handoffPrompt, pauseGoal, detectActiveSkill, withSkillToken, idleVerdict, CONTEXT_BUDGET_BLOCK } from "../extension/rollover.ts"
 
 // Pass `dir` to build a second instance on the same data dir (= /reload or --resume).
-function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), goal = null } = {}) {
+function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), goalStatus = async () => null, isIdle = true } = {}) {
   const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
@@ -19,12 +19,11 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   }
   let tokens = 0
   const ctx = {
-    getGoalStatus: () => goal,
+    isIdle: () => isIdle,
     cwd,
     ui: { notify: (m, k) => notes.push({ m, k }) },
     getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: 0 }),
     hasPendingMessages: () => false,
-    isIdle: () => true,
     sessionManager: { getSessionId: () => "s1", getSessionFile: () => "C:/sess/s1.jsonl", getCwd: () => cwd, getBranch: () => branch, getHeader: () => ({}) },
     newSession: async ({ withSession }) => {
       await withSession({ sessionManager: { getSessionId: () => "s2" }, sendUserMessage: async (t, o) => sent.push({ text: t, session: "s2", opts: o }) })
@@ -33,7 +32,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   }
   let clock = 0
   const timer = { fns: [], setInterval: (fn) => (timer.fns.push(fn), timer.fns.length), clearInterval: (id) => { timer.fns[id - 1] = null }, tick: async () => { for (const f of timer.fns) await f?.() } }
-  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(clock), pauseGoal: pause, timer })
+  const ext = createRollover(pi, { env: { OMO_ROLLOVER_DIR: dir, ...env }, now: () => new Date(clock), pauseGoal: pause, goalStatus, timer })
   const fire = (ev, e = {}) => handlers[ev]?.(e, ctx)
   const message = (context, extra = {}) => {
     tokens = context
@@ -190,7 +189,7 @@ test("successor extraction, then /rollover dispatch and newSession", async () =>
   branch.push({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "wrote file.\n<successor>\nRead handoff-s1.md then continue step 4.\n</successor>" }] } })
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "rollover")
-  assert.deepEqual(h.sent.at(-1), { text: "/rollover", opts: { expandPromptTemplates: true } })
+  assert.deepEqual(h.sent.at(-1), { text: "/rollover now", opts: { expandPromptTemplates: true } })
   await h.commands.rollover.handler("now", h.ctx)
   assert.deepEqual(h.sent.at(-1), { text: "Read handoff-s1.md then continue step 4.", session: "s2", opts: { expandPromptTemplates: true } })
   const roll = h.lines().find((l) => l.ev === "rollover")
@@ -226,7 +225,7 @@ test("long single-agent run: handoff steered at first turn_end with wake 0, once
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md, continue.</successor>" } })
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "rollover")
-  assert.deepEqual(h.sent.at(-1), { text: "/rollover", opts: { expandPromptTemplates: true } })
+  assert.deepEqual(h.sent.at(-1), { text: "/rollover now", opts: { expandPromptTemplates: true } })
 })
 
 test("turn_end with children running does not land; agent_settled does once they drain", async () => {
@@ -334,7 +333,7 @@ test("reload between <successor> reply and agent_settled: session_start dispatch
   r.wake(0)
   await r.fire("agent_settled")
   assert.equal(r.ext.st.state, "rollover")
-  assert.deepEqual(r.sent, [{ text: "/rollover", opts: { expandPromptTemplates: true } }])
+  assert.deepEqual(r.sent, [{ text: "/rollover now", opts: { expandPromptTemplates: true } }])
   await r.fire("agent_settled") // no second dispatch
   assert.equal(r.sent.length, 1)
   await r.commands.rollover.handler("now", r.ctx)
@@ -354,7 +353,7 @@ test("state file: shape, written atomically, no leftover tmp", async () => {
   assert.deepEqual(saved, {
     state: "armed", mode: "on", blocked: 0, rereadStreak: 0, goalPaused: true, rollovers: 0,
     armedAt: "1970-01-01T00:00:00.000Z", handoffAskedCount: 0, peak: 160_000, messages: 1, cacheRead: 159_000, output: 500,
-    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, idleOverride: null, reason: "budget", updatedAt: "1970-01-01T00:00:00.000Z",
+    startedAt: "1970-01-01T00:00:00.000Z", activeSkill: null, budgetOverride: null, idleOverride: null, lastNoticeContext: 160_000, reason: "budget", updatedAt: "1970-01-01T00:00:00.000Z",
   })
   assert.equal("context" in saved, false)
   await h.commands.rollover.handler("off", h.ctx)
@@ -414,16 +413,16 @@ test("successor found while a child is live: rollover_deferred, /rollover dispat
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "handoff_requested")
   assert.deepEqual(h.lines().at(-1), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "rollover_deferred", total: 1, wake: { "senpi-task": 1 } })
-  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 0)
+  assert.equal(h.sent.filter((s) => s.text === "/rollover now").length, 0)
   assert.equal(h.sent.filter((s) => /did not contain/.test(s.text)).length, 0, "no re-ask")
   await h.fire("turn_end")
   assert.equal(h.ext.st.state, "handoff_requested")
   h.wake(0)
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "rollover")
-  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 1)
+  assert.equal(h.sent.filter((s) => s.text === "/rollover now").length, 1)
   await h.fire("agent_settled")
-  assert.equal(h.sent.filter((s) => s.text === "/rollover").length, 1)
+  assert.equal(h.sent.filter((s) => s.text === "/rollover now").length, 1)
 })
 
 test("/rollover refuses while children run; /rollover force proceeds", async () => {
@@ -446,7 +445,7 @@ test("bare /rollover and help print help; now performs the handoff", async () =>
     await h.commands.rollover.handler(arg, h.ctx)
     assert.match(h.notes.at(-1).m, /now \[force\]/)
     assert.equal(h.sent.some((s) => s.session === "s2"), false, "no newSession")
-    assert.equal(h.sent.some((s) => s.text === "/rollover"), false)
+    assert.equal(h.sent.some((s) => s.text === "/rollover now"), false)
   }
   const branch = [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }]
   const h = harness({ branch })
@@ -557,7 +556,7 @@ test("status shows state, mode, budget source, wake, and idle clocks", async () 
   assert.match(m, /childWake=unknown/)
   assert.match(m, /sinceUser=0\.0m/) // the status command itself is user input
   assert.match(m, /sinceActivity=\d+\.\dm/)
-  assert.match(m, /autonomous=false/)
+  assert.match(m, /autonomous=unknown/)
   await h.commands.rollover.handler("limit 200", h.ctx)
   await h.commands.rollover.handler("status", h.ctx)
   assert.match(h.notes.at(-1).m, /context=1000\/200000 \(session\)/)
@@ -567,14 +566,17 @@ test("status shows state, mode, budget source, wake, and idle clocks", async () 
   assert.match(h.notes.at(-1).m, /wake=2 childWake=0/)
 })
 
-test("isAutonomous: goal status or ulw-family skill", () => {
-  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "active" }) }), true)
-  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "paused" }) }), false)
-  assert.equal(isAutonomous({ getGoalStatus: () => null }), false)
-  assert.equal(isAutonomous({}), false)
-  assert.equal(isAutonomous({ getGoalStatus: () => ({ status: "active" }) }, "ulw-execute"), true)
-  assert.equal(isAutonomous({}, "ulw-execute"), true)
-  assert.equal(isAutonomous({}, "frontend"), false)
+test("isAutonomous: ulw skill or active goal; errors are safe", async () => {
+  const branch = [user("$ulw-execute")]
+  const a = harness({ branch })
+  assert.equal(await a.ext.isAutonomous(a.ctx), true)
+  assert.deepEqual(a.lines().find((l) => l.ev === "autonomy"), { t: "1970-01-01T00:00:00.000Z", session: "s1", cwd: "C:/work", ev: "autonomy", autonomous: true, skill: "ulw-execute", goal: null })
+  const b = harness({ goalStatus: async () => "active" })
+  assert.equal(await b.ext.isAutonomous(b.ctx), true)
+  const c = harness()
+  assert.equal(await c.ext.isAutonomous(c.ctx), false)
+  const d = harness({ goalStatus: async () => { throw new Error("nope") } })
+  assert.equal(await d.ext.isAutonomous(d.ctx), false)
 })
 
 test("auto mode: non-autonomous session gets budget_notice, not armed", async () => {
@@ -589,7 +591,7 @@ test("auto mode: non-autonomous session gets budget_notice, not armed", async ()
 })
 
 test("auto mode: active goal arms; ulw skill arms", async () => {
-  const g = harness({ goal: { status: "active" } })
+  const g = harness({ goalStatus: async () => "active" })
   await g.message(160_000)
   assert.equal(g.ext.st.state, "armed")
   const s = harness({ branch: [{ type: "message", message: { role: "user", content: "$skill:ulw-execute" } }] })
@@ -613,17 +615,19 @@ test("auto mode: tryRollover refuses to land a non-autonomous session", async ()
 })
 
 test("idleVerdict: table of skip reasons and park", () => {
-  const base = { enabled: true, context: 150_000, minTokens: 100_000, nowMs: 60 * 60_000, lastUserAt: 0, lastActivityAt: 0, idleMinutes: 50, agentBusy: false, hasPending: false, childWake: 0, state: "watching" }
-  assert.equal(idleVerdict(base).action, "park")
-  assert.equal(idleVerdict({ ...base, enabled: false }).action, "skip")
-  assert.equal(idleVerdict({ ...base, context: 50_000 }).reason, "context")
-  assert.equal(idleVerdict({ ...base, lastUserAt: 59 * 60_000 }).reason, "user")
-  assert.equal(idleVerdict({ ...base, lastActivityAt: 59 * 60_000 }).reason, "activity")
-  assert.equal(idleVerdict({ ...base, agentBusy: true }).reason, "busy")
-  assert.equal(idleVerdict({ ...base, hasPending: true }).reason, "pending")
-  assert.equal(idleVerdict({ ...base, childWake: 1 }).reason, "wake")
-  assert.equal(idleVerdict({ ...base, childWake: null }).reason, "wake_unknown")
-  assert.equal(idleVerdict({ ...base, state: "armed" }).reason, "state")
+  const cfg = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000, idleGraceMinutes: 5 }
+  const base = { nowMs: 60 * 60_000, lastUserAtMs: 0, lastActivityAtMs: 0, context: 150_000, childWake: 0, idle: true, pending: false, state: "watching", mode: "auto", idleMinutes: 50 }
+  assert.deepEqual(idleVerdict(cfg, base), { park: true })
+  assert.equal(idleVerdict(cfg, { ...base, idleMinutes: 0 }).why, "off")
+  assert.equal(idleVerdict(cfg, { ...base, mode: "off" }).why, "mode")
+  assert.equal(idleVerdict(cfg, { ...base, state: "armed" }).why, "state")
+  assert.equal(idleVerdict(cfg, { ...base, lastUserAtMs: 59 * 60_000 }).why, "recent_user")
+  assert.equal(idleVerdict(cfg, { ...base, lastActivityAtMs: 58 * 60_000 }).why, "recent_activity") // 2m < 5m grace
+  assert.equal(idleVerdict(cfg, { ...base, context: 50_000 }).why, "below_min")
+  assert.equal(idleVerdict(cfg, { ...base, idle: false }).why, "busy")
+  assert.equal(idleVerdict(cfg, { ...base, pending: true }).why, "pending")
+  assert.equal(idleVerdict(cfg, { ...base, childWake: null }).why, "wake_unknown")
+  assert.equal(idleVerdict(cfg, { ...base, childWake: 1 }).why, "children")
 })
 
 test("/rollover idle <minutes>|off sets the override and persists", async () => {
@@ -648,38 +652,59 @@ test("idle tick parks after 50 idle minutes with context >= 100K", async () => {
   await h.message(150_000)
   assert.equal(h.ext.st.state, "watching") // auto mode, not autonomous
   h.advance(51 * 60_000)
-  await h.timer.tick()
+  await h.ext.tick()
   assert.equal(h.ext.st.state, "handoff_requested")
   assert.equal(h.lines().find((l) => l.ev === "armed").reason, "idle")
   assert.equal(h.lines().find((l) => l.ev === "handoff_requested").at, "idle")
   assert.ok(h.lines().some((l) => l.ev === "idle_park"))
 })
 
-test("idle tick skips with reasons; user input aborts an idle arm", async () => {
+test("idle tick: actionable skips log once, time gates stay silent", async () => {
   const h = harness()
   h.wake(0)
   await h.message(50_000) // below idleMinTokens
   h.advance(51 * 60_000)
-  await h.timer.tick()
+  await h.ext.tick()
   assert.equal(h.ext.st.state, "watching")
-  assert.equal(h.lines().find((l) => l.ev === "idle_skip").reason, "context")
-  // wake unknown never parks
+  assert.equal(h.lines().some((l) => l.ev === "idle_skip"), false, "below_min is a silent time gate")
+  // wake unknown logs once, then stays silent while unchanged
   const h2 = harness()
   await h2.message(150_000)
   h2.advance(51 * 60_000)
-  await h2.timer.tick()
-  assert.equal(h2.ext.st.state, "watching")
-  assert.equal(h2.lines().find((l) => l.ev === "idle_skip").reason, "wake_unknown")
-  // abort on user input
-  const h3 = harness()
+  await h2.ext.tick()
+  assert.equal(h2.lines().filter((l) => l.ev === "idle_skip").length, 1)
+  assert.equal(h2.lines().find((l) => l.ev === "idle_skip").why, "wake_unknown")
+  await h2.ext.tick()
+  assert.equal(h2.lines().filter((l) => l.ev === "idle_skip").length, 1)
+  // busy agent skips
+  const h3 = harness({ isIdle: false })
   h3.wake(0)
   await h3.message(150_000)
   h3.advance(51 * 60_000)
-  await h3.timer.tick()
-  assert.equal(h3.ext.st.state, "handoff_requested")
-  h3.fire("input", { source: "interactive" })
-  assert.equal(h3.ext.st.state, "watching")
-  assert.ok(h3.lines().some((l) => l.ev === "idle_aborted"))
+  await h3.ext.tick()
+  assert.equal(h3.lines().find((l) => l.ev === "idle_skip").why, "busy")
+  // mode off never parks
+  const h4 = harness()
+  h4.wake(0)
+  await h4.commands.rollover.handler("off", h4.ctx)
+  await h4.message(150_000)
+  h4.advance(51 * 60_000)
+  await h4.ext.tick()
+  assert.equal(h4.ext.st.state, "watching")
+  assert.equal(h4.lines().some((l) => l.ev === "idle_park"), false)
+})
+
+test("user input aborts an idle arm and drops the held successor", async () => {
+  const h = harness()
+  h.wake(0)
+  await h.message(150_000)
+  h.advance(51 * 60_000)
+  await h.ext.tick()
+  assert.equal(h.ext.st.state, "handoff_requested")
+  h.fire("input", { source: "interactive" })
+  assert.equal(h.ext.st.state, "watching")
+  assert.equal(h.ext.st.handoffAskedCount, 0)
+  assert.ok(h.lines().some((l) => l.ev === "idle_aborted"))
 })
 
 test("reload clears the interval and resets the clocks", async () => {

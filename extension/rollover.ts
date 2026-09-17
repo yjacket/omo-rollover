@@ -19,8 +19,8 @@ import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
 
 export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "rolled_over"
-export type Config = { budgetTokens: number; rereadRatioMax: number; idleMinutes: number; idleMinTokens: number }
-export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
+export type Config = { budgetTokens: number; rereadRatioMax: number; idleMinutes: number; idleMinTokens: number; idleGraceMinutes: number }
+export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000, idleGraceMinutes: 5 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
 const SPAWN_TOOLS = new Set(["task", "task_create"]) // exact names; task_output/list/cancel/get/update/send stay allowed
 // Only child sessions would be orphaned by newSession; monitors/servers survive it, so they never gate landing.
@@ -44,6 +44,7 @@ export function loadConfig(dir: string): Config {
       budgetTokens: Number(raw.budgetTokens) > 0 ? Number(raw.budgetTokens) : DEFAULT_CONFIG.budgetTokens,
       idleMinutes: Number.isFinite(Number(raw.idleMinutes)) && Number(raw.idleMinutes) >= 0 ? Number(raw.idleMinutes) : DEFAULT_CONFIG.idleMinutes,
       idleMinTokens: Number(raw.idleMinTokens) > 0 ? Number(raw.idleMinTokens) : DEFAULT_CONFIG.idleMinTokens,
+      idleGraceMinutes: Number(raw.idleGraceMinutes) > 0 ? Number(raw.idleGraceMinutes) : DEFAULT_CONFIG.idleGraceMinutes,
       rereadRatioMax: Number(raw.rereadRatioMax) > 0 ? Number(raw.rereadRatioMax) : 0,
     }
   } catch {
@@ -65,7 +66,7 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
 }
 
 // Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
-const PERSISTED = ["state", "mode", "reason", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride", "idleOverride"] as const
+const PERSISTED = ["state", "mode", "reason", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride", "idleOverride", "lastNoticeContext"] as const
 
 export const ROLLOVER_HELP = [
   "rollover commands:",
@@ -113,28 +114,29 @@ export function detectActiveSkill(entries: any[], known: Set<string>, cwd: strin
 }
 
 /** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
-// Pure idle-park decision; every input is passed in so tests can drive the table.
-export function idleVerdict(v: {
-  enabled: boolean; context: number; minTokens: number; nowMs: number; lastUserAt: number; lastActivityAt: number;
-  idleMinutes: number; agentBusy: boolean; hasPending: boolean; childWake: number | null; state: string
-}): { action: "park" | "skip"; reason?: string } {
-  if (!v.enabled) return { action: "skip", reason: "disabled" }
-  if (v.state !== "watching") return { action: "skip", reason: "state" }
-  if (v.context < v.minTokens) return { action: "skip", reason: "context" }
-  if (v.nowMs - v.lastUserAt < v.idleMinutes * 60_000) return { action: "skip", reason: "user" }
-  if (v.nowMs - v.lastActivityAt < v.idleMinutes * 60_000) return { action: "skip", reason: "activity" }
-  if (v.agentBusy) return { action: "skip", reason: "busy" }
-  if (v.hasPending) return { action: "skip", reason: "pending" }
-  if (v.childWake === null) return { action: "skip", reason: "wake_unknown" }
-  if (v.childWake !== 0) return { action: "skip", reason: "wake" }
-  return { action: "park" }
+export type IdleInput = {
+  nowMs: number; lastUserAtMs: number; lastActivityAtMs: number; context: number
+  childWake: number | null; idle: boolean; pending: boolean; state: State
+  mode: "auto" | "on" | "off"; idleMinutes: number
+}
+export type IdleVerdict = { park: true } | { park: false; why: "off" | "mode" | "state" | "recent_user" | "recent_activity" | "below_min" | "busy" | "pending" | "wake_unknown" | "children" }
+
+// Pure idle-park decision; every input is passed in so tests can drive the table. No I/O, no Date.
+export function idleVerdict(cfg: Config, i: IdleInput): IdleVerdict {
+  if (i.idleMinutes <= 0) return { park: false, why: "off" }
+  if (i.mode === "off") return { park: false, why: "mode" }
+  if (i.state !== "watching") return { park: false, why: "state" }
+  if (i.nowMs - i.lastUserAtMs < i.idleMinutes * 60_000) return { park: false, why: "recent_user" }
+  if (i.nowMs - i.lastActivityAtMs < cfg.idleGraceMinutes * 60_000) return { park: false, why: "recent_activity" }
+  if (i.context < cfg.idleMinTokens) return { park: false, why: "below_min" }
+  if (!i.idle) return { park: false, why: "busy" }
+  if (i.pending) return { park: false, why: "pending" }
+  if (i.childWake === null) return { park: false, why: "wake_unknown" }
+  if (i.childWake > 0) return { park: false, why: "children" }
+  return { park: true }
 }
 
-// Autonomous = a goal is active or a ulw-family skill is driving this session.
-export function isAutonomous(ctx: any, activeSkill: string | null = null): boolean {
-  const s = ctx?.getGoalStatus?.()?.status
-  return s === "active" || (activeSkill ?? "").startsWith("ulw-")
-}
+export const AUTONOMOUS_SKILLS = new Set(["ulw-execute", "ulw-loop", "ultrawork", "mass-ulw", "hyperplan"])
 
 export function withSkillToken(prompt: string, skill: string | null): string {
   if (!skill) return prompt
@@ -209,33 +211,51 @@ function senpiDistCandidates(env: Record<string, string | undefined>, argv1: str
 // Goal pause via senpi's store. `import.meta.resolve` never worked here (no node_modules under
 // ~/.omo/agent/extensions); the loader only aliases bare `import("@code-yeongyu/senpi")`, and that
 // entry does not currently export the goal store, so the dist path derivation is the working route.
-export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseResult> {
+export type GoalStore = { store: any; ref: any; method: "main" | "dist" }
+
+// Load senpi's goal store modules via the main entry or a derived dist path. Never throws.
+export async function loadGoalStore(opts: PauseOpts = {}): Promise<GoalStore | { error: string }> {
   const env = opts.env ?? process.env
   const argv1 = opts.argv1 ?? process.argv[1]
   const errors: string[] = []
-  let store: any, ref: any, method: PauseResult["method"] = "none"
   try {
     const m = await (opts.importMain ?? (() => import("@code-yeongyu/senpi")))()
-    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) { store = ref = m; method = "main" }
-    else errors.push("main entry has no goal store exports")
+    if (m?.readGoal && m?.updateGoal && m?.goalStoreRef) return { store: m, ref: m, method: "main" }
+    errors.push("main entry has no goal store exports")
   } catch (e: any) {
     errors.push(`main: ${e?.message ?? e}`)
   }
-  if (!store) {
-    for (const dist of senpiDistCandidates(env, argv1)) {
-      const goal = join(dist, ...GOAL_REL)
-      if (!existsSync(join(goal, "store.js")) || !existsSync(join(goal, "store-ref.js"))) continue
-      try {
-        store = await import(pathToFileURL(join(goal, "store.js")).href)
-        ref = await import(pathToFileURL(join(goal, "store-ref.js")).href)
-        method = "dist"
-        break
-      } catch (e: any) {
-        errors.push(`dist ${dist}: ${e?.message ?? e}`)
-      }
+  for (const dist of senpiDistCandidates(env, argv1)) {
+    const goal = join(dist, ...GOAL_REL)
+    if (!existsSync(join(goal, "store.js")) || !existsSync(join(goal, "store-ref.js"))) continue
+    try {
+      const store = await import(pathToFileURL(join(goal, "store.js")).href)
+      const ref = await import(pathToFileURL(join(goal, "store-ref.js")).href)
+      return { store, ref, method: "dist" }
+    } catch (e: any) {
+      errors.push(`dist ${dist}: ${e?.message ?? e}`)
     }
-    if (!store) return { ok: false, method: "none", error: errors.concat("no senpi dist found").join("; ") }
   }
+  return { error: errors.concat("no senpi dist found").join("; ") }
+}
+
+// Read the goal's status without mutating it. Returns null on any failure.
+export async function goalStatus(ctx: any, opts: PauseOpts = {}): Promise<string | null> {
+  try {
+    const loaded = await loadGoalStore(opts)
+    if (!("store" in loaded)) return null
+    const r = loaded.ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
+    const g = await loaded.store.readGoal(r)
+    return g?.status ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseResult> {
+  const loaded = await loadGoalStore(opts)
+  if (!("store" in loaded)) return { ok: false, method: "none", error: loaded.error }
+  const { store, ref, method } = loaded
   try {
     const r = ref.goalStoreRef(ctx.sessionManager, ctx.cwd ?? ctx.sessionManager.getCwd())
     const g = await store.readGoal(r)
@@ -246,12 +266,13 @@ export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseRe
   }
 }
 
-export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult>; timer?: { setInterval: (fn: () => void, ms: number) => unknown; clearInterval: (id: unknown) => void } }
+export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult>; goalStatus?: (ctx: any) => Promise<string | null>; timer?: { setInterval: (fn: () => void, ms: number) => unknown; clearInterval: (id: unknown) => void } }
 
 export function createRollover(pi: any, deps: Deps = {}) {
   const env = deps.env ?? process.env
   const now = deps.now ?? (() => new Date())
   const doPause = deps.pauseGoal ?? pauseGoal
+  const doGoalStatus = deps.goalStatus ?? goalStatus
   if (isChildSession(env)) return null
 
   const dir = rolloverDir(env)
@@ -277,14 +298,27 @@ export function createRollover(pi: any, deps: Deps = {}) {
     activeSkill: null as string | null,
     budgetOverride: null as number | null,
     idleOverride: null as number | null,
+    lastNoticeContext: null as number | null,
+    autonomous: null as boolean | null, // arm-time verdict; not persisted
+    lastIdleWhy: null as string | null,
   }
 
   let lastCtx: any = null
   // In-memory clocks only: a resumed/reloaded session must never park immediately.
   let lastUserAt = now().getTime()
   let lastActivityAt = now().getTime()
-  let agentBusy = false
   let lastVerdict = "-"
+  let lastLoggedIdleWhy: string | null = null // dedupes actionable idle_skip lines
+  const knownSkills = () => new Set<string>((pi.getCommands?.() ?? []).filter((c: any) => c?.source === "skill").map((c: any) => String(c.name).replace(/^skill:/, "")))
+  // Autonomous = a ulw-family skill is driving this session or a goal is active. Never throws.
+  const isAutonomous = async (ctx: any): Promise<boolean> => {
+    const skill = detectActiveSkill(ctx.sessionManager?.getBranch?.() ?? [], knownSkills(), cwdOf(ctx))
+    const goal = await doGoalStatus(ctx).catch(() => null)
+    const autonomous = !!skill && AUTONOMOUS_SKILLS.has(skill.name) || goal === "active"
+    if (skill) { st.activeSkill = skill.name; log(ctx, "active_skill", skill) }
+    log(ctx, "autonomy", { autonomous, skill: skill?.name ?? null, goal })
+    return autonomous
+  }
   const sid = (ctx: any) => String(ctx?.sessionManager?.getSessionId?.() ?? "unknown")
   const cwdOf = (ctx: any) => String(ctx?.cwd ?? ctx?.sessionManager?.getCwd?.() ?? process.cwd())
   const log = (ctx: any, ev: string, extra: Record<string, unknown> = {}) =>
@@ -321,27 +355,33 @@ export function createRollover(pi: any, deps: Deps = {}) {
       rereadRatio: st.output ? +(st.cacheRead / st.output).toFixed(1) : null, rollovers: st.rollovers, blocked: st.blocked, state: st.state,
     })
 
+  // Throttled notify: once per arm episode (armedAt reset) or when context grew >= 25K since the last notice.
+  const notice = (ctx: any, text: string, kind: string) => {
+    if (st.lastNoticeContext != null && st.context - st.lastNoticeContext < 25_000) return
+    st.lastNoticeContext = st.context
+    persist(sid(ctx))
+    ctx.ui?.notify?.(text, kind)
+  }
+
   async function arm(ctx: any, reason: string) {
-    const known = new Set<string>((pi.getCommands?.() ?? []).filter((c: any) => c?.source === "skill").map((c: any) => String(c.name).replace(/^skill:/, "")))
-    const skill = detectActiveSkill(ctx.sessionManager?.getBranch?.() ?? [], known, cwdOf(ctx))
-    st.activeSkill = skill?.name ?? null
-    if (skill) log(ctx, "active_skill", skill)
+    const autonomous = await isAutonomous(ctx)
     const why = reason === "budget" ? `budget ${budget()} reached` : reason === "idle" ? "idle park" : `reread ratio ≥ ${config.rereadRatioMax} for ${REREAD_STREAK} messages`
     // auto (the default) only forces a handoff in autonomous sessions; manual park (idle) always arms.
-    if (st.mode === "auto" && reason !== "idle" && !isAutonomous(ctx, st.activeSkill)) {
+    if (st.mode === "auto" && reason !== "idle" && !autonomous) {
       log(ctx, "budget_notice", { reason, context: st.context })
-      ctx.ui?.notify?.(`rollover: budget reached (${why}) — auto mode, not an autonomous session (no active goal, no ulw skill). /rollover on to force, /rollover now to hand off now.`, "warning")
+      notice(ctx, `rollover: budget reached (${why}) — auto mode, not an autonomous session (no active goal, no ulw skill). /rollover on to force, /rollover now to hand off now.`, "warning")
       return
     }
     st.state = "armed"
     st.reason = reason
     st.armedAt = now().toISOString()
+    st.autonomous = autonomous
     log(ctx, "armed", { reason, context: st.context })
     const pause = await doPause(ctx)
     st.goalPaused = pause.ok
     log(ctx, "goal_pause", pause)
     persist(sid(ctx))
-    ctx.ui?.notify?.(`rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
+    notice(ctx, `rollover: armed (${why}, context=${st.context}). task/task_create blocked; handing off once children drain.`, "warning")
   }
 
   // Single guard for both landing points so the instruction is injected once.
@@ -359,7 +399,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   // Successor in the last assistant reply → dispatch /rollover, but only once
   // nothing can wake this session (a live child would be orphaned by newSession).
   // Shared by agent_settled, turn_end and session_start (a /reload between the reply and settle).
-  function tryRollover(ctx: any): boolean {
+  async function tryRollover(ctx: any): Promise<boolean> {
     const found = extractSuccessor(lastAssistantText(ctx.sessionManager?.getBranch?.() ?? [])) ?? st.successor // deferred: a child's result may have moved the last reply
     if (!found) return false
     st.successor = found
@@ -368,15 +408,16 @@ export function createRollover(pi: any, deps: Deps = {}) {
       log(ctx, "rollover_deferred", { total, wake: Object.fromEntries(st.wake) })
       return true // successor is in hand; stay in handoff_requested, no re-ask
     }
-    if (st.mode === "auto" && !isAutonomous(ctx, st.activeSkill)) {
+    // auto lands only for sessions authorized at arm time (st.autonomous / goalPaused by us) or still autonomous now; idle parks always land.
+    if (st.mode === "auto" && st.reason !== "idle" && !st.goalPaused && !(st.autonomous ?? (await isAutonomous(ctx)))) {
       log(ctx, "rollover_deferred", { total, wake: Object.fromEntries(st.wake), reason: "not_autonomous" })
-      ctx.ui?.notify?.("rollover: auto mode — not an autonomous session; staying. /rollover now to hand off.", "warning")
+      notice(ctx, "rollover: auto mode — not an autonomous session; staying. /rollover now to hand off.", "warning")
       return true
     }
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
-    pi.sendUserMessage("/rollover", { expandPromptTemplates: true })
+    pi.sendUserMessage("/rollover now", { expandPromptTemplates: true })
     return true
   }
 
@@ -387,13 +428,13 @@ export function createRollover(pi: any, deps: Deps = {}) {
     const parent = ctx?.sessionManager?.getHeader?.()?.parentSession
     log(ctx, "session_start", parent ? { parent } : {})
     if (!restore(sid(ctx))) return
+    rearm() // a resumed session gets a fresh timer against its restored override
     log(ctx, "state_restored", { state: st.state })
-    if (enabled() && (st.state === "handoff_requested" || st.state === "rollover")) tryRollover(ctx)
+    if (enabled() && (st.state === "handoff_requested" || st.state === "rollover")) await tryRollover(ctx)
   })
 
   // Main sessions only (child sessions returned null above); off with /rollover off.
   pi.on("before_agent_start", async (ev: any) => {
-    agentBusy = true
     if (!enabled()) return
     return { systemPrompt: `${ev?.systemPrompt ?? ""}\n\n${CONTEXT_BUDGET_BLOCK}` }
   })
@@ -406,6 +447,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (st.reason === "idle" && (st.state === "armed" || st.state === "handoff_requested")) {
         st.state = "watching"
         st.reason = ""
+        st.handoffAskedCount = 0 // drop any successor already in hand; it was written for the parked session
         log(ctx, "idle_aborted", {})
         persist(sid(ctx))
         ctx.ui?.notify?.("rollover: idle park aborted by user input", "info")
@@ -457,7 +499,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   pi.on("turn_end", async (_ev: any, ctx: any) => {
     lastCtx = ctx
-    if (st.state === "handoff_requested" && st.successor) { if (enabled()) tryRollover(ctx); return }
+    if (st.state === "handoff_requested" && st.successor) { if (enabled()) await tryRollover(ctx); return }
     if (st.state !== "armed") return
     log(ctx, "turn_end", { total: wakeTotal() })
     if (enabled()) requestHandoff(ctx, "turn_end")
@@ -466,7 +508,6 @@ export function createRollover(pi: any, deps: Deps = {}) {
   pi.on("agent_settled", async (_ev: any, ctx: any) => {
     lastCtx = ctx
     lastActivityAt = now().getTime()
-    agentBusy = false
     const total = wakeTotal()
     log(ctx, "agent_settled", { total, state: st.state })
     if (!enabled()) return
@@ -475,7 +516,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       return
     }
     if (st.state === "handoff_requested") {
-      if (tryRollover(ctx)) return
+      if (await tryRollover(ctx)) return
       log(ctx, "successor_missing", { retried: st.handoffAskedCount > 1 })
       if (st.handoffAskedCount < 2) {
         st.handoffAskedCount = 2
@@ -490,36 +531,54 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.on("session_shutdown", async (ev: any, ctx: any) => {
+    stopped = true
     if (idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
     if (ev?.reason === "reload") return
     summary(ctx, String(ev?.reason ?? "unknown"))
   })
 
   const timer = deps.timer ?? { setInterval: (fn: () => void, ms: number) => setInterval(fn, ms), clearInterval: (id: unknown) => clearInterval(id as any) }
-  const idleMinutes = () => st.idleOverride ?? config.idleMinutes
-  const tick = () => {
-    const ctx = lastCtx
-    if (!ctx) return
-    const v = idleVerdict({
-      enabled: idleMinutes() > 0, context: st.context, minTokens: config.idleMinTokens, nowMs: now().getTime(),
-      lastUserAt, lastActivityAt, idleMinutes: idleMinutes(), agentBusy,
-      hasPending: !!ctx.hasPendingMessages?.(), childWake: childWakeTotal(), state: st.state,
-    })
-    lastVerdict = v.action === "park" ? "park" : `skip:${v.reason}`
-    if (v.action === "park") {
-      log(ctx, "idle_park", {})
-      void arm(ctx, "idle").then(() => requestHandoff(ctx, "idle"))
-    } else {
-      log(ctx, "idle_skip", { reason: v.reason })
+  const effectiveIdleMinutes = () => st.idleOverride ?? config.idleMinutes
+  let idleTimer: unknown = null
+  let stopped = false
+  function rearm() {
+    if (idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
+    if (effectiveIdleMinutes() > 0 && !stopped) {
+      idleTimer = timer.setInterval(() => void tick(), 60_000)
+      ;(idleTimer as any)?.unref?.()
     }
   }
-  // No timer while idle is disabled (idleMinutes 0) — the plan's Must-NOT.
-  let idleTimer: unknown = null
-  const syncIdleTimer = () => {
-    if (idleMinutes() > 0 && idleTimer == null) idleTimer = timer.setInterval(tick, 60_000)
-    else if (idleMinutes() <= 0 && idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
+  async function tick() {
+    const ctx = lastCtx
+    if (!ctx) return
+    // An armed-for-idle session that survived a turn without user input still wants its handoff.
+    if (st.state === "armed" && st.reason === "idle") { requestHandoff(ctx, "idle"); return }
+    const input: IdleInput = {
+      nowMs: now().getTime(), lastUserAtMs: lastUserAt, lastActivityAtMs: lastActivityAt,
+      context: ctx.getContextUsage?.()?.tokens ?? st.context, childWake: childWakeTotal(),
+      idle: ctx.isIdle?.() === true, pending: !!ctx.hasPendingMessages?.(),
+      state: st.state, mode: st.mode, idleMinutes: effectiveIdleMinutes(),
+    }
+    const v = idleVerdict(config, input)
+    const sinceUserMin = Math.round((input.nowMs - lastUserAt) / 60_000)
+    const sinceActivityMin = Math.round((input.nowMs - lastActivityAt) / 60_000)
+    lastVerdict = v.park ? "park" : `skip:${v.why}`
+    if (!v.park) {
+      st.lastIdleWhy = v.why
+      // Time gates are silent; log only actionable skips, and only when the reason changes.
+      if (["busy", "pending", "wake_unknown", "children"].includes(v.why) && v.why !== lastLoggedIdleWhy) {
+        lastLoggedIdleWhy = v.why
+        log(ctx, "idle_skip", { why: v.why, sinceUserMin, sinceActivityMin, context: input.context, childWake: input.childWake })
+      }
+      return
+    }
+    const seen = lastUserAt
+    log(ctx, "idle_park", { sinceUserMin, sinceActivityMin, context: input.context, childWake: input.childWake })
+    await arm(ctx, "idle")
+    if (lastUserAt !== seen) { log(ctx, "idle_aborted", {}); return }
+    if (st.state === "armed") requestHandoff(ctx, "idle")
   }
-  syncIdleTimer()
+  rearm()
 
   pi.registerCommand("rollover", {
     description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
@@ -531,7 +590,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (verb === "on" || verb === "off" || verb === "auto") { st.mode = verb; persist(sid(ctx)); ctx.ui.notify(`rollover: ${verb}`, "info"); return }
       if (verb === "status") {
         const mins = (ms: number) => `${(ms / 60_000).toFixed(1)}m`
-        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=${idleMinutes() > 0 ? idleMinutes() + "m" : "off"} sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=${lastVerdict} autonomous=${isAutonomous(ctx, st.activeSkill)}`, "info")
+        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=${effectiveIdleMinutes() > 0 ? effectiveIdleMinutes() + "m" : "off"} sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=${lastVerdict} autonomous=${st.autonomous ?? "unknown"}`, "info")
         return
       }
       if (verb === "idle") {
@@ -539,7 +598,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
         if (!Number.isFinite(m) || m < 0) { ctx.ui.notify(`rollover: idle needs minutes or off, e.g. /rollover idle 30`, "error"); return }
         st.idleOverride = m
         persist(sid(ctx))
-        syncIdleTimer()
+        rearm()
         ctx.ui.notify(`rollover: idle=${m > 0 ? m + "m" : "off"} (session)`, "info")
         return
       }
@@ -596,7 +655,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     },
   })
 
-  return { st, config, clocks: () => ({ lastUserAt, lastActivityAt }) }
+  return { st, config, clocks: () => ({ lastUserAt, lastActivityAt }), tick, rearm, isAutonomous }
 }
 
 export default function (pi: any): void {
