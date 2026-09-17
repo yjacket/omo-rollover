@@ -523,6 +523,31 @@ test("idle reason persists; idle successor kickoff ends with the wait line", asy
   assert.match(kick.text, /then wait for the user\.$/)
 })
 
+test("status shows state, mode, budget source, wake, and idle clocks", async () => {
+  const h = harness()
+  h.advance(60_000)
+  h.fire("input", { source: "interactive" })
+  h.advance(30_000)
+  await h.message(1000)
+  await h.commands.rollover.handler("status", h.ctx)
+  const m = h.notes.at(-1).m
+  assert.match(m, /state=watching/)
+  assert.match(m, /mode=auto/)
+  assert.match(m, /context=1000\/150000 \(config\)/)
+  assert.match(m, /wake=unknown/)
+  assert.match(m, /childWake=unknown/)
+  assert.match(m, /sinceUser=0\.0m/) // the status command itself is user input
+  assert.match(m, /sinceActivity=\d+\.\dm/)
+  assert.match(m, /autonomous=unknown/)
+  await h.commands.rollover.handler("limit 200", h.ctx)
+  await h.commands.rollover.handler("status", h.ctx)
+  assert.match(h.notes.at(-1).m, /context=1000\/200000 \(session\)/)
+  h.wake(2, "terminal-monitors")
+  h.wake(0)
+  await h.commands.rollover.handler("status", h.ctx)
+  assert.match(h.notes.at(-1).m, /wake=2 childWake=0/)
+})
+
 test("handoff instruction: no read, no command, no spawn, size caps, successor read list", () => {
   const p = handoffPrompt("/w", "id", true)
   assert.match(p, /Do NOT read any file, run any command, or spawn any task/)

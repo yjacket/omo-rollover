@@ -451,7 +451,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (verb === "" || verb === "help") { ctx.ui.notify(ROLLOVER_HELP, "info"); return }
       if (verb === "on" || verb === "off" || verb === "auto") { st.mode = verb; persist(sid(ctx)); ctx.ui.notify(`rollover: ${verb}`, "info"); return }
       if (verb === "status") {
-        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} context=${st.context}/${budget()} wake=${wakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused}`, "info")
+        const mins = (ms: number) => `${(ms / 60_000).toFixed(1)}m`
+        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=- sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=- autonomous=unknown`, "info")
         return
       }
       if (verb === "limit") {
