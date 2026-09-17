@@ -19,8 +19,8 @@ import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
 
 export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "rolled_over"
-export type Config = { budgetTokens: number; rereadRatioMax: number }
-export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
+export type Config = { budgetTokens: number; rereadRatioMax: number; idleMinutes: number; idleMinTokens: number }
+export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
 const SPAWN_TOOLS = new Set(["task", "task_create"]) // exact names; task_output/list/cancel/get/update/send stay allowed
 // Only child sessions would be orphaned by newSession; monitors/servers survive it, so they never gate landing.
@@ -42,6 +42,8 @@ export function loadConfig(dir: string): Config {
     const raw = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"))
     return {
       budgetTokens: Number(raw.budgetTokens) > 0 ? Number(raw.budgetTokens) : DEFAULT_CONFIG.budgetTokens,
+      idleMinutes: Number.isFinite(Number(raw.idleMinutes)) && Number(raw.idleMinutes) >= 0 ? Number(raw.idleMinutes) : DEFAULT_CONFIG.idleMinutes,
+      idleMinTokens: Number(raw.idleMinTokens) > 0 ? Number(raw.idleMinTokens) : DEFAULT_CONFIG.idleMinTokens,
       rereadRatioMax: Number(raw.rereadRatioMax) > 0 ? Number(raw.rereadRatioMax) : 0,
     }
   } catch {
@@ -63,7 +65,7 @@ export function writeJsonAtomic(file: string, obj: unknown): void {
 }
 
 // Counters (peak, messages, cacheRead, output, startedAt) ride along so the summary row survives /reload.
-const PERSISTED = ["state", "mode", "reason", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride"] as const
+const PERSISTED = ["state", "mode", "reason", "blocked", "rereadStreak", "goalPaused", "rollovers", "armedAt", "handoffAskedCount", "peak", "messages", "cacheRead", "output", "startedAt", "activeSkill", "budgetOverride", "idleOverride"] as const
 
 export const ROLLOVER_HELP = [
   "rollover commands:",
@@ -111,6 +113,23 @@ export function detectActiveSkill(entries: any[], known: Set<string>, cwd: strin
 }
 
 /** Ensure the successor prompt opens with a skill invocation token so senpi expands the skill body. */
+// Pure idle-park decision; every input is passed in so tests can drive the table.
+export function idleVerdict(v: {
+  enabled: boolean; context: number; minTokens: number; nowMs: number; lastUserAt: number; lastActivityAt: number;
+  idleMinutes: number; agentBusy: boolean; hasPending: boolean; childWake: number | null; state: string
+}): { action: "park" | "skip"; reason?: string } {
+  if (!v.enabled) return { action: "skip", reason: "disabled" }
+  if (v.state !== "watching") return { action: "skip", reason: "state" }
+  if (v.context < v.minTokens) return { action: "skip", reason: "context" }
+  if (v.nowMs - v.lastUserAt < v.idleMinutes * 60_000) return { action: "skip", reason: "user" }
+  if (v.nowMs - v.lastActivityAt < v.idleMinutes * 60_000) return { action: "skip", reason: "activity" }
+  if (v.agentBusy) return { action: "skip", reason: "busy" }
+  if (v.hasPending) return { action: "skip", reason: "pending" }
+  if (v.childWake === null) return { action: "skip", reason: "wake_unknown" }
+  if (v.childWake !== 0) return { action: "skip", reason: "wake" }
+  return { action: "park" }
+}
+
 // Autonomous = a goal is active or a ulw-family skill is driving this session.
 export function isAutonomous(ctx: any, activeSkill: string | null = null): boolean {
   const s = ctx?.getGoalStatus?.()?.status
@@ -227,7 +246,7 @@ export async function pauseGoal(ctx: any, opts: PauseOpts = {}): Promise<PauseRe
   }
 }
 
-export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult> }
+export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: any) => Promise<PauseResult>; timer?: { setInterval: (fn: () => void, ms: number) => unknown; clearInterval: (id: unknown) => void } }
 
 export function createRollover(pi: any, deps: Deps = {}) {
   const env = deps.env ?? process.env
@@ -257,12 +276,15 @@ export function createRollover(pi: any, deps: Deps = {}) {
     rollovers: 0,
     activeSkill: null as string | null,
     budgetOverride: null as number | null,
+    idleOverride: null as number | null,
   }
 
   let lastCtx: any = null
   // In-memory clocks only: a resumed/reloaded session must never park immediately.
   let lastUserAt = now().getTime()
   let lastActivityAt = now().getTime()
+  let agentBusy = false
+  let lastVerdict = "-"
   const sid = (ctx: any) => String(ctx?.sessionManager?.getSessionId?.() ?? "unknown")
   const cwdOf = (ctx: any) => String(ctx?.cwd ?? ctx?.sessionManager?.getCwd?.() ?? process.cwd())
   const log = (ctx: any, ev: string, extra: Record<string, unknown> = {}) =>
@@ -360,6 +382,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   pi.on("session_start", async (_ev: any, ctx: any) => {
     lastCtx = ctx
+    lastUserAt = now().getTime() // a reload/resume must never park immediately
+    lastActivityAt = now().getTime()
     const parent = ctx?.sessionManager?.getHeader?.()?.parentSession
     log(ctx, "session_start", parent ? { parent } : {})
     if (!restore(sid(ctx))) return
@@ -369,6 +393,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   // Main sessions only (child sessions returned null above); off with /rollover off.
   pi.on("before_agent_start", async (ev: any) => {
+    agentBusy = true
     if (!enabled()) return
     return { systemPrompt: `${ev?.systemPrompt ?? ""}\n\n${CONTEXT_BUDGET_BLOCK}` }
   })
@@ -376,7 +401,16 @@ export function createRollover(pi: any, deps: Deps = {}) {
   pi.on("input", async (ev: any, ctx: any) => {
     lastCtx = ctx
     log(ctx, "user_input", { source: ev?.source, streaming: ev?.streamingBehavior ?? null })
-    if (ev?.source !== "extension") lastUserAt = now().getTime()
+    if (ev?.source !== "extension") {
+      lastUserAt = now().getTime()
+      if (st.reason === "idle" && (st.state === "armed" || st.state === "handoff_requested")) {
+        st.state = "watching"
+        st.reason = ""
+        log(ctx, "idle_aborted", {})
+        persist(sid(ctx))
+        ctx.ui?.notify?.("rollover: idle park aborted by user input", "info")
+      }
+    }
   })
 
   pi.on("message_end", async (ev: any, ctx: any) => {
@@ -432,6 +466,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   pi.on("agent_settled", async (_ev: any, ctx: any) => {
     lastCtx = ctx
     lastActivityAt = now().getTime()
+    agentBusy = false
     const total = wakeTotal()
     log(ctx, "agent_settled", { total, state: st.state })
     if (!enabled()) return
@@ -455,9 +490,30 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.on("session_shutdown", async (ev: any, ctx: any) => {
+    if (idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
     if (ev?.reason === "reload") return
     summary(ctx, String(ev?.reason ?? "unknown"))
   })
+
+  const timer = deps.timer ?? { setInterval: (fn: () => void, ms: number) => setInterval(fn, ms), clearInterval: (id: unknown) => clearInterval(id as any) }
+  const idleMinutes = () => st.idleOverride ?? config.idleMinutes
+  const tick = () => {
+    const ctx = lastCtx
+    if (!ctx) return
+    const v = idleVerdict({
+      enabled: idleMinutes() > 0, context: st.context, minTokens: config.idleMinTokens, nowMs: now().getTime(),
+      lastUserAt, lastActivityAt, idleMinutes: idleMinutes(), agentBusy,
+      hasPending: !!ctx.hasPendingMessages?.(), childWake: childWakeTotal(), state: st.state,
+    })
+    lastVerdict = v.action === "park" ? "park" : `skip:${v.reason}`
+    if (v.action === "park") {
+      log(ctx, "idle_park", {})
+      void arm(ctx, "idle").then(() => requestHandoff(ctx, "idle"))
+    } else {
+      log(ctx, "idle_skip", { reason: v.reason })
+    }
+  }
+  let idleTimer: unknown = timer.setInterval(tick, 60_000)
 
   pi.registerCommand("rollover", {
     description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
@@ -469,7 +525,15 @@ export function createRollover(pi: any, deps: Deps = {}) {
       if (verb === "on" || verb === "off" || verb === "auto") { st.mode = verb; persist(sid(ctx)); ctx.ui.notify(`rollover: ${verb}`, "info"); return }
       if (verb === "status") {
         const mins = (ms: number) => `${(ms / 60_000).toFixed(1)}m`
-        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=- sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=- autonomous=${isAutonomous(ctx, st.activeSkill)}`, "info")
+        ctx.ui.notify(`rollover: state=${st.state} mode=${st.mode} reason=${st.reason || "-"} context=${st.context}/${budget()} (${st.budgetOverride != null ? "session" : "config"}) wake=${wakeTotal() ?? "unknown"} childWake=${childWakeTotal() ?? "unknown"} blocked=${st.blocked} goalPaused=${st.goalPaused} idle=${idleMinutes() > 0 ? idleMinutes() + "m" : "off"} sinceUser=${mins(now().getTime() - lastUserAt)} sinceActivity=${mins(now().getTime() - lastActivityAt)} lastVerdict=${lastVerdict} autonomous=${isAutonomous(ctx, st.activeSkill)}`, "info")
+        return
+      }
+      if (verb === "idle") {
+        const m = rest[0] === "off" ? 0 : Number(rest[0])
+        if (!Number.isFinite(m) || m < 0) { ctx.ui.notify(`rollover: idle needs minutes or off, e.g. /rollover idle 30`, "error"); return }
+        st.idleOverride = m
+        persist(sid(ctx))
+        ctx.ui.notify(`rollover: idle=${m > 0 ? m + "m" : "off"} (session)`, "info")
         return
       }
       if (verb === "limit") {
