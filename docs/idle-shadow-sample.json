@@ -1,0 +1,1712 @@
+{
+  "schemaVersion": "idle-replay-sample/1",
+  "description": "Sanitized actual task5 harness emissions; mathematical inputs are not measured quota or a calibrated runtime forecast. Finite episode outcomes do not estimate permanent non-return.",
+  "sourcePins": [
+    {
+      "source": "task5/rework1/runtime/on.jsonl",
+      "sha256": "11d8e48fea4617cb2b0dbe80575ea53186c4ba2bf74254049c2c4d15830236e4",
+      "bytes": 31224,
+      "selectedLines": [
+        4,
+        8,
+        10,
+        12,
+        14,
+        16,
+        18,
+        24,
+        28
+      ]
+    },
+    {
+      "source": "task5/rework1/runtime/unknown.jsonl",
+      "sha256": "c27b62414200ae6e3dc98451cfcd0acd842596c6d09320b829ab80209b6b8469",
+      "bytes": 29694,
+      "selectedLines": [
+        4
+      ]
+    },
+    {
+      "source": "verify5/recheck1/adversarial/fallback-usage.jsonl",
+      "sha256": "b0f3cc833c1eab348b7f38cc3c5034a230dc2c9e5771a1c930cbf692213734b7",
+      "bytes": 12760,
+      "selectedLines": [
+        3,
+        5,
+        7,
+        9
+      ]
+    }
+  ],
+  "records": [
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:1",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "returned",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": 1000000,
+      "episodeEndReason": "user_input"
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:2",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:2",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "ended",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": "completed"
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:3",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 700001,
+          "cacheExpiresAtMs": 1000001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:3",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:18:40.000Z",
+      "timestampMs": 1120000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 820001,
+          "cacheExpiresAtMs": 1120001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1120000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "idle_park",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1120000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:3",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:18:40.000Z",
+      "timestampMs": 1120000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 820001,
+          "cacheExpiresAtMs": 1120001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1120000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "handoff_requested",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1120000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:3",
+      "enforcement": "unavailable",
+      "incurredSpendEq": 0,
+      "vAppliedEq": 0,
+      "recommendedAction": "KEEP_WARM",
+      "reasonCode": "minimum_prospective_expected_cost",
+      "candidateCosts": {
+        "WAIT": 30000.000000000004,
+        "KEEP_WARM": 24075.000000000004,
+        "PARK": 27350,
+        "LET_EXPIRE": 30000
+      },
+      "candidateUnavailableReasons": {},
+      "guardReasons": [
+        "spend_unit_unconfigured",
+        "max_proactive_spend_per_idle_unconfigured",
+        "max_total_experimental_spend_unconfigured"
+      ],
+      "blockers": [],
+      "evidenceStatus": "uncertain",
+      "plan": {
+        "action": "KEEP_WARM",
+        "expectedCostEq": 24075.000000000004,
+        "costs": {
+          "LET_EXPIRE": 30000,
+          "WAIT": 30000.000000000004,
+          "PARK": 27350,
+          "KEEP_WARM": 24075.000000000004
+        },
+        "epochCount": 5,
+        "vAppliedEq": 0,
+        "rootSpendEq": 8250,
+        "notes": [
+          "late_warm_rewrite_unpriced_in_lookahead"
+        ]
+      },
+      "planNotes": [
+        "late_warm_rewrite_unpriced_in_lookahead"
+      ],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "spend_unit_unconfigured",
+          "max_proactive_spend_per_idle_unconfigured",
+          "max_total_experimental_spend_unconfigured"
+        ]
+      },
+      "timestamp": "1970-01-01T00:18:40.000Z",
+      "timestampMs": 1120000,
+      "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": 1,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": 820001,
+          "cacheExpiresAtMs": 1120001,
+          "verifiedPrefixTokens": 120000,
+          "contextTokens": 120000,
+          "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "verified_hit"
+        },
+        "assessment": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1120000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "math-fixture/1",
+      "forecastVersion": "simulation/1",
+      "parameterSources": {
+        "costs": "AGENT_TASK/8:mathematical_not_measured",
+        "forecast": "labelled_simulation_not_calibrated_runtime",
+        "meter": "write_equivalent_tokens"
+      },
+      "currentPolicyAction": "handoff_requested",
+      "incurredSpendSoFar": 0,
+      "VScenario": {
+        "label": "math/V0",
+        "vSignedEq": 0,
+        "status": "scenario"
+      },
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:usage:2",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "right_censored",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1120000,
+      "returnedAtMs": null,
+      "episodeEndReason": "shutdown"
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "7ecc8b26-bff8-43ef-b74e-b2f7ad7e847f:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": null,
+      "vAppliedEq": 0,
+      "recommendedAction": "NO_DECISION",
+      "reasonCode": "insufficient_evidence",
+      "candidateCosts": {
+        "WAIT": null,
+        "KEEP_WARM": null,
+        "PARK": null,
+        "LET_EXPIRE": null
+      },
+      "candidateUnavailableReasons": {
+        "WAIT": "insufficient_evidence",
+        "KEEP_WARM": "insufficient_evidence",
+        "PARK": "insufficient_evidence",
+        "LET_EXPIRE": "insufficient_evidence"
+      },
+      "guardReasons": [
+        "parking_approvals_unconfigured"
+      ],
+      "blockers": [
+        "cost_snapshot_unavailable",
+        "cache_uncertain:no_expiry_evidence",
+        "cache_uncertain:request_start_or_identity_unverified",
+        "coefficient_status_unknown",
+        "no_calibrated_forecast"
+      ],
+      "evidenceStatus": "blocked",
+      "plan": null,
+      "planNotes": [],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "insufficient_evidence"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "7ecc8b26-bff8-43ef-b74e-b2f7ad7e847f",
+      "modelId": "math-model",
+      "lane": "math-lane",
+      "contextTokens": 120000,
+      "remainingTtlMs": null,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": null,
+          "cacheExpiresAtMs": null,
+          "verifiedPrefixTokens": null,
+          "contextTokens": 120000,
+          "sessionGeneration": "7ecc8b26-bff8-43ef-b74e-b2f7ad7e847f",
+          "modelLanePrefixIdentity": "[\"s1\",\"math-model\",\"math-lane\"]",
+          "lastOutcome": "unknown"
+        },
+        "assessment": {
+          "state": "uncertain",
+          "reasons": [
+            "no_expiry_evidence",
+            "request_start_or_identity_unverified"
+          ],
+          "arrivalAtMs": null,
+          "remainingTtlAtArrivalMs": null,
+          "verifiedPrefixTokens": null,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "unknown",
+      "forecastVersion": null,
+      "parameterSources": {
+        "coefficients": "unknown",
+        "forecast": "no_calibrated_forecast",
+        "cache": "no_request_start_or_prefix_evidence",
+        "lane": "provider_only:auth_and_ttl_unknown",
+        "incurredSpend": "unknown"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": null,
+      "VScenario": null,
+      "rawUsage": {
+        "uncachedInput": 1000,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 119000,
+        "billedModelOutput": 50
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "7ecc8b26-bff8-43ef-b74e-b2f7ad7e847f:usage:1",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": null,
+      "vAppliedEq": 0,
+      "recommendedAction": "NO_DECISION",
+      "reasonCode": "insufficient_evidence",
+      "candidateCosts": {
+        "WAIT": null,
+        "KEEP_WARM": null,
+        "PARK": null,
+        "LET_EXPIRE": null
+      },
+      "candidateUnavailableReasons": {
+        "WAIT": "insufficient_evidence",
+        "KEEP_WARM": "insufficient_evidence",
+        "PARK": "insufficient_evidence",
+        "LET_EXPIRE": "insufficient_evidence"
+      },
+      "guardReasons": [
+        "parking_approvals_unconfigured"
+      ],
+      "blockers": [
+        "cost_snapshot_unavailable",
+        "cache_uncertain:no_expiry_evidence",
+        "cache_uncertain:request_start_or_identity_unverified",
+        "coefficient_status_unknown",
+        "no_calibrated_forecast"
+      ],
+      "evidenceStatus": "blocked",
+      "plan": null,
+      "planNotes": [],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "insufficient_evidence"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f",
+      "modelId": "primary",
+      "lane": "lane-a",
+      "contextTokens": 120000,
+      "remainingTtlMs": null,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": null,
+          "cacheExpiresAtMs": null,
+          "verifiedPrefixTokens": null,
+          "contextTokens": 120000,
+          "sessionGeneration": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f",
+          "modelLanePrefixIdentity": "[\"s1\",\"primary\",\"lane-a\"]",
+          "lastOutcome": "unknown"
+        },
+        "assessment": {
+          "state": "uncertain",
+          "reasons": [
+            "no_expiry_evidence",
+            "request_start_or_identity_unverified"
+          ],
+          "arrivalAtMs": null,
+          "remainingTtlAtArrivalMs": null,
+          "verifiedPrefixTokens": null,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "unknown",
+      "forecastVersion": null,
+      "parameterSources": {
+        "coefficients": "unknown",
+        "forecast": "no_calibrated_forecast",
+        "cache": "no_request_start_or_prefix_evidence",
+        "lane": "provider_only:auth_and_ttl_unknown",
+        "incurredSpend": "unknown"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": null,
+      "VScenario": null,
+      "rawUsage": {
+        "uncachedInput": null,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": null,
+        "billedModelOutput": null
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": null,
+      "rawUsageObservedAtMs": null,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f:1",
+      "enforcement": "unavailable",
+      "incurredSpendEq": null,
+      "vAppliedEq": 0,
+      "recommendedAction": "NO_DECISION",
+      "reasonCode": "insufficient_evidence",
+      "candidateCosts": {
+        "WAIT": null,
+        "KEEP_WARM": null,
+        "PARK": null,
+        "LET_EXPIRE": null
+      },
+      "candidateUnavailableReasons": {
+        "WAIT": "insufficient_evidence",
+        "KEEP_WARM": "insufficient_evidence",
+        "PARK": "insufficient_evidence",
+        "LET_EXPIRE": "insufficient_evidence"
+      },
+      "guardReasons": [
+        "parking_approvals_unconfigured"
+      ],
+      "blockers": [
+        "cost_snapshot_unavailable",
+        "cache_uncertain:no_expiry_evidence",
+        "cache_uncertain:request_start_or_identity_unverified",
+        "coefficient_status_unknown",
+        "no_calibrated_forecast"
+      ],
+      "evidenceStatus": "blocked",
+      "plan": null,
+      "planNotes": [],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "insufficient_evidence"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f",
+      "modelId": "primary",
+      "lane": "lane-a",
+      "contextTokens": 120000,
+      "remainingTtlMs": null,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": null,
+          "cacheExpiresAtMs": null,
+          "verifiedPrefixTokens": null,
+          "contextTokens": 120000,
+          "sessionGeneration": "1bcbdf92-f54e-4ece-b92e-a44bfa903b7f",
+          "modelLanePrefixIdentity": "[\"s1\",\"primary\",\"lane-a\"]",
+          "lastOutcome": "unknown"
+        },
+        "assessment": {
+          "state": "uncertain",
+          "reasons": [
+            "no_expiry_evidence",
+            "request_start_or_identity_unverified"
+          ],
+          "arrivalAtMs": null,
+          "remainingTtlAtArrivalMs": null,
+          "verifiedPrefixTokens": null,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "unknown",
+      "forecastVersion": null,
+      "parameterSources": {
+        "coefficients": "unknown",
+        "forecast": "no_calibrated_forecast",
+        "cache": "no_request_start_or_prefix_evidence",
+        "lane": "provider_only:auth_and_ttl_unknown",
+        "incurredSpend": "unknown"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": null,
+      "VScenario": null,
+      "rawUsage": {
+        "uncachedInput": null,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": null,
+        "billedModelOutput": null
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": null,
+      "rawUsageObservedAtMs": null,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": null,
+      "rawUsageLane": null,
+      "episodeStatus": "right_censored",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": "response_model_lane_changed"
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc:2",
+      "enforcement": "unavailable",
+      "incurredSpendEq": null,
+      "vAppliedEq": 0,
+      "recommendedAction": "NO_DECISION",
+      "reasonCode": "insufficient_evidence",
+      "candidateCosts": {
+        "WAIT": null,
+        "KEEP_WARM": null,
+        "PARK": null,
+        "LET_EXPIRE": null
+      },
+      "candidateUnavailableReasons": {
+        "WAIT": "insufficient_evidence",
+        "KEEP_WARM": "insufficient_evidence",
+        "PARK": "insufficient_evidence",
+        "LET_EXPIRE": "insufficient_evidence"
+      },
+      "guardReasons": [
+        "parking_approvals_unconfigured"
+      ],
+      "blockers": [
+        "cost_snapshot_unavailable",
+        "cache_uncertain:no_expiry_evidence",
+        "cache_uncertain:response_model_lane_mismatch",
+        "cache_uncertain:request_start_or_identity_unverified",
+        "coefficient_status_unknown",
+        "no_calibrated_forecast"
+      ],
+      "evidenceStatus": "blocked",
+      "plan": null,
+      "planNotes": [],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "insufficient_evidence"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc",
+      "modelId": "primary",
+      "lane": "lane-a",
+      "contextTokens": 120000,
+      "remainingTtlMs": null,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": null,
+          "cacheExpiresAtMs": null,
+          "verifiedPrefixTokens": null,
+          "contextTokens": 120000,
+          "sessionGeneration": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc",
+          "modelLanePrefixIdentity": "[\"s1\",\"primary\",\"lane-a\"]",
+          "lastOutcome": "unknown"
+        },
+        "assessment": {
+          "state": "uncertain",
+          "reasons": [
+            "no_expiry_evidence",
+            "response_model_lane_mismatch",
+            "request_start_or_identity_unverified"
+          ],
+          "arrivalAtMs": null,
+          "remainingTtlAtArrivalMs": null,
+          "verifiedPrefixTokens": null,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "unknown",
+      "forecastVersion": null,
+      "parameterSources": {
+        "coefficients": "unknown",
+        "forecast": "no_calibrated_forecast",
+        "cache": "no_request_start_or_prefix_evidence",
+        "lane": "provider_only:auth_and_ttl_unknown",
+        "incurredSpend": "unknown"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": null,
+      "VScenario": null,
+      "rawUsage": {
+        "uncachedInput": 201,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 203,
+        "billedModelOutput": 202
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc:usage:1",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": "fallback",
+      "rawUsageLane": "fallback-lane",
+      "episodeStatus": "observing",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": null
+    },
+    {
+      "ev": "idle_cost_shadow",
+      "schemaVersion": "idle-shadow/1",
+      "engineVersion": "idle-cost-engine/1.0.0",
+      "idleEpisodeId": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc:2",
+      "enforcement": "unavailable",
+      "incurredSpendEq": null,
+      "vAppliedEq": 0,
+      "recommendedAction": "NO_DECISION",
+      "reasonCode": "insufficient_evidence",
+      "candidateCosts": {
+        "WAIT": null,
+        "KEEP_WARM": null,
+        "PARK": null,
+        "LET_EXPIRE": null
+      },
+      "candidateUnavailableReasons": {
+        "WAIT": "insufficient_evidence",
+        "KEEP_WARM": "insufficient_evidence",
+        "PARK": "insufficient_evidence",
+        "LET_EXPIRE": "insufficient_evidence"
+      },
+      "guardReasons": [
+        "parking_approvals_unconfigured"
+      ],
+      "blockers": [
+        "cost_snapshot_unavailable",
+        "cache_uncertain:no_expiry_evidence",
+        "cache_uncertain:response_model_lane_mismatch",
+        "cache_uncertain:request_start_or_identity_unverified",
+        "coefficient_status_unknown",
+        "no_calibrated_forecast"
+      ],
+      "evidenceStatus": "blocked",
+      "plan": null,
+      "planNotes": [],
+      "spendGate": {
+        "allowed": false,
+        "reasons": [
+          "insufficient_evidence"
+        ]
+      },
+      "timestamp": "1970-01-01T00:16:40.000Z",
+      "timestampMs": 1000000,
+      "sessionGeneration": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc",
+      "modelId": "primary",
+      "lane": "lane-a",
+      "contextTokens": 120000,
+      "remainingTtlMs": null,
+      "cacheStateEvidence": {
+        "request": {
+          "lastVerifiedCacheRequestStartedAtMs": null,
+          "cacheExpiresAtMs": null,
+          "verifiedPrefixTokens": null,
+          "contextTokens": 120000,
+          "sessionGeneration": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc",
+          "modelLanePrefixIdentity": "[\"s1\",\"primary\",\"lane-a\"]",
+          "lastOutcome": "unknown"
+        },
+        "assessment": {
+          "state": "uncertain",
+          "reasons": [
+            "no_expiry_evidence",
+            "response_model_lane_mismatch",
+            "request_start_or_identity_unverified"
+          ],
+          "arrivalAtMs": null,
+          "remainingTtlAtArrivalMs": null,
+          "verifiedPrefixTokens": null,
+          "retryAllowed": false
+        }
+      },
+      "costCoefficientVersion": "unknown",
+      "forecastVersion": null,
+      "parameterSources": {
+        "coefficients": "unknown",
+        "forecast": "no_calibrated_forecast",
+        "cache": "no_request_start_or_prefix_evidence",
+        "lane": "provider_only:auth_and_ttl_unknown",
+        "incurredSpend": "unknown"
+      },
+      "currentPolicyAction": "watching",
+      "incurredSpendSoFar": null,
+      "VScenario": null,
+      "rawUsage": {
+        "uncachedInput": 201,
+        "cacheWrite5m": null,
+        "cacheWrite1h": null,
+        "cacheRead": 203,
+        "billedModelOutput": 202
+      },
+      "rawUsageReasons": [
+        "unsplit_cache_write_not_assigned_to_ttl"
+      ],
+      "rawUsageObservationId": "ed57b2b7-3a13-4695-9b0b-2b71269b7cdc:usage:1",
+      "rawUsageObservedAtMs": 1000000,
+      "rawUsageScope": "last_assistant_message_not_episode_total",
+      "rawUsageModelId": "fallback",
+      "rawUsageLane": "fallback-lane",
+      "episodeStatus": "right_censored",
+      "episodeStartedAtMs": 1000000,
+      "observedUntilMs": 1000000,
+      "returnedAtMs": null,
+      "episodeEndReason": "reload"
+    }
+  ],
+  "scenarios": [
+    {
+      "kind": "mathematical",
+      "asOfMs": 1000000,
+      "snapshot": {
+        "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:1",
+        "timestampMs": 1000000,
+        "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+        "modelId": "math-model",
+        "lane": "math-lane",
+        "contextTokens": 120000,
+        "coefficientVersion": "math-fixture/1",
+        "coefficientStatus": "reported_unverified",
+        "forecastVersion": "simulation/1",
+        "parameterSources": {
+          "costs": "AGENT_TASK/8:mathematical_not_measured",
+          "forecast": "explicit_mathematical_distribution_not_runtime_calibration",
+          "meter": "write_equivalent_tokens"
+        },
+        "cache": {
+          "state": "warm",
+          "reasons": [],
+          "arrivalAtMs": 1000000,
+          "remainingTtlAtArrivalMs": 1,
+          "verifiedPrefixTokens": 120000,
+          "retryAllowed": false
+        },
+        "costs": {
+          "warmEq": 8250,
+          "rawWarmEq": 8250,
+          "parkNowEq": 24000,
+          "restoreWarmEq": 16750,
+          "skillRestoreEq": 0,
+          "sharedLossEq": 0,
+          "coldSharedEq": 150000,
+          "coldFullEq": 150000,
+          "parkQualityEq": 0
+        },
+        "forecast": {
+          "returns": [
+            {
+              "afterMs": 270000,
+              "probability": 0.1
+            },
+            {
+              "afterMs": 540000,
+              "probability": 0.05
+            },
+            {
+              "afterMs": 810000,
+              "probability": 0.03
+            },
+            {
+              "afterMs": 1080000,
+              "probability": 0.02
+            }
+          ],
+          "neverReturnsProbability": 0.8
+        },
+        "planner": {
+          "ttlMs": 300000,
+          "intervalMs": 270000,
+          "remainingTtlMs": 1,
+          "sharedCachePersists": true,
+          "requestArrivalDelayMs": 0,
+          "safetyMarginMs": 0
+        },
+        "gates": {
+          "allowParking": true,
+          "reasons": []
+        },
+        "limits": {
+          "unit": "unconfigured",
+          "maxProactiveSpendPerIdle": "unconfigured",
+          "maxTotalExperimentalSpend": "unconfigured",
+          "maxResumeDelayMs": "unconfigured",
+          "allowedQualityDegradation": "unconfigured",
+          "minimumEvidenceForEnforcement": "unconfigured"
+        },
+        "incurredSpendEq": 0,
+        "vScenario": {
+          "label": "mathematical/V0",
+          "vSignedEq": 0,
+          "status": "scenario"
+        },
+        "mode": "shadow"
+      }
+    }
+  ],
+  "unknownSnapshot": {
+    "idleEpisodeId": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92:1",
+    "timestampMs": 1000000,
+    "sessionGeneration": "cb3b5196-95bf-47f1-8d9f-cee7cae21d92",
+    "modelId": "math-model",
+    "lane": "math-lane",
+    "contextTokens": 120000,
+    "coefficientVersion": "unknown",
+    "coefficientStatus": "unknown",
+    "forecastVersion": null,
+    "parameterSources": {
+      "coefficients": "unknown",
+      "forecast": "no_calibrated_forecast"
+    },
+    "cache": {
+      "state": "uncertain",
+      "reasons": [
+        "no_expiry_evidence"
+      ],
+      "arrivalAtMs": null,
+      "remainingTtlAtArrivalMs": null,
+      "verifiedPrefixTokens": null,
+      "retryAllowed": false
+    },
+    "costs": null,
+    "forecast": null,
+    "planner": {
+      "ttlMs": 300000,
+      "intervalMs": 270000,
+      "remainingTtlMs": 1,
+      "sharedCachePersists": true,
+      "requestArrivalDelayMs": 0,
+      "safetyMarginMs": 0
+    },
+    "gates": {
+      "allowParking": true,
+      "reasons": []
+    },
+    "limits": {
+      "unit": "unconfigured",
+      "maxProactiveSpendPerIdle": "unconfigured",
+      "maxTotalExperimentalSpend": "unconfigured",
+      "maxResumeDelayMs": "unconfigured",
+      "allowedQualityDegradation": "unconfigured",
+      "minimumEvidenceForEnforcement": "unconfigured"
+    },
+    "incurredSpendEq": 0,
+    "vScenario": null,
+    "mode": "shadow",
+    "costBlockers": [
+      "no_calibrated_forecast"
+    ]
+  }
+}
