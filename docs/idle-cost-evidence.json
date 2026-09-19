@@ -1,0 +1,3451 @@
+{
+  "schemaVersion": "quota-analysis/1",
+  "generatedAt": "2026-09-19T19:38:28.939Z",
+  "status": "ok",
+  "source": {
+    "raw": {
+      "path": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+      "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+      "jsonLines": 603
+    },
+    "trials": {
+      "available": true,
+      "path": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/trials.jsonl",
+      "sha256": "ed52eb71e2ec3b8ef4bf3b5f307dd20641b90e5b69a4969d8bb39eb247c32e75",
+      "rows": 304,
+      "malformedLines": [],
+      "invalidRows": []
+    },
+    "producedBy": "quota-test proxy.mjs passthrough capture (response usage + unified rate limit headers only)",
+    "capturedFields": "response usage counters and rate limit headers only; the source records carry no request payload, no response payload and no credential header"
+  },
+  "inputIntegrity": {
+    "totalRows": 603,
+    "billableRows": 299,
+    "nonBillableRows": 304,
+    "transportErrorRows": 0,
+    "malformedLines": [],
+    "invalidRows": [],
+    "usageWarningRequests": 0,
+    "usageWarningDetail": [],
+    "unknownBillableFields": {},
+    "duplicatesDropped": 0,
+    "duplicateDetail": [],
+    "usageConflicts": [],
+    "requestsAfterDedup": 299,
+    "dedupKey": "msg_id, falling back to request-id",
+    "doubleCountGuards": [
+      "cache_creation_input_tokens is a total of the two TTL lanes and is never added to them",
+      "streaming snapshots and final totals sharing a message id collapse to one request with the maximum cumulative output",
+      "compaction iterations are folded into the parent total and never added on top",
+      "tool result and summary tokens are tracked apart from billed model output"
+    ]
+  },
+  "totals": {
+    "requests": 299,
+    "uncachedInput": 4122,
+    "cacheWrite5m": 4,
+    "cacheWrite1h": 9395995,
+    "cacheWriteUnknownTtl": 0,
+    "cacheRead": 20555717,
+    "billedModelOutput": 2840,
+    "toolResultTokens": 0,
+    "summaryDocumentTokens": 0,
+    "unknownFieldRequests": {}
+  },
+  "identity": {
+    "provider": {
+      "claude-opus-5": "firstParty",
+      "claude-fable-5-1": "firstParty",
+      "claude-opus-4-8": "firstParty"
+    },
+    "config": {
+      "serviceTier": "standard",
+      "thinkingTokensObserved": [
+        0
+      ],
+      "contextWindow": {
+        "claude-opus-5": 200000,
+        "claude-fable-5-1": 200000,
+        "claude-opus-4-8": 200000
+      },
+      "maxOutputTokens": {
+        "claude-opus-5": 64000,
+        "claude-fable-5-1": 64000,
+        "claude-opus-4-8": 64000
+      },
+      "accountHeaders": {
+        "anthropic-ratelimit-unified-status": "allowed",
+        "anthropic-ratelimit-unified-reset": "1789765800",
+        "anthropic-ratelimit-unified-representative-claim": "five_hour",
+        "anthropic-ratelimit-unified-overage-status": "rejected",
+        "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+        "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+      },
+      "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+    }
+  },
+  "meters": {
+    "unified-5h": {
+      "meterId": "unified-5h",
+      "requests": 299,
+      "models": [
+        "claude-fable-5-1",
+        "claude-opus-4-8",
+        "claude-opus-5"
+      ],
+      "resetEpochs": [
+        1789765800
+      ],
+      "resetIso": [
+        "2026-09-18T21:10:00.000Z"
+      ],
+      "statuses": [
+        "allowed"
+      ],
+      "firstUtilization": 0.12,
+      "lastUtilization": 0.27,
+      "crossesReset": false,
+      "crossResetReason": null,
+      "observedDeltaUtilization": 0.15,
+      "observedTicks": 15,
+      "firstTs": "2026-09-18T18:38:55.507Z",
+      "lastTs": "2026-09-18T19:15:48.956Z",
+      "windows": [
+        {
+          "meterId": "unified-5h",
+          "resetEpoch": 1789765800,
+          "firstIndex": 0,
+          "lastIndex": 298,
+          "requests": 299,
+          "startUtilization": 0.12,
+          "endUtilization": 0.27,
+          "spansReset": false,
+          "observedTicks": 15,
+          "observedDeltaUtilization": 0.15
+        }
+      ],
+      "aggregationRule": "kept separate; never summed with another meter"
+    },
+    "unified-7d": {
+      "meterId": "unified-7d",
+      "requests": 299,
+      "models": [
+        "claude-fable-5-1",
+        "claude-opus-4-8",
+        "claude-opus-5"
+      ],
+      "resetEpochs": [
+        1790078400
+      ],
+      "resetIso": [
+        "2026-09-22T12:00:00.000Z"
+      ],
+      "statuses": [
+        "allowed"
+      ],
+      "firstUtilization": 0.39,
+      "lastUtilization": 0.42,
+      "crossesReset": false,
+      "crossResetReason": null,
+      "observedDeltaUtilization": 0.03,
+      "observedTicks": 3,
+      "firstTs": "2026-09-18T18:38:55.507Z",
+      "lastTs": "2026-09-18T19:15:48.956Z",
+      "windows": [
+        {
+          "meterId": "unified-7d",
+          "resetEpoch": 1790078400,
+          "firstIndex": 0,
+          "lastIndex": 298,
+          "requests": 299,
+          "startUtilization": 0.39,
+          "endUtilization": 0.42,
+          "spansReset": false,
+          "observedTicks": 3,
+          "observedDeltaUtilization": 0.03
+        }
+      ],
+      "aggregationRule": "kept separate; never summed with another meter"
+    },
+    "unified-7d_oi": {
+      "meterId": "unified-7d_oi",
+      "requests": 68,
+      "models": [
+        "claude-fable-5-1"
+      ],
+      "resetEpochs": [
+        1790078400
+      ],
+      "resetIso": [
+        "2026-09-22T12:00:00.000Z"
+      ],
+      "statuses": [
+        "allowed"
+      ],
+      "firstUtilization": 0.65,
+      "lastUtilization": 0.68,
+      "crossesReset": false,
+      "crossResetReason": null,
+      "observedDeltaUtilization": 0.03,
+      "observedTicks": 3,
+      "firstTs": "2026-09-18T18:39:13.955Z",
+      "lastTs": "2026-09-18T19:13:03.960Z",
+      "windows": [
+        {
+          "meterId": "unified-7d_oi",
+          "resetEpoch": 1790078400,
+          "firstIndex": 1,
+          "lastIndex": 297,
+          "requests": 68,
+          "startUtilization": 0.65,
+          "endUtilization": 0.68,
+          "spansReset": false,
+          "observedTicks": 3,
+          "observedDeltaUtilization": 0.03
+        }
+      ],
+      "aggregationRule": "kept separate; never summed with another meter"
+    }
+  },
+  "blocks": {
+    "opus.gate": {
+      "block": "opus.gate",
+      "requests": 1,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 1,
+        "uncachedInput": 2,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 2557,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 0,
+        "billedModelOutput": 4,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 0,
+          "endIndex": 0,
+          "requests": 1,
+          "firstRequestId": "req_011CfBPgxRogu5T7AGndrvDU",
+          "lastRequestId": "req_011CfBPgxRogu5T7AGndrvDU",
+          "firstTs": "2026-09-18T18:38:55.507Z",
+          "lastTs": "2026-09-18T18:38:55.507Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "fable.gate": {
+      "block": "fable.gate",
+      "requests": 2,
+      "refusals": 1,
+      "billingUncertain": 1,
+      "models": [
+        "claude-fable-5-1",
+        "claude-opus-4-8"
+      ],
+      "configIdentities": [
+        "tier:standard",
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": false,
+      "totals": {
+        "requests": 2,
+        "uncachedInput": 4,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 6831,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 0,
+        "billedModelOutput": 4,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 1,
+          "endIndex": 2,
+          "requests": 2,
+          "firstRequestId": "req_011CfBPiK1qKL2bXbururzbt",
+          "lastRequestId": "req_011CfBPiSfTixQPzhPJfA7b1",
+          "firstTs": "2026-09-18T18:39:13.955Z",
+          "lastTs": "2026-09-18T18:39:15.362Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": false,
+      "utilizationAttribution": "unassigned",
+      "attributionReason": "multiple models inside one run: the meter cannot be split between them; the window mixes configuration identities (tier:standard, tier:standard|thinking:present), so the service tier or effort behind the movement is not determined; 1 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+    },
+    "opus.N": {
+      "block": "opus.N",
+      "requests": 7,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 7,
+        "uncachedInput": 14,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 0,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 17899,
+        "billedModelOutput": 28,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 3,
+          "endIndex": 9,
+          "requests": 7,
+          "firstRequestId": "req_011CfBPiazWmp69ynxYkoGXJ",
+          "lastRequestId": "req_011CfBPkh5gphU7vT6iDc486",
+          "firstTs": "2026-09-18T18:39:17.170Z",
+          "lastTs": "2026-09-18T18:39:46.374Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "opus.WR": {
+      "block": "opus.WR",
+      "requests": 82,
+      "refusals": 73,
+      "billingUncertain": 73,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard",
+        "tier:standard|thinking:present",
+        "tier:unreported"
+      ],
+      "homogeneousConfigIdentity": false,
+      "totals": {
+        "requests": 82,
+        "uncachedInput": 1010,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 7363208,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 3802794,
+        "billedModelOutput": 36,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 10,
+          "endIndex": 18,
+          "requests": 9,
+          "firstRequestId": "req_011CfBPoc4eA9Co86VdryZnB",
+          "lastRequestId": "req_011CfBPzHBtjEbJ1PimwBzXj",
+          "firstTs": "2026-09-18T18:40:25.284Z",
+          "lastTs": "2026-09-18T18:42:50.092Z"
+        },
+        {
+          "startIndex": 104,
+          "endIndex": 176,
+          "requests": 73,
+          "firstRequestId": "req_011CfBQpy2MgVKBS8yn7tMPX",
+          "lastRequestId": "req_011CfBRN4EFw8Xv9Dc81tPYC",
+          "firstTs": "2026-09-18T18:53:50.597Z",
+          "lastTs": "2026-09-18T19:00:52.371Z"
+        }
+      ],
+      "contiguous": false,
+      "homogeneousModel": true,
+      "utilizationAttribution": "unassigned",
+      "attributionReason": "block is interleaved with other blocks, so gauge movement cannot be attributed to it; the window mixes configuration identities (tier:standard, tier:standard|thinking:present, tier:unreported), so the service tier or effort behind the movement is not determined; 73 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+    },
+    "fable.probe": {
+      "block": "fable.probe",
+      "requests": 3,
+      "refusals": 1,
+      "billingUncertain": 1,
+      "models": [
+        "claude-fable-5-1",
+        "claude-opus-4-8"
+      ],
+      "configIdentities": [
+        "tier:standard",
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": false,
+      "totals": {
+        "requests": 3,
+        "uncachedInput": 6,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 33236,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 3035,
+        "billedModelOutput": 8,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 19,
+          "endIndex": 21,
+          "requests": 3,
+          "firstRequestId": "req_011CfBQ9AAiPSj7Y2Nt6MBXi",
+          "lastRequestId": "req_011CfBQ9vtHocFEjAVxatt5i",
+          "firstTs": "2026-09-18T18:44:50.928Z",
+          "lastTs": "2026-09-18T18:45:01.808Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": false,
+      "utilizationAttribution": "unassigned",
+      "attributionReason": "multiple models inside one run: the meter cannot be split between them; the window mixes configuration identities (tier:standard, tier:standard|thinking:present), so the service tier or effort behind the movement is not determined; 1 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+    },
+    "opus.probe": {
+      "block": "opus.probe",
+      "requests": 2,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 2,
+        "uncachedInput": 4,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 26771,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 4362,
+        "billedModelOutput": 8,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 22,
+          "endIndex": 23,
+          "requests": 2,
+          "firstRequestId": "req_011CfBQA7QJjXoLVxF3XmDbF",
+          "lastRequestId": "req_011CfBQATASg2HFus1VNpYaX",
+          "firstTs": "2026-09-18T18:45:03.428Z",
+          "lastTs": "2026-09-18T18:45:08.202Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "fable.probe2": {
+      "block": "fable.probe2",
+      "requests": 10,
+      "refusals": 4,
+      "billingUncertain": 4,
+      "models": [
+        "claude-fable-5-1",
+        "claude-opus-4-8"
+      ],
+      "configIdentities": [
+        "tier:standard",
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": false,
+      "totals": {
+        "requests": 10,
+        "uncachedInput": 20,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 2692,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 31514,
+        "billedModelOutput": 22,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 24,
+          "endIndex": 33,
+          "requests": 10,
+          "firstRequestId": "req_011CfBQByYqLKVmN8UYSMXcF",
+          "lastRequestId": "req_011CfBQFKTjfcwgPcB93iUg6",
+          "firstTs": "2026-09-18T18:45:29.210Z",
+          "lastTs": "2026-09-18T18:46:14.229Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": false,
+      "utilizationAttribution": "unassigned",
+      "attributionReason": "multiple models inside one run: the meter cannot be split between them; the window mixes configuration identities (tier:standard, tier:standard|thinking:present), so the service tier or effort behind the movement is not determined; 4 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+    },
+    "opus.Wt": {
+      "block": "opus.Wt",
+      "requests": 7,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 7,
+        "uncachedInput": 14,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 1071883,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 16458,
+        "billedModelOutput": 28,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 34,
+          "endIndex": 40,
+          "requests": 7,
+          "firstRequestId": "req_011CfBQGAiuDfNZYrgpZTfFU",
+          "lastRequestId": "req_011CfBQNpeMVHrbL4JmgjqJu",
+          "firstTs": "2026-09-18T18:46:25.861Z",
+          "lastTs": "2026-09-18T18:47:55.864Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "opus.Rt": {
+      "block": "opus.Rt",
+      "requests": 63,
+      "refusals": 57,
+      "billingUncertain": 57,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present",
+        "tier:unreported"
+      ],
+      "homogeneousConfigIdentity": false,
+      "totals": {
+        "requests": 63,
+        "uncachedInput": 2804,
+        "cacheWrite5m": 4,
+        "cacheWrite1h": 175107,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 540350,
+        "billedModelOutput": 2214,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 41,
+          "endIndex": 103,
+          "requests": 63,
+          "firstRequestId": "req_011CfBQQopo6qKMj4MEiwS7k",
+          "lastRequestId": "req_011CfBQmJ4jA816C2HyPY9jB",
+          "firstTs": "2026-09-18T18:48:22.900Z",
+          "lastTs": "2026-09-18T18:53:01.055Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "unassigned",
+      "attributionReason": "the window mixes configuration identities (tier:standard|thinking:present, tier:unreported), so the service tier or effort behind the movement is not determined; 57 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+    },
+    "opus.Rf": {
+      "block": "opus.Rf",
+      "requests": 62,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 62,
+        "uncachedInput": 124,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 0,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 8682836,
+        "billedModelOutput": 248,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 177,
+          "endIndex": 238,
+          "requests": 62,
+          "firstRequestId": "req_011CfBRRDDaiGSiuvTHNkFum",
+          "lastRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+          "firstTs": "2026-09-18T19:01:35.204Z",
+          "lastTs": "2026-09-18T19:06:56.699Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "fable.WR": {
+      "block": "fable.WR",
+      "requests": 7,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-fable-5-1"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 7,
+        "uncachedInput": 14,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 713710,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 22049,
+        "billedModelOutput": 28,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 239,
+          "endIndex": 245,
+          "requests": 7,
+          "firstRequestId": "req_011CfBRsapLHUZES1G3YdDPp",
+          "lastRequestId": "req_011CfBRuv522sVohA29kxEqs",
+          "firstTs": "2026-09-18T19:07:33.339Z",
+          "lastTs": "2026-09-18T19:08:04.975Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "fable.Rf": {
+      "block": "fable.Rf",
+      "requests": 52,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-fable-5-1"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 52,
+        "uncachedInput": 104,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 0,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 7431842,
+        "billedModelOutput": 208,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 246,
+          "endIndex": 297,
+          "requests": 52,
+          "firstRequestId": "req_011CfBRv54kbPt5qyJLuDYij",
+          "lastRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+          "firstTs": "2026-09-18T19:08:07.062Z",
+          "lastTs": "2026-09-18T19:13:03.960Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    },
+    "opus.Ot": {
+      "block": "opus.Ot",
+      "requests": 1,
+      "refusals": 0,
+      "billingUncertain": 0,
+      "models": [
+        "claude-opus-5"
+      ],
+      "configIdentities": [
+        "tier:standard|thinking:present"
+      ],
+      "homogeneousConfigIdentity": true,
+      "totals": {
+        "requests": 1,
+        "uncachedInput": 2,
+        "cacheWrite5m": 0,
+        "cacheWrite1h": 0,
+        "cacheWriteUnknownTtl": 0,
+        "cacheRead": 2578,
+        "billedModelOutput": 4,
+        "toolResultTokens": 0,
+        "summaryDocumentTokens": 0,
+        "unknownFieldRequests": {}
+      },
+      "runs": [
+        {
+          "startIndex": 298,
+          "endIndex": 298,
+          "requests": 1,
+          "firstRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+          "lastRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+          "firstTs": "2026-09-18T19:15:48.956Z",
+          "lastTs": "2026-09-18T19:15:48.956Z"
+        }
+      ],
+      "contiguous": true,
+      "homogeneousModel": true,
+      "utilizationAttribution": "attributable_to_run",
+      "attributionReason": null
+    }
+  },
+  "phases": {
+    "warm": {
+      "phase": "warm",
+      "status": "unassigned",
+      "requests": 0,
+      "totals": null,
+      "reason": "the capture is a synthetic quota calibration run: it contains no idle refresh, handoff, restore or useful-work boundary event, so no request can be assigned to this phase"
+    },
+    "park_parent": {
+      "phase": "park_parent",
+      "status": "unassigned",
+      "requests": 0,
+      "totals": null,
+      "reason": "the capture is a synthetic quota calibration run: it contains no idle refresh, handoff, restore or useful-work boundary event, so no request can be assigned to this phase"
+    },
+    "restore_child": {
+      "phase": "restore_child",
+      "status": "unassigned",
+      "requests": 0,
+      "totals": null,
+      "reason": "the capture is a synthetic quota calibration run: it contains no idle refresh, handoff, restore or useful-work boundary event, so no request can be assigned to this phase"
+    },
+    "resume_raw": {
+      "phase": "resume_raw",
+      "status": "unassigned",
+      "requests": 0,
+      "totals": null,
+      "reason": "the capture is a synthetic quota calibration run: it contains no idle refresh, handoff, restore or useful-work boundary event, so no request can be assigned to this phase"
+    },
+    "useful_work": {
+      "phase": "useful_work",
+      "status": "unassigned",
+      "requests": 0,
+      "totals": null,
+      "reason": "the capture is a synthetic quota calibration run: it contains no idle refresh, handoff, restore or useful-work boundary event, so no request can be assigned to this phase"
+    }
+  },
+  "coefficientRecords": [
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.N",
+        "indexRange": [
+          3,
+          9
+        ],
+        "baselineRequestId": "req_011CfBPiSfTixQPzhPJfA7b1",
+        "baselineIndex": 2,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBPiazWmp69ynxYkoGXJ",
+        "lastRequestId": "req_011CfBPkh5gphU7vT6iDc486",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 17899,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 17899,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.N",
+        "indexRange": [
+          3,
+          9
+        ],
+        "baselineRequestId": "req_011CfBPiSfTixQPzhPJfA7b1",
+        "baselineIndex": 2,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBPiazWmp69ynxYkoGXJ",
+        "lastRequestId": "req_011CfBPkh5gphU7vT6iDc486",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 17899,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 17899,
+          "observedTicks": 1,
+          "identifiable": true,
+          "boundedAbove": false,
+          "lowTokensPerTick": 8949.5,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 1,
+            "resolution": 0.01,
+            "lowTicksExclusive": 0,
+            "highTicksExclusive": 2,
+            "lowUtilizationExclusive": 0,
+            "highUtilizationExclusive": 0.02,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.probe",
+        "indexRange": [
+          22,
+          23
+        ],
+        "baselineRequestId": "req_011CfBQ9vtHocFEjAVxatt5i",
+        "baselineIndex": 21,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQA7QJjXoLVxF3XmDbF",
+        "lastRequestId": "req_011CfBQATASg2HFus1VNpYaX",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 2,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 26771,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 26771,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 4,
+          "cacheWrite5m": 0,
+          "cacheRead": 4362,
+          "billedModelOutput": 8
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.probe",
+        "indexRange": [
+          22,
+          23
+        ],
+        "baselineRequestId": "req_011CfBQ9vtHocFEjAVxatt5i",
+        "baselineIndex": 21,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQA7QJjXoLVxF3XmDbF",
+        "lastRequestId": "req_011CfBQATASg2HFus1VNpYaX",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 2,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 26771,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 26771,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 4,
+          "cacheWrite5m": 0,
+          "cacheRead": 4362,
+          "billedModelOutput": 8
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Wt",
+        "indexRange": [
+          34,
+          40
+        ],
+        "baselineRequestId": "req_011CfBQFKTjfcwgPcB93iUg6",
+        "baselineIndex": 33,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQGAiuDfNZYrgpZTfFU",
+        "lastRequestId": "req_011CfBQNpeMVHrbL4JmgjqJu",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 1071883,
+        "observedTicks": 2,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 1071883,
+          "observedTicks": 2,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 357294.3333333333,
+          "highTokensPerTick": 1071883,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 2,
+            "resolution": 0.01,
+            "lowTicksExclusive": 1,
+            "highTicksExclusive": 3,
+            "lowUtilizationExclusive": 0.01,
+            "highUtilizationExclusive": 0.03,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 16458,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Wt",
+        "indexRange": [
+          34,
+          40
+        ],
+        "baselineRequestId": "req_011CfBQFKTjfcwgPcB93iUg6",
+        "baselineIndex": 33,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQGAiuDfNZYrgpZTfFU",
+        "lastRequestId": "req_011CfBQNpeMVHrbL4JmgjqJu",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 1071883,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 1071883,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 16458,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "unknown",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Rt",
+        "indexRange": [
+          41,
+          103
+        ],
+        "baselineRequestId": "req_011CfBQNpeMVHrbL4JmgjqJu",
+        "baselineIndex": 40,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQQopo6qKMj4MEiwS7k",
+        "lastRequestId": "req_011CfBQmJ4jA816C2HyPY9jB",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 63,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 540350,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "identifiable": false
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 2804,
+          "cacheWrite5m": 4,
+          "cacheRead": 175107,
+          "billedModelOutput": 2214
+        },
+        "billingUncertainRequests": 57,
+        "configIdentities": [
+          "tier:standard|thinking:present",
+          "tier:unreported"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": "the window mixes configuration identities (tier:standard|thinking:present, tier:unreported), so the service tier or effort behind the movement is not determined; 57 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+      },
+      "status": "unassigned",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "unknown",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Rt",
+        "indexRange": [
+          41,
+          103
+        ],
+        "baselineRequestId": "req_011CfBQNpeMVHrbL4JmgjqJu",
+        "baselineIndex": 40,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBQQopo6qKMj4MEiwS7k",
+        "lastRequestId": "req_011CfBQmJ4jA816C2HyPY9jB",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 63,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 540350,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "identifiable": false
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 2804,
+          "cacheWrite5m": 4,
+          "cacheRead": 175107,
+          "billedModelOutput": 2214
+        },
+        "billingUncertainRequests": 57,
+        "configIdentities": [
+          "tier:standard|thinking:present",
+          "tier:unreported"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": "the window mixes configuration identities (tier:standard|thinking:present, tier:unreported), so the service tier or effort behind the movement is not determined; 57 request(s) in this window have uncertain billing, so the whole window is rejected rather than measured"
+      },
+      "status": "unassigned",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Rf",
+        "indexRange": [
+          177,
+          238
+        ],
+        "baselineRequestId": "req_011CfBRN4EFw8Xv9Dc81tPYC",
+        "baselineIndex": 176,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRRDDaiGSiuvTHNkFum",
+        "lastRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 62,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 8682836,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 8682836,
+          "observedTicks": 1,
+          "identifiable": true,
+          "boundedAbove": false,
+          "lowTokensPerTick": 4341418,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 1,
+            "resolution": 0.01,
+            "lowTicksExclusive": 0,
+            "highTicksExclusive": 2,
+            "lowUtilizationExclusive": 0,
+            "highUtilizationExclusive": 0.02,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 124,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 248
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Rf",
+        "indexRange": [
+          177,
+          238
+        ],
+        "baselineRequestId": "req_011CfBRN4EFw8Xv9Dc81tPYC",
+        "baselineIndex": 176,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRRDDaiGSiuvTHNkFum",
+        "lastRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 62,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 8682836,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 8682836,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 124,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 248
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.WR",
+        "indexRange": [
+          239,
+          245
+        ],
+        "baselineRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+        "baselineIndex": 238,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRsapLHUZES1G3YdDPp",
+        "lastRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 713710,
+        "observedTicks": 6,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 713710,
+          "observedTicks": 6,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 101958.57142857143,
+          "highTokensPerTick": 142742,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 6,
+            "resolution": 0.01,
+            "lowTicksExclusive": 5,
+            "highTicksExclusive": 7,
+            "lowUtilizationExclusive": 0.05,
+            "highUtilizationExclusive": 0.07,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 22049,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.WR",
+        "indexRange": [
+          239,
+          245
+        ],
+        "baselineRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+        "baselineIndex": 238,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRsapLHUZES1G3YdDPp",
+        "lastRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 713710,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 713710,
+          "observedTicks": 1,
+          "identifiable": true,
+          "boundedAbove": false,
+          "lowTokensPerTick": 356855,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 1,
+            "resolution": 0.01,
+            "lowTicksExclusive": 0,
+            "highTicksExclusive": 2,
+            "lowUtilizationExclusive": 0,
+            "highUtilizationExclusive": 0.02,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 22049,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "ephemeral_1h",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d_oi-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "unknown",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.WR",
+        "indexRange": [
+          239,
+          245
+        ],
+        "baselineRequestId": "req_011CfBQFCDR4VyUMWqwQhTrj",
+        "baselineIndex": 32,
+        "baselineGapRequests": 207,
+        "firstRequestId": "req_011CfBRsapLHUZES1G3YdDPp",
+        "lastRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 7,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheWrite1h",
+        "tokens": 713710,
+        "observedTicks": 2,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "identifiable": false
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 14,
+          "cacheWrite5m": 0,
+          "cacheRead": 22049,
+          "billedModelOutput": 28
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 207,
+        "unattributableReason": "the previous reading of this meter is not the immediately preceding request, so traffic in the gap may account for the movement"
+      },
+      "status": "unassigned",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.Rf",
+        "indexRange": [
+          246,
+          297
+        ],
+        "baselineRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "baselineIndex": 245,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRv54kbPt5qyJLuDYij",
+        "lastRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 52,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 7431842,
+        "observedTicks": 2,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 7431842,
+          "observedTicks": 2,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 2477280.6666666665,
+          "highTokensPerTick": 7431842,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 2,
+            "resolution": 0.01,
+            "lowTicksExclusive": 1,
+            "highTicksExclusive": 3,
+            "lowUtilizationExclusive": 0.01,
+            "highUtilizationExclusive": 0.03,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 104,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 208
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.Rf",
+        "indexRange": [
+          246,
+          297
+        ],
+        "baselineRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "baselineIndex": 245,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRv54kbPt5qyJLuDYij",
+        "lastRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 52,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 7431842,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 7431842,
+          "observedTicks": 1,
+          "identifiable": true,
+          "boundedAbove": false,
+          "lowTokensPerTick": 3715921,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 1,
+            "resolution": 0.01,
+            "lowTicksExclusive": 0,
+            "highTicksExclusive": 2,
+            "lowUtilizationExclusive": 0,
+            "highUtilizationExclusive": 0.02,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 104,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 208
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d_oi-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "fable.Rf",
+        "indexRange": [
+          246,
+          297
+        ],
+        "baselineRequestId": "req_011CfBRuv522sVohA29kxEqs",
+        "baselineIndex": 245,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBRv54kbPt5qyJLuDYij",
+        "lastRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 52,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 7431842,
+        "observedTicks": 1,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 7431842,
+          "observedTicks": 1,
+          "identifiable": true,
+          "boundedAbove": false,
+          "lowTokensPerTick": 3715921,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 1,
+            "resolution": 0.01,
+            "lowTicksExclusive": 0,
+            "highTicksExclusive": 2,
+            "lowUtilizationExclusive": 0,
+            "highUtilizationExclusive": 0.02,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 104,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 208
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "range_only",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Ot",
+        "indexRange": [
+          298,
+          298
+        ],
+        "baselineRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+        "baselineIndex": 297,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+        "lastRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+        "resetEpoch": 1789765800
+      },
+      "sampleCount": 1,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 2578,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 2578,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 2,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 4
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "oauth_subscription",
+      "ttlLane": "not_applicable_read",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-tick",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "measured",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/raw.jsonl",
+        "sha256": "39fc7eb7356614d4d568d70347e88b5ddc5bfd062c0fc318bc43df3e83d57467",
+        "block": "opus.Ot",
+        "indexRange": [
+          298,
+          298
+        ],
+        "baselineRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+        "baselineIndex": 297,
+        "baselineGapRequests": 1,
+        "firstRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+        "lastRequestId": "req_011CfBSW9Fy5Jk8N8LJnqZWC",
+        "resetEpoch": 1790078400
+      },
+      "sampleCount": 1,
+      "coefficients": {
+        "kInput": null,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kRead": null,
+        "kOutput": null
+      },
+      "observedRangeOrUncertainty": {
+        "dominantComponent": "cacheRead",
+        "tokens": 2578,
+        "observedTicks": 0,
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "quantization_bounds",
+        "tokensPerTick": {
+          "tokens": 2578,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "contaminatingComponents": {
+          "uncachedInput": 2,
+          "cacheWrite5m": 0,
+          "cacheRead": 0,
+          "billedModelOutput": 4
+        },
+        "billingUncertainRequests": 0,
+        "configIdentities": [
+          "tier:standard|thinking:present"
+        ],
+        "baselineGapRequests": 1,
+        "unattributableReason": null
+      },
+      "status": "unidentified",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-5",
+      "provider": "firstParty",
+      "authLane": "cli_reported_cost_accounting",
+      "ttlLane": "unsplit_in_source",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "usd_per_mtok_list_reported_by_cli",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "reported_unverified",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/trials.jsonl",
+        "sha256": "ed52eb71e2ec3b8ef4bf3b5f307dd20641b90e5b69a4969d8bb39eb247c32e75",
+        "rows": 224,
+        "distinctPatterns": 148
+      },
+      "sampleCount": 224,
+      "coefficients": {
+        "kInput": 0.000004999386893644572,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kCacheWriteUnsplit": 0.000010000000065750647,
+        "kRead": 5.000001518903138e-7,
+        "kOutput": 0.00002499370869593442
+      },
+      "observedRangeOrUncertainty": {
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "exact_solve_of_reported_values",
+        "maxResidualUsd": 2.622330456600319e-8,
+        "rank": 4,
+        "usdPerMtok": {
+          "input": 4.999386893644572,
+          "cacheWrite": 10.000000065750648,
+          "cacheRead": 0.5000001518903138,
+          "output": 24.99370869593442
+        },
+        "caveat": "these are the unit prices the CLI used for its own cost figures; they are not a measurement of the subscription quota meter and must not be substituted for one"
+      },
+      "status": "derived_from_reported",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-fable-5-1",
+      "provider": "firstParty",
+      "authLane": "cli_reported_cost_accounting",
+      "ttlLane": "unsplit_in_source",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "usd_per_mtok_list_reported_by_cli",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "reported_unverified",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/trials.jsonl",
+        "sha256": "ed52eb71e2ec3b8ef4bf3b5f307dd20641b90e5b69a4969d8bb39eb247c32e75",
+        "rows": 68,
+        "distinctPatterns": 13
+      },
+      "sampleCount": 68,
+      "coefficients": {
+        "kInput": 0.000010000000000261724,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kCacheWriteUnsplit": 0.000020000000000000032,
+        "kRead": 2.5000000000002995e-7,
+        "kOutput": 0.00004999999999877934
+      },
+      "observedRangeOrUncertainty": {
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "exact_solve_of_reported_values",
+        "maxResidualUsd": 4.257011410047085e-15,
+        "rank": 4,
+        "usdPerMtok": {
+          "input": 10.000000000261723,
+          "cacheWrite": 20.000000000000032,
+          "cacheRead": 0.25000000000003,
+          "output": 49.99999999877934
+        },
+        "caveat": "these are the unit prices the CLI used for its own cost figures; they are not a measurement of the subscription quota meter and must not be substituted for one"
+      },
+      "status": "derived_from_reported",
+      "version": "quota-analysis/1"
+    },
+    {
+      "modelId": "claude-opus-4-8",
+      "provider": "firstParty",
+      "authLane": "cli_reported_cost_accounting",
+      "ttlLane": "unsplit_in_source",
+      "effortOrConfigIdentity": {
+        "serviceTier": "standard",
+        "thinkingTokensObserved": [
+          0
+        ],
+        "contextWindow": {
+          "claude-opus-5": 200000,
+          "claude-fable-5-1": 200000,
+          "claude-opus-4-8": 200000
+        },
+        "maxOutputTokens": {
+          "claude-opus-5": 64000,
+          "claude-fable-5-1": 64000,
+          "claude-opus-4-8": 64000
+        },
+        "accountHeaders": {
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-reset": "1789765800",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-overage-status": "rejected",
+          "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+          "anthropic-ratelimit-unified-fallback-percentage": "0.5"
+        },
+        "note": "identity fields are recorded to keep measurements from different conditions apart, not to assert that they change price"
+      },
+      "quotaMeterOrCostUnit": "usd_per_mtok_list_reported_by_cli",
+      "validFrom": "2026-09-18T18:38:55.507Z",
+      "measuredAt": "2026-09-18T19:15:48.956Z",
+      "sourceKind": "reported_unverified",
+      "evidenceRef": {
+        "file": "C:/dev/omo/omo-rollover/quota-test/2026-09-19/trials.jsonl",
+        "sha256": "ed52eb71e2ec3b8ef4bf3b5f307dd20641b90e5b69a4969d8bb39eb247c32e75",
+        "rows": 6,
+        "distinctPatterns": 6
+      },
+      "sampleCount": 6,
+      "coefficients": {
+        "kInput": 0.000004999998855834734,
+        "kWrite5": null,
+        "kWrite60": null,
+        "kCacheWriteUnsplit": 0.00001000000000066312,
+        "kRead": 5.000000006635749e-7,
+        "kOutput": 0.0000250000000058833
+      },
+      "observedRangeOrUncertainty": {
+        "statisticalConfidenceInterval": false,
+        "rangeKind": "exact_solve_of_reported_values",
+        "maxResidualUsd": 4.453902524570452e-15,
+        "rank": 4,
+        "usdPerMtok": {
+          "input": 4.999998855834734,
+          "cacheWrite": 10.00000000066312,
+          "cacheRead": 0.5000000006635749,
+          "output": 25.000000005883297
+        },
+        "caveat": "these are the unit prices the CLI used for its own cost figures; they are not a measurement of the subscription quota meter and must not be substituted for one"
+      },
+      "status": "derived_from_reported",
+      "version": "quota-analysis/1"
+    }
+  ],
+  "outputCoefficient": {
+    "status": "unidentified",
+    "identifiable": false,
+    "value": null,
+    "otBlockRequests": 1,
+    "otBlockOutputTokens": 4,
+    "reason": "the output block stopped at one request before any output-dominated trial ran, so no window isolates output from read and write",
+    "followUp": "docs/idle-experiments.md output quota plan (not executed)"
+  },
+  "fableWriteTicks": {
+    "available": true,
+    "model": "claude-fable-5-1",
+    "meterId": "unified-5h",
+    "resolved": false,
+    "resolutionBlockedBy": "gauge_granularity, unmeasured accounting lag, and unobservable concurrent account usage",
+    "discriminatingExperiment": "docs/idle-experiments.md fable write tick plan (not executed)",
+    "lagObserved": true,
+    "lagExclusivelyEstablished": false,
+    "alternativeExplanations": [
+      "the gauge lags, and this tick is deferred accounting for an earlier write in the same block",
+      "usage unrelated to this capture consumed the same shared account meter during the window; the proxy only sees its own requests, so concurrent traffic is unobservable here",
+      "the gauge aggregates server side on an interval boundary that happens to fall on this request rather than on the request that caused the consumption"
+    ],
+    "delayedTick": {
+      "index": 245,
+      "requestId": "req_011CfBRuv522sVohA29kxEqs",
+      "messageId": "msg_011CfBRuvX4e6qy3YppNpHKD",
+      "ts": "2026-09-18T19:08:04.975Z",
+      "tsRequestStart": "2026-09-18T19:08:03.305Z",
+      "label": "fable.WR.end",
+      "cacheWrite1h": 0,
+      "cacheWrite5m": 0,
+      "cacheRead": 3437,
+      "billedModelOutput": 4,
+      "utilizationBefore": 0.23,
+      "utilizationAfter": 0.25,
+      "deltaUtilization": 0.02,
+      "precedingRequestId": "req_011CfBRuY5S2kh2D9HiAGWkj",
+      "gapSeconds": 5.064
+    },
+    "writeBlock": {
+      "block": "fable.WR",
+      "startIndex": 239,
+      "endIndex": 245,
+      "requests": 7,
+      "writeRequests": 5,
+      "writeTokens": 713710,
+      "requestIds": [
+        "req_011CfBRsapLHUZES1G3YdDPp",
+        "req_011CfBRsxdFSk9f8TZ83rw7E",
+        "req_011CfBRtRGNuLWnjpNFutWHg",
+        "req_011CfBRtnqAfbcSEuocWKvs5",
+        "req_011CfBRuAvD4pyHzucHmuTAb",
+        "req_011CfBRuY5S2kh2D9HiAGWkj",
+        "req_011CfBRuv522sVohA29kxEqs"
+      ]
+    },
+    "followingRun": {
+      "block": "fable.Rf",
+      "startIndex": 246,
+      "endIndex": 297,
+      "requests": 52,
+      "readTokens": 7431842,
+      "observedTicks": 2,
+      "requestIds": [
+        "req_011CfBRv54kbPt5qyJLuDYij",
+        "req_011CfBSHurygaDsi5LXkUWbS"
+      ]
+    },
+    "hypotheses": [
+      {
+        "id": "H6",
+        "observedTicks": 6,
+        "attribution": "lag_is_contained_within_the_write_block",
+        "window": {
+          "fromRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+          "fromIndex": 238,
+          "fromTs": "2026-09-18T19:06:56.699Z",
+          "fromUtilization": 0.19,
+          "toRequestId": "req_011CfBRuv522sVohA29kxEqs",
+          "toIndex": 245,
+          "toTs": "2026-09-18T19:08:04.975Z",
+          "toUtilization": 0.25,
+          "resetEpoch": 1789765800
+        },
+        "writeRequests": 5,
+        "writeTokens": 713710,
+        "perTickTokens": {
+          "tokens": 713710,
+          "observedTicks": 6,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 101958.57142857143,
+          "highTokensPerTick": 142742,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 6,
+            "resolution": 0.01,
+            "lowTicksExclusive": 5,
+            "highTicksExclusive": 7,
+            "lowUtilizationExclusive": 0.05,
+            "highUtilizationExclusive": 0.07,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "readTicksLeftForNextRun": 2,
+        "evidenceFor": [
+          "the gauge returns to a flat value on the first request of the following run, so the lag tail ends inside the write block",
+          "the following run consists of cache reads that do move the same gauge later in the capture, which requires a nonzero read cost"
+        ],
+        "evidenceAgainst": [
+          "a tick landed on a request that wrote nothing, so either the accounting lags by an unmeasured amount or unrelated concurrent account usage moved the same meter; neither is excluded"
+        ],
+        "neighborRequests": [
+          {
+            "index": 242,
+            "requestId": "req_011CfBRtnqAfbcSEuocWKvs5",
+            "messageId": "msg_011CfBRtoRPjbsSJKnbNJUzz",
+            "ts": "2026-09-18T19:07:49.773Z",
+            "tsRequestStart": "2026-09-18T19:07:48.037Z",
+            "label": "fable.WR.r.1",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142742,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.21,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 243,
+            "requestId": "req_011CfBRuAvD4pyHzucHmuTAb",
+            "messageId": "msg_011CfBRuBC5mC74RmKG7ynn2",
+            "ts": "2026-09-18T19:07:54.756Z",
+            "tsRequestStart": "2026-09-18T19:07:53.186Z",
+            "label": "fable.WR.r.2",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142803,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.21,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 244,
+            "requestId": "req_011CfBRuY5S2kh2D9HiAGWkj",
+            "messageId": "msg_011CfBRuYn6rBx8NymnoP161",
+            "ts": "2026-09-18T19:07:59.911Z",
+            "tsRequestStart": "2026-09-18T19:07:58.163Z",
+            "label": "fable.WR.r.3",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142864,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.23,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 245,
+            "requestId": "req_011CfBRuv522sVohA29kxEqs",
+            "messageId": "msg_011CfBRuvX4e6qy3YppNpHKD",
+            "ts": "2026-09-18T19:08:04.975Z",
+            "tsRequestStart": "2026-09-18T19:08:03.305Z",
+            "label": "fable.WR.end",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 3437,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 246,
+            "requestId": "req_011CfBRv54kbPt5qyJLuDYij",
+            "messageId": "msg_011CfBRv5X3dM3CHmWQasd3K",
+            "ts": "2026-09-18T19:08:07.062Z",
+            "tsRequestStart": "2026-09-18T19:08:05.411Z",
+            "label": "fable.Rf.start",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 3437,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 247,
+            "requestId": "req_011CfBRvSniWBBHtxm7SuKM9",
+            "messageId": "msg_011CfBRvUwxBCTETbaWJ6LJd",
+            "ts": "2026-09-18T19:08:13.312Z",
+            "tsRequestStart": "2026-09-18T19:08:10.482Z",
+            "label": "fable.Rf.rf.0.seed15385162",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 145655,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 248,
+            "requestId": "req_011CfBRvuSbJNSi27zZPJ8io",
+            "messageId": "msg_011CfBRvvZ59q3aJ9DyQufRH",
+            "ts": "2026-09-18T19:08:20.013Z",
+            "tsRequestStart": "2026-09-18T19:08:16.720Z",
+            "label": "fable.Rf.rf.1.seed15385162",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 145655,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          }
+        ]
+      },
+      {
+        "id": "H8",
+        "observedTicks": 8,
+        "attribution": "lag_extends_into_the_following_read_run",
+        "window": {
+          "fromRequestId": "req_011CfBRpvRD6kJ8R2jdrxsVA",
+          "fromIndex": 238,
+          "fromTs": "2026-09-18T19:06:56.699Z",
+          "fromUtilization": 0.19,
+          "toRequestId": "req_011CfBSHurygaDsi5LXkUWbS",
+          "toIndex": 297,
+          "toTs": "2026-09-18T19:13:03.960Z",
+          "toUtilization": 0.27,
+          "resetEpoch": 1789765800
+        },
+        "writeRequests": 5,
+        "writeTokens": 713710,
+        "perTickTokens": {
+          "tokens": 713710,
+          "observedTicks": 8,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 79301.11111111111,
+          "highTokensPerTick": 101958.57142857143,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 8,
+            "resolution": 0.01,
+            "lowTicksExclusive": 7,
+            "highTicksExclusive": 9,
+            "lowUtilizationExclusive": 0.07,
+            "highUtilizationExclusive": 0.09,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "readTicksLeftForNextRun": 0,
+        "evidenceFor": [
+          "the delayed tick on a zero-write request is consistent with a lagging gauge, and nothing in the capture bounds how far such a lag can reach",
+          "the two later ticks fall while the same prefix is only being read, with no new write in this capture to explain them"
+        ],
+        "evidenceAgainst": [
+          "the later ticks are separated by tens of requests and several minutes, which is a long tail for a lag that was otherwise one request long",
+          "under this attribution the fable read cost would be zero over millions of read tokens, which the opus read block contradicts"
+        ],
+        "neighborRequests": [
+          {
+            "index": 242,
+            "requestId": "req_011CfBRtnqAfbcSEuocWKvs5",
+            "messageId": "msg_011CfBRtoRPjbsSJKnbNJUzz",
+            "ts": "2026-09-18T19:07:49.773Z",
+            "tsRequestStart": "2026-09-18T19:07:48.037Z",
+            "label": "fable.WR.r.1",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142742,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.21,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 243,
+            "requestId": "req_011CfBRuAvD4pyHzucHmuTAb",
+            "messageId": "msg_011CfBRuBC5mC74RmKG7ynn2",
+            "ts": "2026-09-18T19:07:54.756Z",
+            "tsRequestStart": "2026-09-18T19:07:53.186Z",
+            "label": "fable.WR.r.2",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142803,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.21,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 244,
+            "requestId": "req_011CfBRuY5S2kh2D9HiAGWkj",
+            "messageId": "msg_011CfBRuYn6rBx8NymnoP161",
+            "ts": "2026-09-18T19:07:59.911Z",
+            "tsRequestStart": "2026-09-18T19:07:58.163Z",
+            "label": "fable.WR.r.3",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 142864,
+            "cacheWrite5m": 0,
+            "cacheRead": 3035,
+            "billedModelOutput": 4,
+            "utilization": 0.23,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 245,
+            "requestId": "req_011CfBRuv522sVohA29kxEqs",
+            "messageId": "msg_011CfBRuvX4e6qy3YppNpHKD",
+            "ts": "2026-09-18T19:08:04.975Z",
+            "tsRequestStart": "2026-09-18T19:08:03.305Z",
+            "label": "fable.WR.end",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 3437,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 246,
+            "requestId": "req_011CfBRv54kbPt5qyJLuDYij",
+            "messageId": "msg_011CfBRv5X3dM3CHmWQasd3K",
+            "ts": "2026-09-18T19:08:07.062Z",
+            "tsRequestStart": "2026-09-18T19:08:05.411Z",
+            "label": "fable.Rf.start",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 3437,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 247,
+            "requestId": "req_011CfBRvSniWBBHtxm7SuKM9",
+            "messageId": "msg_011CfBRvUwxBCTETbaWJ6LJd",
+            "ts": "2026-09-18T19:08:13.312Z",
+            "tsRequestStart": "2026-09-18T19:08:10.482Z",
+            "label": "fable.Rf.rf.0.seed15385162",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 145655,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          },
+          {
+            "index": 248,
+            "requestId": "req_011CfBRvuSbJNSi27zZPJ8io",
+            "messageId": "msg_011CfBRvvZ59q3aJ9DyQufRH",
+            "ts": "2026-09-18T19:08:20.013Z",
+            "tsRequestStart": "2026-09-18T19:08:16.720Z",
+            "label": "fable.Rf.rf.1.seed15385162",
+            "model": "claude-fable-5-1",
+            "stopReason": "end_turn",
+            "cacheWrite1h": 0,
+            "cacheWrite5m": 0,
+            "cacheRead": 145655,
+            "billedModelOutput": 4,
+            "utilization": 0.25,
+            "resetEpoch": 1789765800
+          }
+        ]
+      }
+    ]
+  },
+  "fableReadWriteRatio": {
+    "definition": "read quota cost per token divided by 1h write quota cost per token, same model and meter",
+    "low": 0.013719152187112083,
+    "high": 0.057620439185870745,
+    "pointEstimate": null,
+    "rangeKind": "quantization_bounds",
+    "statisticalConfidenceInterval": false,
+    "identifiableUnderHypotheses": [
+      "H6"
+    ],
+    "perHypothesis": [
+      {
+        "hypothesisId": "H6",
+        "identifiable": true,
+        "low": 0.013719152187112083,
+        "high": 0.057620439185870745,
+        "pointEstimate": null,
+        "rangeKind": "quantization_bounds",
+        "statisticalConfidenceInterval": false,
+        "writePerTick": {
+          "tokens": 713710,
+          "observedTicks": 6,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 101958.57142857143,
+          "highTokensPerTick": 142742,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 6,
+            "resolution": 0.01,
+            "lowTicksExclusive": 5,
+            "highTicksExclusive": 7,
+            "lowUtilizationExclusive": 0.05,
+            "highUtilizationExclusive": 0.07,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "readPerTick": {
+          "tokens": 7431842,
+          "observedTicks": 2,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 2477280.6666666665,
+          "highTokensPerTick": 7431842,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 2,
+            "resolution": 0.01,
+            "lowTicksExclusive": 1,
+            "highTicksExclusive": 3,
+            "lowUtilizationExclusive": 0.01,
+            "highUtilizationExclusive": 0.03,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        }
+      },
+      {
+        "hypothesisId": "H8",
+        "identifiable": false,
+        "low": null,
+        "high": null,
+        "pointEstimate": null,
+        "rangeKind": "quantization_bounds",
+        "statisticalConfidenceInterval": false,
+        "reason": "no_read_tick_left_under_this_attribution",
+        "writePerTick": {
+          "tokens": 713710,
+          "observedTicks": 8,
+          "identifiable": true,
+          "boundedAbove": true,
+          "lowTokensPerTick": 79301.11111111111,
+          "highTokensPerTick": 101958.57142857143,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "bounds": {
+            "observedTicks": 8,
+            "resolution": 0.01,
+            "lowTicksExclusive": 7,
+            "highTicksExclusive": 9,
+            "lowUtilizationExclusive": 0.07,
+            "highUtilizationExclusive": 0.09,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        },
+        "readPerTick": {
+          "tokens": 7431842,
+          "observedTicks": 0,
+          "identifiable": false,
+          "boundedAbove": false,
+          "lowTokensPerTick": null,
+          "highTokensPerTick": null,
+          "pointEstimate": null,
+          "rangeKind": "quantization_bounds",
+          "statisticalConfidenceInterval": false,
+          "reason": "no_observed_tick_in_window",
+          "bounds": {
+            "observedTicks": 0,
+            "resolution": 0.01,
+            "lowTicksExclusive": -1,
+            "highTicksExclusive": 1,
+            "lowUtilizationExclusive": -0.01,
+            "highUtilizationExclusive": 0.01,
+            "rangeKind": "quantization_bounds",
+            "statisticalConfidenceInterval": false
+          }
+        }
+      }
+    ]
+  },
+  "restoreCost": {
+    "status": "not_measured",
+    "measured": null,
+    "reportedEstimates": {
+      "Rw": "6K tokens",
+      "Rr": "125K tokens",
+      "sourceKind": "reported_unverified"
+    },
+    "treatment": "earlier restore estimates are carried as reported values only; this capture contains no restore phase, so no measured write/read/output decomposition exists"
+  },
+  "systemSkillOverlap": {
+    "status": "unresolved",
+    "reason": "system prompt, skill payload, handoff and restore contributions cannot be separated without per-phase request attribution, which this capture does not carry"
+  },
+  "refusalBilling": {
+    "status": "uncertain",
+    "refusalRequests": 136,
+    "refusalCacheWrite1h": 7297181,
+    "refusalCacheRead": 3569231,
+    "refusalBilledModelOutput": 0,
+    "reason": "refused responses report usage but the gauge cannot be read at request granularity, so neither \"charged\" nor \"free\" is established; any coefficient window containing an uncertain-billing request is rejected as unassigned rather than measured, because the gauge delta is shared and deleting those rows would retain movement the remaining rows did not necessarily cause"
+  },
+  "reportAudit": {
+    "checked": 8,
+    "items": [
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "the observed unified headers contain no model specific extra bucket",
+        "observed": {
+          "meterId": "unified-7d_oi",
+          "requests": 68,
+          "models": [
+            "claude-fable-5-1"
+          ],
+          "utilization": [
+            0.65,
+            0.68
+          ]
+        },
+        "verdict": "contradicted",
+        "impact": "a third quota window exists on one model and must be preserved as its own meter"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "ephemeral_5m is always 0 in this capture",
+        "observed": {
+          "requestsWith5mWrite": 1,
+          "detail": [
+            {
+              "requestId": "req_011CfBQR9z1Eav4UK9XK1kew",
+              "label": "opus.Rt.r.0",
+              "cacheWrite5m": 4
+            }
+          ]
+        },
+        "verdict": "contradicted",
+        "impact": "the 5m and 1h write lanes must stay separate fields even though the 1h lane dominates"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "CLI cost basis for claude-fable-5-1 is read 0.30 and output 25.00 usd per Mtok",
+        "observed": {
+          "input": 10.000000000261723,
+          "cacheWrite": 20.000000000000032,
+          "cacheRead": 0.25000000000003,
+          "output": 49.99999999877934
+        },
+        "verdict": "contradicted",
+        "impact": "the reported price ratios used to sanity check the quota ratios were wrong for this model"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "CLI cost basis for claude-opus-5 is input 5.00, write 10.00, read 0.50, output 25.00 usd per Mtok",
+        "observed": {
+          "input": 4.999386893644572,
+          "cacheWrite": 10.000000065750648,
+          "cacheRead": 0.5000001518903138,
+          "output": 24.99370869593442
+        },
+        "verdict": "confirmed",
+        "impact": "the opus side of the reported price table re-derives exactly from the captured cost figures"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "fable read/write quota ratio is about 0.022 within 0.019 to 0.026",
+        "observed": {
+          "low": 0.013719152187112083,
+          "high": 0.057620439185870745,
+          "rangeKind": "quantization_bounds"
+        },
+        "verdict": "range_too_narrow",
+        "impact": "the quantization bounds are far wider than the reported interval, and the reported interval has no stated statistical meaning"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "the fable write block consumed 6 ticks",
+        "observed": {
+          "hypotheses": [
+            {
+              "id": "H6",
+              "observedTicks": 6
+            },
+            {
+              "id": "H8",
+              "observedTicks": 8
+            }
+          ],
+          "lagObserved": true,
+          "lagExclusivelyEstablished": false
+        },
+        "verdict": "unresolved",
+        "impact": "both the 6 tick and 8 tick attributions survive the evidence; neither is selected here"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "refused requests appear not to be charged",
+        "observed": {
+          "refusalRequests": 136
+        },
+        "verdict": "unverifiable",
+        "impact": "per-request billing is below the gauge granularity, so no charge conclusion follows from the capture"
+      },
+      {
+        "claimSource": "quota-test/2026-09-19/REPORT.md",
+        "claim": "the output coefficient block ran zero trials",
+        "observed": {
+          "opusOtRequests": 1
+        },
+        "verdict": "confirmed_in_substance",
+        "impact": "one probe request exists but no output-dominated trial, so the output coefficient stays unidentified"
+      }
+    ]
+  },
+  "adversarialProbes": [
+    {
+      "class": "malformed_input",
+      "applicable": true,
+      "covered": "unparseable lines, absent usage, negative and non numeric token counts, inconsistent TTL split, empty input",
+      "result": "lines are reported by line number, bad fields become unknown rather than zero, exit code 2 or 5 as appropriate"
+    },
+    {
+      "class": "stale_state",
+      "applicable": true,
+      "covered": "a rate limit window that resets mid capture",
+      "result": "meter windows split on the reset epoch and consumption is never computed across a reset"
+    },
+    {
+      "class": "dirty_worktree",
+      "applicable": true,
+      "covered": "the implementation worktree carries the preserved user baseline and files owned by concurrent tasks",
+      "result": "this task writes only its four owned paths plus its evidence directory; no other file is staged or modified"
+    },
+    {
+      "class": "misleading_success_output",
+      "applicable": true,
+      "covered": "partially malformed input, zero usable requests, unknown coefficients",
+      "result": "exit 5 with an explicit integrity status for partial input, exit 2 for no usable request, and null rather than 0 for every unknown quantity"
+    },
+    {
+      "class": "flaky_tests",
+      "applicable": true,
+      "covered": "no sleeps, no wall clock reads inside aggregation, deterministic ordering",
+      "result": "generatedAt is injected by the caller and the same input yields a byte identical bundle"
+    },
+    {
+      "class": "injected_content_in_source_data",
+      "applicable": true,
+      "covered": "the capture holds no request or response body, and the aggregator copies no free text out of it",
+      "result": "labels, identifiers and counters only; a sanitizer walk refuses to emit if any credential or body key appears"
+    },
+    {
+      "class": "cancel_resume",
+      "applicable": false,
+      "reason": "the aggregator is a single synchronous pass with no resumable or long running state"
+    },
+    {
+      "class": "hung_commands",
+      "applicable": false,
+      "reason": "no network, no timer, no subprocess and no unbounded loop exists in this path"
+    },
+    {
+      "class": "repeated_interruptions",
+      "applicable": false,
+      "reason": "the command is idempotent and writes nothing unless --out is given"
+    }
+  ],
+  "limits": [
+    "utilization is reported at 0.01 granularity, so no per-request quota cost is observable",
+    "a tick landed on a request with no write; a lagging gauge and unrelated concurrent account usage both remain admissible explanations",
+    "the capture observes only its own proxied requests, so it cannot rule out other traffic on the same account meter",
+    "no quota coefficient is published as a point value; only quantization bounds are",
+    "nothing here establishes quota savings for any policy"
+  ]
+}
