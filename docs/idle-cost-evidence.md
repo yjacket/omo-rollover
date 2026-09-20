@@ -118,18 +118,18 @@ Either way the block boundary is ambiguous, so both attributions survive.
 
 **H6** window: req_011CfBRpvRD6kJ8R2jdrxsVA (2026-09-18T19:06:56.699Z, u=0.19) -> req_011CfBRuv522sVohA29kxEqs (2026-09-18T19:08:04.975Z, u=0.25), reset epoch 1789765800.
 
-- for: 
+- for:
   - the gauge returns to a flat value on the first request of the following run, so the lag tail ends inside the write block
   - the following run consists of cache reads that do move the same gauge later in the capture, which requires a nonzero read cost
-- against: 
+- against:
   - a tick landed on a request that wrote nothing, so either the accounting lags by an unmeasured amount or unrelated concurrent account usage moved the same meter; neither is excluded
 
 **H8** window: req_011CfBRpvRD6kJ8R2jdrxsVA (2026-09-18T19:06:56.699Z, u=0.19) -> req_011CfBSHurygaDsi5LXkUWbS (2026-09-18T19:13:03.960Z, u=0.27), reset epoch 1789765800.
 
-- for: 
+- for:
   - the delayed tick on a zero-write request is consistent with a lagging gauge, and nothing in the capture bounds how far such a lag can reach
   - the two later ticks fall while the same prefix is only being read, with no new write in this capture to explain them
-- against: 
+- against:
   - the later ticks are separated by tens of requests and several minutes, which is a long tail for a lag that was otherwise one request long
   - under this attribution the fable read cost would be zero over millions of read tokens, which the opus read block contradicts
 
@@ -233,4 +233,3 @@ Every claim below was re-checked against the raw capture rather than carried ove
 | `cancel_resume` | false | the aggregator is a single synchronous pass with no resumable or long running state |
 | `hung_commands` | false | no network, no timer, no subprocess and no unbounded loop exists in this path |
 | `repeated_interruptions` | false | the command is idempotent and writes nothing unless --out is given |
-

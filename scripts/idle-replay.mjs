@@ -14,6 +14,8 @@ const number = x => Number.isFinite(x) && x >= 0
 const token = x => typeof x === "string" && /^[\w.:/|,@+-]{1,240}$/.test(x)
 const codes = x => Array.isArray(x) && x.every(token)
 const nullableNumber = x => x === null || number(x)
+// Comparative objectives may be signed; raw usage and incurred spend may not.
+const nullableObjective = x => x === null || Number.isFinite(x)
 const nullableToken = x => x == null || token(x)
 const safeCodes = x => Array.isArray(x) ? x.filter(token) : []
 const emptyResult = () => ({ schemaVersion: "idle-replay/1", mode: "offline",
@@ -38,7 +40,7 @@ function validRow(r) {
     && r.enforcement === "unavailable" && STATUSES.includes(r.episodeStatus)
     && [...ACTIONS, "NO_DECISION"].includes(r.recommendedAction)
     && codes(r.blockers) && codes(r.guardReasons) && nullableNumber(r.incurredSpendEq)
-    && object(r.candidateCosts) && ACTIONS.every(a => nullableNumber(r.candidateCosts[a]))
+    && object(r.candidateCosts) && ACTIONS.every(a => nullableObjective(r.candidateCosts[a]))
     && number(r.timestampMs) && number(r.episodeStartedAtMs) && number(r.observedUntilMs)
     && r.episodeStartedAtMs <= r.timestampMs && r.timestampMs <= r.observedUntilMs
     && (r.episodeStatus !== "observing" || r.timestampMs === r.observedUntilMs)

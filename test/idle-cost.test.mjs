@@ -28,7 +28,7 @@ const near = (actual, expected, eps = 1e-6) => assert.ok(Math.abs(actual - expec
 const I = 270_000 // review interval (ms)
 const TTL = 300_000
 // remainingTtlMs = 1ms encodes the fixture condition "current free remaining TTL is negligible"
-// (the planner requires a positive residual TTL; 1ms expires before any return point).
+// (1ms still permits a warm root request but expires before any return point).
 const OPT = { ttlMs: TTL, intervalMs: I, remainingTtlMs: 1, sharedCachePersists: true, allowParking: true }
 
 // a=A=8.25K ping/resume, G=24K park now, B=16.75K restore, K=cold resume.
@@ -439,6 +439,31 @@ test("a late-arriving ping is priced as a rewrite, and its price must be supplie
   const withRewrite = planIdle({ ...costs, coldWarmEq: 100_000 }, F20, lateOpts)
   near(withRewrite.costs.KEEP_WARM - planIdle({ ...costs, coldWarmEq: 8_250 }, F20, lateOpts).costs.KEEP_WARM, 100_000 - 8_250)
   assert.throws(() => planIdle({ ...costs, coldWarmEq: 8_249 }, F20, lateOpts), /coldWarmEq must be >= /)
+})
+
+for (const remainingTtlMs of [0, -1, -TTL]) test(`F2-02 planner known expired root ${remainingTtlMs}`, () => {
+  const c = fixtureCosts(150_000, { coldWarmEq: 100_000 })
+  const o = { ...OPT, remainingTtlMs, requestArrivalDelayMs: 0, safetyMarginMs: 0 }
+  const r = planIdle(c, F20, o)
+  near(r.costs.WAIT, 30_000)
+  near(r.costs.LET_EXPIRE, 30_000)
+  near(r.costs.PARK, 27_350)
+  near(r.costs.KEEP_WARM, 115_825)
+  assert.equal(r.action, "PARK")
+  near(r.expectedCostEq, forwardBest(c, F20, o))
+  near(r.rootSpendEq, c.parkNowEq)
+  assert.throws(() => planIdle(fixtureCosts(150_000), F20, o), /coldWarmEq/)
+  const noReturn = planIdle(c, { returns: [], neverReturnsProbability: 1 }, o)
+  assert.equal(noReturn.action, "LET_EXPIRE")
+  near(noReturn.expectedCostEq, 0)
+})
+
+test("F2-02 planner rejects unknown and nonfinite residuals instead of treating them as expired", () => {
+  const c = fixtureCosts(150_000, { coldWarmEq: 100_000 })
+  for (const remainingTtlMs of [null, undefined, NaN, Infinity, -Infinity, "0", false])
+    assert.throws(() => planIdle(c, F20, { ...OPT, remainingTtlMs }), RangeError)
+  for (const coldWarmEq of [null, NaN, Infinity, -1, 8249])
+    assert.throws(() => planIdle({ ...c, coldWarmEq }, F20, { ...OPT, remainingTtlMs: 0 }), RangeError)
 })
 
 test("no return at all: pay nothing rather than generate a handoff", () => {

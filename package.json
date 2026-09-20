@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Senpi/OMO extension: hand a long-running main session off to a fresh one when context passes a token budget. Event log + trend dashboard.",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"test/*.mjs\"",
     "dashboard": "node dashboard/build.mjs",
     "dashboard:sample": "node dashboard/build.mjs --sample"
   },

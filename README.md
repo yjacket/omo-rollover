@@ -217,9 +217,12 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 `~/.omo/rollover/config.json` (read at load):
 
 ```json
-{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000, "idleGraceMinutes": 5 }
+{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000, "idleGraceMinutes": 5, "idleCostMode": "off" }
 ```
 
+`idleCostMode` is `off` unless set to the literal `shadow` (see "Idle cost
+shadow"). It is independent of `/rollover auto|on|off`, which still governs the
+operating policy.
 `rereadRatioMax` (opt-in, default off) compares `cacheRead / output` of each
 assistant message; three consecutive messages over it arm the handoff even
 below the budget. It is off by default because it fires on tool loops: a turn
@@ -252,6 +255,70 @@ override; `/rollover park` triggers the same path manually. The idle clocks are
 in-memory only — a reload or resume resets them, so a restored session never
 parks immediately.
 
+## Idle cost shadow (recording only)
+
+The extension also carries an idle-cost engine (`idle-cost-engine/1.0.0`) and a
+recording-only shadow mode. The objective it models is total quota from idle
+start to the same task-completion point: warming, the parent's handoff
+generation, the successor's restore, and the resumed work itself, including
+spend already incurred by episodes that never return. Quality loss and resume
+delay are separate approval gates checked before any cost comparison, not
+quantities the engine trades away.
+
+`idleCostMode` accepts only `off` (default) and `shadow`; anything else,
+including `enforce`, resolves to `off`. Shadow mode changes no operating
+behavior: it reuses the existing idle timer, sends no model calls, opens no
+sessions, and parks nothing. It only appends `idle_cost_shadow` records to the
+session JSONL. There is no enforce mode, no deploy path, and no live
+experiment runner in this repository.
+
+At each idle decision point the extension calls the optional
+`deps.idleCostSnapshot(identity)` adapter. There is no default supplier and no
+network call behind it; a real adapter must supply verified request-start and
+prefix evidence, provenance-bearing coefficients, and a labelled forecast.
+Without one the record still lands, but every candidate cost is `null` with
+explicit reasons (`cost_snapshot_unavailable`, `cache_uncertain:*`,
+`coefficient_status_unknown`, `no_calibrated_forecast`) and the recommendation
+is `NO_DECISION`. A snapshot saved from another decision, generation, model or
+lane is rejected (`snapshot_identity_mismatch`). The runtime never
+manufactures a calibrated forecast: `no_calibrated_forecast` is recorded
+rather than substituting a guessed return probability.
+
+Each idle episode is keyed by session generation plus `idleEpisodeId` and ends
+in one of four states: `observing`, `returned` (real user input or work),
+`right_censored` (observation ended by shutdown, reload, or a model/lane
+change), or `ended` (explicit `observeTaskEnd("completed" | "cancelled")` on
+the returned runtime handle). `observeTaskEnd` is an explicit host adapter
+signal; the host is not automatically wired to any task-completion event, and
+a shutdown or a stop-reason string is never converted to permanent
+non-return. `rawUsage` carries the five billable fields of the latest
+assistant message (`uncachedInput`, `cacheWrite5m`, `cacheWrite1h`,
+`cacheRead`, `billedModelOutput`), not an accumulated episode bill, and
+repeated snapshots are deduplicated by `rawUsageObservationId`.
+`rawUsageModelId`/`rawUsageLane` record the actual response's model and
+provider, so a fallback keeps its real identity, while top-level
+`modelId`/`lane` stay the configured decision identity. An adapter or sink
+exception cannot change operating policy; failures surface as
+`idle_shadow_error` and `shadowDiagnostics()`.
+
+Offline tooling (no network, no timers, no scheduler anywhere in these):
+
+```
+node scripts/quota-analysis.mjs <raw.jsonl> [--json] [--out <file>] [--markdown <file>] [--trials <file>]
+node scripts/idle-experiments.mjs [--plan=<id>] [--json]   # dry-run only; --execute exits 2
+node scripts/idle-replay.mjs --sample
+node scripts/idle-replay.mjs events.jsonl [--scenario explicit-inputs.json]
+```
+
+`quota-analysis` re-aggregates a proxy capture into `docs/idle-cost-evidence.*`;
+`docs/idle-cost-report.md` summarizes what it found and what stays unknown.
+`idle-experiments` prints the five approval-gated experiment plans and refuses
+every execution path. `idle-replay` replays recorded `idle_cost_shadow` JSONL,
+deduplicates usage observations, keeps returned/ended/right-censored episodes
+distinct, and recomputes decisions only from explicitly supplied as-of
+scenarios (oracle inputs are labelled, never silent). Numbers in the sample
+are mathematical fixtures, not measured quota.
+
 ## Event log
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, one object per line:
@@ -264,7 +331,9 @@ armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,sour
 `idle_park{sinceUserMin,sinceActivityMin,context,childWake}`, `idle_skip{why,sinceUserMin,sinceActivityMin,context,childWake}` (actionable whys only, once per change), `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
-`state_restored{state}`, `rollover{newSession,parentSession}`.
+`state_restored{state}`, `rollover{newSession,parentSession}`,
+`idle_cost_shadow{...}` (one shadow decision record per idle observation, schema `idle-shadow/1`; only when `idleCostMode` is `shadow`),
+`idle_shadow_error{reasonCode}` (a shadow adapter or sink failure; counted in `shadowDiagnostics()`, never affects policy).
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
 (peak context, messages, cacheRead/output ratio, blocked, rollovers, `armReason`).
 
@@ -305,12 +374,17 @@ asset is Google Fonts. Regenerate the sample with
 ## Tests
 
 ```sh
-node --test
+npm test          # node --test "test/*.mjs"
 ```
 
 Node ≥ 22.6 (24 used here): tests are `.mjs` and import `extension/rollover.ts`
 directly through Node's built-in type stripping. A fake `pi`/`ctx` drives the
-state machine; no senpi and no LLM calls.
+state machine; no senpi and no LLM calls. The glob is explicit because Node 24
+on Windows rejects a bare `test/` directory argument (MODULE_NOT_FOUND), and
+unscoped discovery would pick up incompatible bundled fixtures. The original
+30 reference tests (`references/v1/tests/cache-policy.test.cjs` in the task
+package) are CommonJS; they were verified separately in an isolated fixture
+and are not part of this suite, nor suppressed by it.
 
 ## Limits
 
@@ -343,3 +417,9 @@ state machine; no senpi and no LLM calls.
   that is still unknown blocks parking entirely; and the timer defers on
   wall-clock idleness, not prompt-cache TTL — a warm cache does not keep a
   parked session alive.
+- Shadow records are observations, not proof: logging a cheaper candidate does
+  not establish a quota saving, and shadow mode never changes what the session
+  actually does. With no calibrated snapshot adapter the recorded candidates
+  are `null` with reasons, which is the expected default output.
+- `observeTaskEnd` is an explicit adapter call, not automatic host capture;
+  nothing in the runtime currently invokes it for you.

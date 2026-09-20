@@ -17,10 +17,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
+import { randomUUID } from "node:crypto"
 
 export type State = "watching" | "armed" | "handoff_requested" | "rollover" | "rolled_over"
-export type Config = { budgetTokens: number; rereadRatioMax: number; idleMinutes: number; idleMinTokens: number; idleGraceMinutes: number }
-export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000, idleGraceMinutes: 5 } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
+export type Config = { budgetTokens: number; rereadRatioMax: number; idleMinutes: number; idleMinTokens: number; idleGraceMinutes: number; idleCostMode: "off" | "shadow" }
+export const DEFAULT_CONFIG: Config = { budgetTokens: 150_000, rereadRatioMax: 0, idleMinutes: 50, idleMinTokens: 100_000, idleGraceMinutes: 5, idleCostMode: "off" } // reread off by default: tool-only turns (output ≈ 50) make the ratio meaningless
 const REREAD_STREAK = 3
 const SPAWN_TOOLS = new Set(["task", "task_create"]) // exact names; task_output/list/cancel/get/update/send stay allowed
 // Only child sessions would be orphaned by newSession; monitors/servers survive it, so they never gate landing.
@@ -46,6 +47,7 @@ export function loadConfig(dir: string): Config {
       idleMinTokens: Number(raw.idleMinTokens) > 0 ? Number(raw.idleMinTokens) : DEFAULT_CONFIG.idleMinTokens,
       idleGraceMinutes: Number(raw.idleGraceMinutes) > 0 ? Number(raw.idleGraceMinutes) : DEFAULT_CONFIG.idleGraceMinutes,
       rereadRatioMax: Number(raw.rereadRatioMax) > 0 ? Number(raw.rereadRatioMax) : 0,
+      idleCostMode: raw.idleCostMode === "shadow" ? "shadow" : "off", // enforce is unavailable
     }
   } catch {
     return { ...DEFAULT_CONFIG }
@@ -300,7 +302,25 @@ export async function resumeGoal(ctx: GoalCtx, opts: PauseOpts = {}): Promise<Pa
 }
 
 export type TimerHandle = ReturnType<typeof setInterval>
-export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: GoalCtx) => Promise<PauseResult>; resumeGoal?: (ctx: GoalCtx) => Promise<PauseResult>; goalStatus?: (ctx: GoalCtx) => Promise<string | null>; timer?: { setInterval: (fn: () => void, ms: number) => TimerHandle; clearInterval: (id: TimerHandle) => void } }
+export type IdleShadowIdentity = {
+  readonly idleEpisodeId: string; readonly timestampMs: number; readonly sessionGeneration: string
+  readonly modelId: string; readonly lane: string; readonly contextTokens: number
+  readonly modelLanePrefixIdentity: string
+}
+/** Trusted offline adapter: stamp the identity supplied at this decision, never future outcomes.
+ * Runtime hooks do not supply request-start/prefix evidence or calibrated forecasts themselves. */
+export type IdleShadowScenario = {
+  readonly snapshot: Omit<IdleCostSnapshot, "cache">
+  readonly cacheEvidence: CacheEvidence
+  readonly requestArrivalDelayMs: number | null
+  readonly safetyMarginMs: number | null
+}
+type ShadowContext = GoalCtx & {
+  readonly model?: { readonly id?: string; readonly provider?: string }
+  readonly getContextUsage?: () => { readonly tokens?: number | null } | undefined
+  readonly isIdle?: () => boolean; readonly hasPendingMessages?: () => boolean
+}
+export type Deps = { env?: Record<string, string | undefined>; now?: () => Date; pauseGoal?: (ctx: GoalCtx) => Promise<PauseResult>; resumeGoal?: (ctx: GoalCtx) => Promise<PauseResult>; goalStatus?: (ctx: GoalCtx) => Promise<string | null>; timer?: { setInterval: (fn: () => void, ms: number) => TimerHandle; clearInterval: (id: TimerHandle) => void }; idleCostSnapshot?: (identity: IdleShadowIdentity) => IdleShadowScenario | null; idleCostRecord?: (record: Readonly<Record<string, unknown>>) => void }
 
 export function createRollover(pi: any, deps: Deps = {}) {
   const env = deps.env ?? process.env
@@ -373,6 +393,122 @@ export function createRollover(pi: any, deps: Deps = {}) {
     return seen ? sum : null
   }
   const enabled = () => st.mode !== "off"
+  // Recording-only state: never persisted into operating policy. A new loader gets a new
+  // generation even when its session id is unchanged. Keep this inline: installer is one file.
+  let shadowGeneration = randomUUID(), shadowIdentity = "", shadowSequence = 0
+  let shadowEpisode: { id: string; startedAtMs: number; ctx: ShadowContext; record: Record<string, unknown> | null } | null = null
+  let shadowInjected = false, shadowEnded = false
+  let shadowUsageId: string | null = null, shadowUsageAtMs: number | null = null, shadowUsageSequence = 0
+  let shadowUsageModelId: string | null = null, shadowUsageLane: string | null = null
+  let shadowRaw: Readonly<Record<UsageField, number | null>> = { uncachedInput: null, cacheWrite5m: null, cacheWrite1h: null, cacheRead: null, billedModelOutput: null }
+  const shadowErrors: { count: number; logFailures: number; lastReason: string | null } = { count: 0, logFailures: 0, lastReason: null }
+  function shadowWrite(ctx: ShadowContext, record: Record<string, unknown>) {
+    if (deps.idleCostRecord) deps.idleCostRecord(record)
+    else log(ctx, "idle_cost_shadow", record)
+  }
+  // Observer boundary: even a throwing adapter or disk failure cannot abort a policy hook.
+  // Failures are counted for inspection if even the normal diagnostic sink is unavailable.
+  function shadowSafe(ctx: ShadowContext, run: () => void) {
+    if (config.idleCostMode !== "shadow") return
+    try { run() } catch (error) {
+      shadowErrors.count++
+      shadowErrors.lastReason = error instanceof Error ? "observer_exception" : "observer_non_error_throw"
+      try { log(ctx, "idle_shadow_error", { reasonCode: shadowErrors.lastReason }) }
+      catch (logError) { shadowErrors.logFailures++; shadowErrors.lastReason = logError instanceof Error ? "observer_log_exception" : "observer_log_non_error_throw" }
+    }
+  }
+  function shadowClose(status: "returned" | "right_censored" | "ended", reason: string) {
+    const episode = shadowEpisode
+    shadowEpisode = null // invalidate before the sink, including if it throws
+    if (!episode?.record) return
+    // Emission is a nested boundary: failure must not interrupt the caller's reset
+    // or the recording of a subsequent response under its new identity.
+    shadowSafe(episode.ctx, () => shadowWrite(episode.ctx, { ...episode.record, timestamp: now().toISOString(), timestampMs: now().getTime(),
+      episodeStatus: status, episodeEndReason: reason, observedUntilMs: now().getTime(),
+      returnedAtMs: status === "returned" ? now().getTime() : null, rawUsage: shadowRaw,
+      rawUsageObservationId: shadowUsageId, rawUsageObservedAtMs: shadowUsageAtMs,
+      rawUsageModelId: shadowUsageModelId, rawUsageLane: shadowUsageLane }))
+  }
+  function shadowClearUsage() {
+    shadowUsageId = null; shadowUsageAtMs = null; shadowUsageModelId = null; shadowUsageLane = null
+    shadowRaw = { uncachedInput: null, cacheWrite5m: null, cacheWrite1h: null, cacheRead: null, billedModelOutput: null }
+  }
+  function shadowReset() {
+    shadowClose("right_censored", "session_start")
+    shadowGeneration = randomUUID(); shadowIdentity = ""; shadowInjected = false; shadowEnded = false
+    shadowClearUsage()
+  }
+  function shadowSyncIdentity(ctx: ShadowContext) {
+    const modelId = ctx.model?.id ?? "unknown", lane = ctx.model?.provider ?? "unknown"
+    const identity = JSON.stringify([sid(ctx), modelId, lane])
+    if (shadowIdentity && shadowIdentity !== identity) {
+      shadowClose("right_censored", "model_lane_changed")
+      shadowGeneration = randomUUID()
+      shadowClearUsage()
+    }
+    shadowIdentity = identity
+    return { modelId, lane, identity }
+  }
+  function shadowObserve(ctx: ShadowContext, policy: string) {
+    shadowSafe(ctx, () => {
+      if (stopped || shadowEnded) return
+      const { modelId, lane, identity } = shadowSyncIdentity(ctx)
+      if (ctx.hasPendingMessages?.()) { shadowClose("returned", "pending_input"); return }
+      if (ctx.isIdle?.() !== true || childWakeTotal() !== 0) return
+      const timestampMs = now().getTime()
+      shadowEpisode ??= { id: `${shadowGeneration}:${++shadowSequence}`, startedAtMs: timestampMs, ctx, record: null }
+      const i: IdleShadowIdentity = { idleEpisodeId: shadowEpisode.id, timestampMs, sessionGeneration: shadowGeneration,
+        modelId, lane, contextTokens: ctx.getContextUsage?.()?.tokens ?? st.context, modelLanePrefixIdentity: identity }
+      const provided = deps.idleCostSnapshot?.(i) ?? null
+      const source = provided?.snapshot
+      const matches = source && source.sessionGeneration === i.sessionGeneration && source.modelId === modelId && source.lane === lane
+        && source.idleEpisodeId === i.idleEpisodeId && source.timestampMs === timestampMs && source.contextTokens === i.contextTokens
+      const scenario = matches ? provided : null
+      const unknownCache: CacheEvidence = { lastVerifiedCacheRequestStartedAtMs: null, cacheExpiresAtMs: null, verifiedPrefixTokens: null,
+        contextTokens: i.contextTokens, sessionGeneration: i.sessionGeneration, modelLanePrefixIdentity: identity, lastOutcome: "unknown" }
+      const request = scenario?.cacheEvidence ?? unknownCache
+      const cache = cacheStateAtArrival(request, { decisionAtMs: timestampMs, expectedGeneration: i.sessionGeneration, expectedIdentity: identity,
+        requestArrivalDelayMs: scenario?.requestArrivalDelayMs ?? null, safetyMarginMs: scenario?.safetyMarginMs ?? null })
+      // Usage identity is response metadata, never the configured primary model.
+      // Independent scenario evidence may price absent metadata, but cannot override
+      // a known incompatible response. Unknown usage identity remains explicitly null.
+      const responseMismatch = (shadowUsageModelId !== null && shadowUsageModelId !== modelId)
+        || (shadowUsageLane !== null && shadowUsageLane !== lane)
+      if (responseMismatch) { cache.state = "uncertain"; cache.remainingTtlAtArrivalMs = null; cache.reasons.push("response_model_lane_mismatch") }
+      const requestKnown = request.lastVerifiedCacheRequestStartedAtMs !== null && request.lastVerifiedCacheRequestStartedAtMs <= timestampMs
+        && request.sessionGeneration === i.sessionGeneration && request.modelLanePrefixIdentity === identity && request.contextTokens === i.contextTokens
+        && !responseMismatch
+      if (!requestKnown) { cache.state = "uncertain"; cache.reasons.push("request_start_or_identity_unverified") }
+      // Structural zeroes below are blocked engine inputs, NOT estimated TTL/prices/spend.
+      // They are never passed to the DP or emitted as known runtime parameters.
+      const remainingTtlMs = requestKnown && request.cacheExpiresAtMs !== null ? request.cacheExpiresAtMs - timestampMs : null
+      const snapshot: IdleCostSnapshot = scenario ? { ...scenario.snapshot, cache, mode: "shadow",
+        planner: { ...scenario.snapshot.planner, remainingTtlMs: remainingTtlMs ?? 0,
+          requestArrivalDelayMs: scenario.requestArrivalDelayMs ?? 0, safetyMarginMs: scenario.safetyMarginMs ?? 0 } } : {
+        ...i, cache, costs: null, coefficientVersion: "unknown", coefficientStatus: "unknown", forecastVersion: null, forecast: null,
+        parameterSources: { coefficients: "unknown", forecast: "no_calibrated_forecast", cache: "no_request_start_or_prefix_evidence", lane: "provider_only:auth_and_ttl_unknown", incurredSpend: "unknown" },
+        costBlockers: provided ? ["snapshot_identity_mismatch"] : [],
+        planner: { ttlMs: 0, intervalMs: 0, remainingTtlMs: 0, sharedCachePersists: false },
+        gates: { allowParking: false, reasons: ["parking_approvals_unconfigured"] }, limits: UNCONFIGURED_LIMITS,
+        incurredSpendEq: 0, vScenario: null, mode: "shadow" }
+      const decision = evaluateIdleCost(snapshot)
+      const blockers = [...decision.blockers, ...(!snapshot.forecast ? ["no_calibrated_forecast"] : [])]
+      const record = { schemaVersion: "idle-shadow/1", ...decision, idleEpisodeId: i.idleEpisodeId,
+        timestamp: now().toISOString(), timestampMs, sessionGeneration: i.sessionGeneration, modelId, lane, contextTokens: i.contextTokens,
+        remainingTtlMs,
+        cacheStateEvidence: { request, assessment: cache }, costCoefficientVersion: snapshot.coefficientVersion,
+        forecastVersion: snapshot.forecastVersion, parameterSources: snapshot.parameterSources, blockers,
+        currentPolicyAction: policy, incurredSpendSoFar: scenario ? snapshot.incurredSpendEq : null,
+        incurredSpendEq: scenario ? snapshot.incurredSpendEq : null, VScenario: snapshot.vScenario,
+        rawUsage: shadowRaw, rawUsageReasons: ["unsplit_cache_write_not_assigned_to_ttl"],
+        rawUsageObservationId: shadowUsageId, rawUsageObservedAtMs: shadowUsageAtMs, rawUsageScope: "last_assistant_message_not_episode_total",
+        rawUsageModelId: shadowUsageModelId, rawUsageLane: shadowUsageLane,
+        episodeStatus: "observing", episodeStartedAtMs: shadowEpisode.startedAtMs, observedUntilMs: timestampMs,
+        returnedAtMs: null, episodeEndReason: null }
+      shadowEpisode.record = record
+      shadowWrite(ctx, record)
+    })
+  }
   const budget = () => st.budgetOverride ?? config.budgetTokens
   const stateFile = (id: string) => join(dir, "state", `${id}.json`)
   const persist = (id: string) => {
@@ -501,6 +637,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   }
 
   pi.on("session_start", async (_ev: any, ctx: any) => {
+    shadowSafe(ctx, shadowReset)
     lastCtx = ctx
     lastUserAt = now().getTime() // a reload/resume must never park immediately
     lastActivityAt = now().getTime()
@@ -513,13 +650,18 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   // Main sessions only (child sessions returned null above); off with /rollover off.
-  pi.on("before_agent_start", async (ev: any) => {
+  pi.on("before_agent_start", async (ev: any, ctx: ShadowContext) => {
+    shadowSafe(ctx, () => { if (!shadowInjected && st.state === "watching") shadowClose("returned", "work_started") })
     if (!enabled()) return
     return { systemPrompt: `${ev?.systemPrompt ?? ""}\n\n${CONTEXT_BUDGET_BLOCK}` }
   })
 
   pi.on("input", async (ev: any, ctx: any) => {
     lastCtx = ctx
+    shadowSafe(ctx, () => {
+      shadowInjected = ev?.source === "extension"
+      if (!shadowInjected) { shadowEnded = false; shadowClose("returned", "user_input") }
+    })
     log(ctx, "user_input", { source: ev?.source, streaming: ev?.streamingBehavior ?? null })
     if (ev?.source !== "extension") {
       lastUserAt = now().getTime()
@@ -534,6 +676,21 @@ export function createRollover(pi: any, deps: Deps = {}) {
     lastCtx = ctx
     lastActivityAt = now().getTime()
     const m = ev?.message
+    shadowSafe(ctx, () => {
+      if (m?.role !== "assistant") return
+      // Close using the OLD observation before the new response can replace it.
+      shadowSyncIdentity(ctx)
+      if ((typeof m.model === "string" && m.model !== ctx.model?.id) || (typeof m.provider === "string" && m.provider !== ctx.model?.provider)) {
+        shadowClose("right_censored", "response_model_lane_changed")
+        shadowGeneration = randomUUID(); shadowIdentity = ""
+      }
+      const n = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null
+      shadowUsageId = `${shadowGeneration}:usage:${++shadowUsageSequence}`; shadowUsageAtMs = now().getTime()
+      shadowUsageModelId = typeof m.model === "string" && m.model.length > 0 ? m.model : null
+      shadowUsageLane = typeof m.provider === "string" && m.provider.length > 0 ? m.provider : null
+      shadowRaw = { uncachedInput: n(m.usage?.input), cacheWrite5m: n(m.usage?.cacheWrite5m), cacheWrite1h: n(m.usage?.cacheWrite1h),
+        cacheRead: n(m.usage?.cacheRead), billedModelOutput: n(m.usage?.output) }
+    })
     if (m?.role !== "assistant" || !m.usage) return
     const u = m.usage
     const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
@@ -561,6 +718,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.on("tool_call", async (ev: any, ctx: any) => {
+    shadowSafe(ctx, () => { if (!shadowInjected && st.state === "watching") shadowClose("returned", "tool_work_started") })
     if (!enabled() || st.state === "watching" || !SPAWN_TOOLS.has(ev?.toolName)) return
     st.blocked++
     log(ctx, "tool_call_blocked", { tool: ev.toolName })
@@ -584,6 +742,8 @@ export function createRollover(pi: any, deps: Deps = {}) {
 
   pi.on("agent_settled", async (_ev: any, ctx: any) => {
     lastCtx = ctx
+    shadowObserve(ctx, st.state === "armed" && enabled() ? "request_handoff_if_clear" : st.state)
+    shadowSafe(ctx, () => { shadowInjected = false })
     lastActivityAt = now().getTime()
     const total = wakeTotal()
     log(ctx, "agent_settled", { total, state: st.state })
@@ -610,6 +770,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   })
 
   pi.on("session_shutdown", async (ev: any, ctx: any) => {
+    shadowSafe(ctx, () => shadowClose("right_censored", ev?.reason === "reload" ? "reload" : "shutdown"))
     stopped = true
     if (idleTimer != null) { timer.clearInterval(idleTimer); idleTimer = null }
     if (ev?.reason === "reload") return
@@ -633,6 +794,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
     // An armed-for-idle session that survived a turn without user input still wants its handoff —
     // but only while the extension is enabled and the runtime still reports idle.
     if (st.state === "armed" && st.reason === "idle") {
+      shadowObserve(ctx, "request_handoff_if_clear")
       if (enabled() && ctx.isIdle?.() === true) requestHandoff(ctx, "idle")
       return
     }
@@ -643,6 +805,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
       state: st.state, mode: st.mode, idleMinutes: effectiveIdleMinutes(),
     }
     const v = idleVerdict(config, input)
+    shadowObserve(ctx, v.park ? "idle_park" : `skip:${v.why}`)
     const sinceUserMin = Math.round((input.nowMs - lastUserAt) / 60_000)
     const sinceActivityMin = Math.round((input.nowMs - lastActivityAt) / 60_000)
     lastVerdict = v.park ? "park" : `skip:${v.why}`
@@ -665,6 +828,7 @@ export function createRollover(pi: any, deps: Deps = {}) {
   pi.registerCommand("rollover", {
     description: "rollover now [force] | park | auto|on|off | limit <K> [save] | idle <min>|off | status | help",
     handler: async (args: string, ctx: any) => {
+      shadowSafe(ctx, () => { shadowInjected = false; shadowEnded = false; shadowClose("returned", "command") })
       lastUserAt = now().getTime() // typed commands bypass the input hook
       const [verb = "", ...rest] = (args ?? "").trim().split(/\s+/)
       log(ctx, "command", { verb })
@@ -742,7 +906,12 @@ export function createRollover(pi: any, deps: Deps = {}) {
     },
   })
 
-  return { st, config, clocks: () => ({ lastUserAt, lastActivityAt }), tick, rearm, isAutonomous }
+  // Explicit host adapter signal only: shutdown/quit/assistant prose never means task_end.
+  const observeTaskEnd = (reason: "completed" | "cancelled") => {
+    if (lastCtx) shadowSafe(lastCtx, () => { shadowEnded = true; shadowClose("ended", reason) })
+  }
+  return { st, config, clocks: () => ({ lastUserAt, lastActivityAt }), tick, rearm, isAutonomous, observeTaskEnd,
+    shadowDiagnostics: () => ({ ...shadowErrors }) }
 }
 
 export default function (pi: any): void {
@@ -1231,7 +1400,9 @@ export function planIdle(c: IdleCostModel, f: IdleForecast, o: IdlePlannerOption
   idlePos("ttlMs", o.ttlMs)
   idlePos("intervalMs", o.intervalMs)
   if (o.intervalMs >= o.ttlMs) throw new RangeError("intervalMs must be < ttlMs")
-  idlePos("remainingTtlMs", o.remainingTtlMs)
+  // A finite nonpositive residual is known expired, not missing evidence.
+  // canonical() maps it to DEAD; a root renewal still requires coldWarmEq.
+  idleFinite("remainingTtlMs", o.remainingTtlMs)
   if (o.remainingTtlMs > o.ttlMs) throw new RangeError("remainingTtlMs exceeds ttlMs")
   const delay = o.requestArrivalDelayMs ?? 0
   const margin = o.safetyMarginMs ?? 0

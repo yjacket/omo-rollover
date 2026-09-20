@@ -1637,9 +1637,9 @@ export function renderMarkdown(ev) {
   for (const h of ft.hypotheses ?? []) {
     L.push(`**${h.id}** window: ${h.window.fromRequestId} (${h.window.fromTs}, u=${h.window.fromUtilization}) -> ${h.window.toRequestId} (${h.window.toTs}, u=${h.window.toUtilization}), reset epoch ${h.window.resetEpoch}.`);
     L.push('');
-    L.push('- for: ');
+    L.push('- for:');
     for (const e of h.evidenceFor) L.push(`  - ${e}`);
-    L.push('- against: ');
+    L.push('- against:');
     for (const e of h.evidenceAgainst) L.push(`  - ${e}`);
     L.push('');
   }
@@ -1727,7 +1727,7 @@ export function renderMarkdown(ev) {
     L.push(`| \`${p.class}\` | ${p.applicable} | ${p.applicable ? p.result : p.reason} |`);
   }
   L.push('');
-  return `${L.join('\n')}\n`;
+  return L.join('\n');
 }
 
 function renderSummary(ev) {

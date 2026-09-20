@@ -217,9 +217,11 @@ sh install.sh        # Git Bash / *nix
 `~/.omo/rollover/config.json`(로드 시 읽음):
 
 ```json
-{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000, "idleGraceMinutes": 5 }
+{ "budgetTokens": 150000, "rereadRatioMax": 0, "idleMinutes": 50, "idleMinTokens": 100000, "idleGraceMinutes": 5, "idleCostMode": "off" }
 ```
 
+`idleCostMode`는 리터럴 `shadow`로 설정하지 않으면 `off`다(아래 "Idle 비용
+shadow" 참고). 운영 정책을 여전히 결정하는 `/rollover auto|on|off`와는 독립적이다.
 `rereadRatioMax`(opt-in, 기본 off)는 각 assistant 메시지의
 `cacheRead / output`을 비교한다. 이를 넘는 메시지가 3번 연속이면 예산 아래여도
 handoff를 arm한다. 기본 off인 이유는 도구 루프에서 오발동하기 때문이다: 도구
@@ -249,6 +251,63 @@ handoff를 arm한다. 기본 off인 이유는 도구 루프에서 오발동하�
 같은 경로를 수동으로 트리거한다. idle 시계는 메모리에만 있다. reload나
 resume이 초기화하므로 복원된 세션이 즉시 주차되는 일은 없다.
 
+## Idle 비용 shadow (기록 전용)
+
+이 확장에는 idle 비용 엔진(`idle-cost-engine/1.0.0`)과 기록 전용 shadow 모드도
+들어 있다. 엔진이 모델링하는 목표는 유휴 시작부터 같은 작업 완료 지점까지의
+총 quota다: 데우기, 부모의 handoff 생성, 후속 세션의 복원, 그리고 재개된 본
+작업 자체를 포함하고, 돌아오지 않은 에피소드에서 이미 발생한 지출도 포함한다.
+품질 손실과 복귀 지연은 비용 비교 이전에 검사하는 별도 승인 게이트이지,
+엔진이 절충하는 수치가 아니다.
+
+`idleCostMode`는 `off`(기본)와 `shadow`만 받는다. `enforce`를 포함한 다른 값은
+모두 `off`로 해석된다. shadow 모드는 운영 동작을 바꾸지 않는다: 기존 idle
+타이머를 재사용하고, 모델 호출을 보내지 않고, 세션을 열지 않고, 아무것도
+주차하지 않는다. 세션 JSONL에 `idle_cost_shadow` 레코드를 추가할 뿐이다. 이
+저장소에는 enforce 모드도, 배포 경로도, 라이브 실험 실행기도 없다.
+
+각 idle 판단 시점에 확장은 선택적 `deps.idleCostSnapshot(identity)` 어댑터를
+호출한다. 기본 공급자는 없고 그 뒤에 네트워크 호출도 없다. 실제 어댑터는
+검증된 요청 시작·prefix 근거, 출처가 있는 계수, 라벨된 예측을 제공해야 한다.
+어댑터가 없어도 레코드는 남지만, 모든 후보 비용은 명시적 사유와 함께
+`null`이고(`cost_snapshot_unavailable`, `cache_uncertain:*`,
+`coefficient_status_unknown`, `no_calibrated_forecast`) 추천은
+`NO_DECISION`이다. 다른 판단·세대·모델·lane에서 저장된 스냅샷은
+`snapshot_identity_mismatch`로 거부된다. 런타임은 보정된 예측을 만들어 내지
+않는다: 추측한 복귀 확률을 넣는 대신 `no_calibrated_forecast`를 기록한다.
+
+각 idle 에피소드는 세션 세대와 `idleEpisodeId`로 식별되고 네 상태 중 하나로
+끝난다: `observing`, `returned`(실제 사용자 입력이나 작업),
+`right_censored`(shutdown, reload, 모델/lane 변경으로 관측이 끝남),
+`ended`(반환된 런타임 핸들의 명시적 `observeTaskEnd("completed" | "cancelled")`).
+`observeTaskEnd`는 명시적 호스트 어댑터 신호다. 호스트가 어떤 작업 완료
+이벤트에도 자동으로 연결되어 있지 않고, shutdown이나 stop reason 문자열을
+영구 미복귀로 바꾸지 않는다. `rawUsage`는 최신 assistant 메시지의 다섯 청구
+필드(`uncachedInput`, `cacheWrite5m`, `cacheWrite1h`, `cacheRead`,
+`billedModelOutput`)를 담으며 누적 에피소드 청구액이 아니다. 반복 스냅샷은
+`rawUsageObservationId`로 중복 제거된다. `rawUsageModelId`/`rawUsageLane`은
+실제 응답의 모델과 provider를 기록하므로 fallback도 실제 식별자를 유지하고,
+최상위 `modelId`/`lane`은 설정된 판단 식별자로 남는다. 어댑터나 싱크의
+예외는 운영 정책을 바꿀 수 없고, 실패는 `idle_shadow_error`와
+`shadowDiagnostics()`로 표면화된다.
+
+오프라인 도구(이 경로들에는 네트워크, 타이머, 스케줄러가 전혀 없다):
+
+```
+node scripts/quota-analysis.mjs <raw.jsonl> [--json] [--out <file>] [--markdown <file>] [--trials <file>]
+node scripts/idle-experiments.mjs [--plan=<id>] [--json]   # dry-run만. --execute는 exit 2
+node scripts/idle-replay.mjs --sample
+node scripts/idle-replay.mjs events.jsonl [--scenario explicit-inputs.json]
+```
+
+`quota-analysis`는 프록시 캡처를 `docs/idle-cost-evidence.*`로 재집계하고,
+`docs/idle-cost-report.md`가 발견된 것과 여전히 모르는 것을 요약한다.
+`idle-experiments`는 승인 게이트가 있는 다섯 실험 계획을 출력하고 모든 실행
+경로를 거부한다. `idle-replay`는 기록된 `idle_cost_shadow` JSONL을 재생하고,
+usage 관측을 중복 제거하고, returned/ended/right_censored 에피소드를 구분하며,
+명시적으로 제공된 as-of 시나리오로만 판단을 재계산한다(oracle 입력은 라벨되고
+절대 묵인되지 않는다). 샘플의 수치는 수학 fixture이지 측정된 quota가 아니다.
+
 ## 이벤트 로그
 
 `~/.omo/rollover/sessions/<sessionId>.jsonl`, 한 줄에 객체 하나:
@@ -261,7 +320,9 @@ resume이 초기화하므로 복원된 세션이 즉시 주차되는 일은 없�
 `idle_park{sinceUserMin,sinceActivityMin,context,childWake}`, `idle_skip{why,sinceUserMin,sinceActivityMin,context,childWake}`(조치 가능한 why만, 변경당 한 번), `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
-`state_restored{state}`, `rollover{newSession,parentSession}`.
+`state_restored{state}`, `rollover{newSession,parentSession}`,
+`idle_cost_shadow{...}`(idle 관측마다 shadow 판단 레코드 하나, 스키마 `idle-shadow/1`. `idleCostMode`가 `shadow`일 때만),
+`idle_shadow_error{reasonCode}`(shadow 어댑터/싱크 실패. `shadowDiagnostics()`에 집계되며 정책에 영향 없음).
 `~/.omo/rollover/summary.jsonl`에는 rollover와 세션 종료마다 한 줄이 추가된다
 (최대 컨텍스트, 메시지 수, cacheRead/output 비율, 차단 횟수, rollover 횟수,
 `armReason`).
@@ -301,12 +362,17 @@ node dashboard/build.mjs --sample   # dashboard/sample/의 합성 데이터
 ## 테스트
 
 ```sh
-node --test
+npm test          # node --test "test/*.mjs"
 ```
 
 Node ≥ 22.6(여기서는 24 사용): 테스트는 `.mjs`이고 Node 내장 type stripping으로
 `extension/rollover.ts`를 직접 import한다. 가짜 `pi`/`ctx`가 상태 머신을
-구동한다. senpi도 LLM 호출도 없다.
+구동한다. senpi도 LLM 호출도 없다. glob을 명시하는 이유는 Windows의 Node 24가
+베어 `test/` 디렉터리 인자를 거부하기 때문이다(MODULE_NOT_FOUND). 범위 없는
+탐색은 호환되지 않는 번들 fixture까지 집어들인다. 원본 참조 테스트 30개
+(태스크 패키지의 `references/v1/tests/cache-policy.test.cjs`)는 CommonJS라
+격리된 fixture에서 별도로 검증했고, 이 스위트에 포함되지 않지만 억제된 것도
+아니다.
 
 ## 한계
 
@@ -337,3 +403,9 @@ Node ≥ 22.6(여기서는 24 사용): 테스트는 `.mjs`이고 Node 내장 typ
   초기화되므로 복원된 세션이 즉시 주차되는 일은 없다. 아직 unknown인 wake 합은
   주차를 완전히 막는다. 타이머는 프롬프트 캐시 TTL이 아니라 벽시계 idle을
   기준으로 유예한다. 캐시가 따뜻하다고 주차된 세션이 살아 있지는 않다.
+- Shadow 레코드는 관측이지 증명이 아니다: 더 싼 후보를 기록했다고 quota 절감이
+  성립하는 것은 아니고, shadow 모드는 세션이 실제로 하는 일을 바꾸지 않는다.
+  보정된 스냅샷 어댑터가 없으면 기록된 후보는 사유와 함께 `null`이며, 그것이
+  정상적인 기본 출력이다.
+- `observeTaskEnd`는 명시적 어댑터 호출이지 자동 호스트 캡처가 아니다.
+  현재 런타임의 어느 부분도 이를 대신 호출하지 않는다.
