@@ -20,6 +20,7 @@
 | 오프라인 재생 | 완료 | `scripts/idle-replay.mjs`, `docs/idle-shadow-sample.json`, `test/idle-replay.test.mjs` | 로그에 없는 시나리오 재계산은 명시적 입력 필요 |
 | 회귀·독립 검증 | F1 통과, 최종 F2 미승인 | 캡처된 최종 F1 결과: `npm test`(`node --test "test/*.mjs"`) 284/284 통과, 원본 참조 테스트는 격리된 CommonJS fixture에서 30/30 통과 | 이후 변경의 최신 전체 스위트 결과는 최종 전달에서 별도 확인. 실측 절감은 입증되지 않음 |
 | 실제 실험·배포 | 미실행 | 승인된 요청 없음. enforce 모드 없음 | 아래 승인 표의 항목들 |
+| 실측 승인안 | 제안(미승인) | docs/idle-experiments-approval-proposal.md/.json, test/idle-experiments-approval.test.mjs | 사용자 서명, 별도 검토된 runner |
 
 ## 수치로 확인된 결과
 

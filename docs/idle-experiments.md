@@ -127,6 +127,10 @@ Total if every plan were approved: **62 paid requests** and 30 meter readings wh
 unknown. None of them can be issued from this repository; the dry-run reports
 `paidRequestsPlanned=62 paidRequestsIssued=0 executable=0`.
 
+## Approval proposal
+
+The [approval proposal](idle-experiments-approval-proposal.md) (Korean, signable) and its [machine-readable copy](idle-experiments-approval-proposal.json) define the complete experimental limits and order for all five plans. The JSON carries `status: "proposed"` with `approvedAt: null` and is not an approval; it becomes an approval only when explicitly signed and updated. `scripts/idle-experiments.mjs --execute` still exits 2, and no runner exists yet to carry out the experiments.
+
 ## Contamination and stop conditions that apply to all five
 
 - Concurrent requests or a second session on the same account make gauge deltas unattributable;
