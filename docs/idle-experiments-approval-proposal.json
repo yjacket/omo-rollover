@@ -1,0 +1,109 @@
+{
+  "schema": "idle-experiments-approval-proposal/1",
+  "status": "proposed",
+  "preparedAt": "2026-09-22T00:00:00Z",
+  "approvedAt": null,
+  "approvalExpiresAt": null,
+  "target": {
+    "modelId": "claude-fable-5-1",
+    "authLane": "claude-sdk-oauth",
+    "ttlLane": "1h",
+    "quotaMeters": ["unified-5h", "unified-7d", "unified-7d_oi"],
+    "gaugeResolution": 0.01
+  },
+  "order": ["fable-write-tick", "output-quota", "restore-decomposition", "ttl-1h-unique-prefix", "policy-effect"],
+  "globalStopConditions": [
+    "any meter's cumulative delta reaches its plan cap or cumulative cap -> abort the plan",
+    "a reset/rollover boundary inside an observation window -> void that window, never stitch",
+    "any other request on the account during a window (a second omo session, a background worker, the user) -> abort before the next step",
+    "HTTP 401/403/429, `stop_reason: refusal`, or a model fallback (claude-fable-5-1 not echoed in the response model) -> stop, do not auto-retry, cache state afterwards = unknown",
+    "gauge not settled 60 min after a step -> that step is unattributed",
+    "the plan's own `stopConditions` from `scripts/idle-experiments.mjs`"
+  ],
+  "perMeterCumulativeCaps": {
+    "unified-5h": 0.53,
+    "unified-7d": 0.12,
+    "unified-7d_oi": 0.12
+  },
+  "plans": {
+    "fable-write-tick": {
+      "limits": {
+        "maxProactiveSpendPerIdle": { "value": 0.02, "unit": "quota_fraction", "dimension": "spend" },
+        "maxTotalExperimentalSpend": { "value": 0.04, "unit": "quota_fraction", "dimension": "spend" },
+        "maxResumeDelay": { "value": "unlimited", "unit": "ms", "dimension": "time" },
+        "allowedQualityDegradation": { "value": 0, "unit": "lost_context_events", "dimension": "quality" },
+        "minimumEvidenceForEnforcement": { "value": 2, "unit": "observations", "dimension": "evidence" }
+      },
+      "rationale": "The binding meter is unified-5h. This plan has no resume phase.",
+      "stopConditions": [
+        "any other request touches the account inside an observation window: discard that window",
+        "a reset boundary falls inside the window: discard, do not reassign the tick",
+        "the gauge does not settle by t+60min: report unresolved, keep both hypotheses"
+      ]
+    },
+    "output-quota": {
+      "limits": {
+        "maxProactiveSpendPerIdle": { "value": 0.03, "unit": "quota_fraction", "dimension": "spend" },
+        "maxTotalExperimentalSpend": { "value": 0.08, "unit": "quota_fraction", "dimension": "spend" },
+        "maxResumeDelay": { "value": "unlimited", "unit": "ms", "dimension": "time" },
+        "allowedQualityDegradation": { "value": 0, "unit": "lost_context_events", "dimension": "quality" },
+        "minimumEvidenceForEnforcement": { "value": 2, "unit": "observations", "dimension": "evidence" }
+      },
+      "rationale": "The binding meter is unified-5h. This plan has no resume phase.",
+      "stopConditions": [
+        "any quota meter resets or rolls over mid-run: abort, mark the run invalid, do not stitch windows",
+        "a level exceeds its output cap or returns a truncated/refused response: stop that level, record as failed, do not retry automatically",
+        "a second session or background worker touches the same account: abort before the next level",
+        "cumulative spend cannot be checked against a cap because the budget unit is unconfigured: never start"
+      ]
+    },
+    "restore-decomposition": {
+      "limits": {
+        "maxProactiveSpendPerIdle": { "value": 0.08, "unit": "quota_fraction", "dimension": "spend" },
+        "maxTotalExperimentalSpend": { "value": 0.15, "unit": "quota_fraction", "dimension": "spend" },
+        "maxResumeDelay": { "value": 120000, "unit": "ms", "dimension": "time" },
+        "allowedQualityDegradation": { "value": 0, "unit": "lost_context_events", "dimension": "quality" },
+        "minimumEvidenceForEnforcement": { "value": 2, "unit": "observations", "dimension": "evidence" }
+      },
+      "rationale": "The binding meter is unified-5h. Resume delay is bounded at 120000 ms.",
+      "stopConditions": [
+        "either path exceeds its useful_work request cap: void the comparison instead of extending it",
+        "a phase boundary event is missing: leave those requests unassigned, never spread them across phases",
+        "the two paths diverge in task scope or completion endpoint: stop, the totals are not comparable",
+        "parent and successor use different models or meters without a common unit: report incomparable"
+      ]
+    },
+    "ttl-1h-unique-prefix": {
+      "limits": {
+        "maxProactiveSpendPerIdle": { "value": 0.03, "unit": "quota_fraction", "dimension": "spend" },
+        "maxTotalExperimentalSpend": { "value": 0.06, "unit": "quota_fraction", "dimension": "spend" },
+        "maxResumeDelay": { "value": "unlimited", "unit": "ms", "dimension": "time" },
+        "allowedQualityDegradation": { "value": 0, "unit": "lost_context_events", "dimension": "quality" },
+        "minimumEvidenceForEnforcement": { "value": 2, "unit": "observations", "dimension": "evidence" }
+      },
+      "rationale": "The binding meter is unified-5h. This plan has no resume phase.",
+      "stopConditions": [
+        "any request outside the five planned ones touches either prefix: the run is void, no extra probe is added to 'check'",
+        "a step lands outside its time window: mark invalid, do not reschedule inside the same run",
+        "the response model or lane changes between steps: void, prefix identity is no longer the same",
+        "a step fails or is refused: stop, do not auto-retry, the cache state is unknown afterwards"
+      ]
+    },
+    "policy-effect": {
+      "limits": {
+        "maxProactiveSpendPerIdle": { "value": 0.1, "unit": "quota_fraction", "dimension": "spend" },
+        "maxTotalExperimentalSpend": { "value": 0.2, "unit": "quota_fraction", "dimension": "spend" },
+        "maxResumeDelay": { "value": 120000, "unit": "ms", "dimension": "time" },
+        "allowedQualityDegradation": { "value": 0, "unit": "lost_context_events", "dimension": "quality" },
+        "minimumEvidenceForEnforcement": { "value": 3, "unit": "paired_runs", "dimension": "evidence" }
+      },
+      "rationale": "The binding meter is unified-5h. Resume delay is bounded at 120000 ms.",
+      "stopConditions": [
+        "the two arms no longer share the same task definition or completion endpoint: stop, the totals are not comparable",
+        "a quality guard trips (lost context, re-explanation, resume delay beyond the approved limit): record as failure, do not compare totals",
+        "the candidate policy would change live operating behaviour rather than being executed manually: stop, shadow stays recording-only",
+        "a single pair of runs is treated as a general saving claim: stop reporting, sample size is insufficient"
+      ]
+    }
+  }
+}
