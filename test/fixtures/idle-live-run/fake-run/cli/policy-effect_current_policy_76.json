@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/current_policy/76",
+  "experiment": "policy-effect",
+  "role": "work",
+  "exitCode": 0,
+  "result": "1880",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "1880",
+    "session_id": "P4",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 12
+      },
+      "cache_read_input_tokens": 145655,
+      "output_tokens": 30,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}
