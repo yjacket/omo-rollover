@@ -168,7 +168,11 @@ test("predictedTicks tier 2: prior range (low tokens per tick) when no run obser
 
 test("predictedTicks tier 1: run observation of the same kind wins over the prior", () => {
   // A 71.3K write observed to move the gauge 2 ticks once -> T > 71300/3 -> a 71.3K write predicts 3.
-  const obs = [{ kind: "write", tokens: 71300, ticks: 2 }, { kind: "dial", tokens: 145655, ticks: 0 }]
+  // Tier 1 only uses settled observations of the step's own kind AND dominant field (I2).
+  const obs = [
+    { kind: "write", dominantField: "cacheWrite1h", tokens: 71300, ticks: 2, settled: true },
+    { kind: "dial", dominantField: "cacheRead", tokens: 145655, ticks: 0, settled: true },
+  ]
   const p = predictedTicks(step(), obs, PRIOR_RANGE_ONLY, 20000)
   assert.equal(p.tier, 1)
   assert.equal(p.ticks, 3)
@@ -196,6 +200,128 @@ test("predictedTicks: output-dominated calls use the output target and the outpu
   const p = predictedTicks(out, [], PRIOR_RANGE_ONLY, 20000)
   assert.equal(p.tier, 2)
   assert.equal(p.ticks, 1) // 8000 * 2.5 / 102000 < 1
+})
+
+// Tier 1 (plan todo 7, I2/I8). A call of W tokens that moved the gauge n ticks bounds the price
+// T > W/(n+1). Every valid bound holds at once, so the tightest (max) is the one to use - but only
+// from settled observations of the step's own kind and dominant field, and never below the price
+// the step gets without any observation.
+const settledObs = (over = {}) => ({ kind: "write", dominantField: "cacheWrite1h", tokens: 71300, ticks: 2, settled: true, ...over })
+
+test("I2a tier 1: a cache-miss observation (cache_read=3) next to a normal settled one does not explode a large read", () => {
+  // The miss read 3 tokens and still ticked once: T > 1.5 is true and useless. The normal read of
+  // the same 145K prefix moved nothing: T > 145655. A 145K read must stay at the prior's 1 tick,
+  // not ceil(145655 / 1.5) = 97104.
+  const dial = step({ kind: "dial", dominantField: "cacheRead", prompt: { tokensEst: 145655 } })
+  const miss = settledObs({ kind: "dial", dominantField: "cacheRead", tokens: 3, ticks: 1 })
+  const normal = settledObs({ kind: "dial", dominantField: "cacheRead", tokens: 145655, ticks: 0 })
+  for (const obs of [[miss, normal], [normal, miss]]) {
+    const p = predictedTicks(dial, obs, PRIOR_RANGE_ONLY, 20000)
+    assert.equal(p.ticks, 1, `observations in order ${obs.map((o) => o.tokens).join(", ")}`)
+  }
+})
+
+test("I2b tier 1: an observation with a different dominantField is ignored", () => {
+  const write = step() // write / cacheWrite1h / 71.3K -> the prior prices it at 1 tick
+  const other = settledObs({ dominantField: "cacheRead" }) // same kind, read-priced
+  const p = predictedTicks(write, [other], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(p.tier, 2)
+  assert.equal(p.ticks, 1)
+  // a missing field is not a match either
+  const q = predictedTicks(write, [{ kind: "write", tokens: 71300, ticks: 2, settled: true }], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(q.tier, 2)
+  assert.equal(q.ticks, 1)
+  // control: the same observation carrying the step's own field is used
+  const c = predictedTicks(write, [settledObs()], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(c.tier, 1)
+  assert.equal(c.ticks, 3)
+})
+
+test("I2c tier 1: an observation not marked settled:true is ignored (stale_state)", () => {
+  // Delayed accounting: an immediate zero delta after a 141K write is silence, not a sub-tick
+  // price. Used, it would price the next 141K write at 1 tick where the prior says 2.
+  const big = step({ prompt: { tokensEst: 141000 } })
+  const silent = { kind: "write", dominantField: "cacheWrite1h", tokens: 141000, ticks: 0 }
+  const p = predictedTicks(big, [silent], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(p.ticks, 2)
+  assert.equal(p.tier, 2)
+  // ignored, not merely floored: an unsettled observation that would RAISE the price is dropped too
+  for (const settled of [undefined, false, null, "true", 1]) {
+    const o = settledObs({ settled })
+    if (settled === undefined) delete o.settled
+    const q = predictedTicks(step(), [o], PRIOR_RANGE_ONLY, 20000)
+    assert.equal(q.tier, 2, `settled: ${String(settled)}`)
+    assert.equal(q.ticks, 1, `settled: ${String(settled)}`)
+  }
+  // control: marked settled:true, the same observation is used
+  const s = predictedTicks(step(), [settledObs()], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(s.tier, 1)
+  assert.equal(s.ticks, 3)
+})
+
+test("I2d tier 1 never predicts fewer ticks than tier 2 (misleading_success_output)", () => {
+  // A settled, matching observation that bounds T ABOVE the prior's low end must not lower the price.
+  const big = step({ prompt: { tokensEst: 141000 } })
+  const cheap = settledObs({ tokens: 141000, ticks: 0 })
+  const p = predictedTicks(big, [cheap], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(p.ticks, 2) // ceil(141000 / 102000), never ceil(141000 / 141000)
+  assert.equal(p.tier, 2)
+
+  // ...so the gate cannot be talked into admitting it: 0.01 observed + 2 ticks > the 0.02 per-idle cap
+  const r = gate(big, stateFor({ baseline: 0.12, latest: 0.13, extra: { runObservations: [cheap] } }), APPROVAL, PRIOR_RANGE_ONLY)
+  assert.equal(r.ok, false)
+  assert.equal(r.accounting.predictedTicks, 2)
+  assert.ok(r.reasons.some((x) => x.code === "cap_exceeded" && x.scope === "idle:fable-write-tick/block-1"), JSON.stringify(r.reasons))
+
+  // Property over a fixed grid: whatever settled, matching observations say, the prediction is
+  // never below the one without observations, and a call nothing can price stays unpredictable.
+  const cases = [
+    { kind: "write", dominantField: "cacheWrite1h", sizes: [1, 20000, 71300, 101999, 102000, 102001, 141000, 142700, 500000] },
+    { kind: "dial", dominantField: "cacheRead", sizes: [3437, 145655, 5389999, 5390000, 5390001, 20000000] },
+    { kind: "work", dominantField: "uncachedInput", sizes: [40, 71300, 204001] },
+    { kind: "probe", dominantField: "billedModelOutput", sizes: [8000, 40800, 40801, 100000], output: true },
+    { kind: "probe", dominantField: "cacheWrite5m", sizes: [3437, 20000, 20001, 500000] },
+  ]
+  const tokens = [1, 3, 1000, 71300, 141000, 5390000, 1e9]
+  const ticksSeen = [0, 1, 2, 7]
+  const beats = (got, floor) => (floor === "unpredictable" ? got === "unpredictable" : typeof got === "number" && got >= floor)
+  let checked = 0
+  for (const c of cases) {
+    const obsSet = tokens.flatMap((t) => ticksSeen.map((n) => settledObs({ kind: c.kind, dominantField: c.dominantField, tokens: t, ticks: n })))
+    for (const size of c.sizes) {
+      const s = c.output
+        ? step({ kind: c.kind, dominantField: c.dominantField, prompt: { tokensEst: 40 }, expect: { outputTokensTarget: size } })
+        : step({ kind: c.kind, dominantField: c.dominantField, prompt: { tokensEst: size } })
+      const floor = predictedTicks(s, [], PRIOR_RANGE_ONLY, 20000).ticks
+      for (const obs of [...obsSet.map((o) => [o]), obsSet]) {
+        const got = predictedTicks(s, obs, PRIOR_RANGE_ONLY, 20000).ticks
+        assert.ok(beats(got, floor), `${c.dominantField} ${size} tokens: ${got} < ${floor} with ${JSON.stringify(obs.length === 1 ? obs[0] : "all")}`)
+        checked += 1
+      }
+    }
+  }
+  assert.equal(checked, 26 * 29)
+})
+
+test("I2 tier 1: malformed observations are ignored, never a throw (malformed_input)", () => {
+  const write = step() // the prior prices it at 1 tick; the good observation below raises it to 3
+  const good = settledObs()
+  const bad = [
+    null, undefined, 0, "obs", [],
+    settledObs({ tokens: NaN }), settledObs({ tokens: -71300 }), settledObs({ tokens: 0 }), settledObs({ tokens: Infinity }), settledObs({ tokens: "71300" }), settledObs({ tokens: undefined }),
+    settledObs({ ticks: NaN }), settledObs({ ticks: -1 }), settledObs({ ticks: 0.5 }), settledObs({ ticks: Infinity }), settledObs({ ticks: "2" }), settledObs({ ticks: undefined }),
+    settledObs({ kind: undefined }), settledObs({ dominantField: undefined }), settledObs({ settled: undefined }),
+  ]
+  bad.forEach((o, i) => {
+    const p = predictedTicks(write, [o], PRIOR_RANGE_ONLY, 20000)
+    assert.equal(p.tier, 2, `bad[${i}]`)
+    assert.equal(p.ticks, 1, `bad[${i}]`)
+  })
+  for (const obs of [undefined, null, {}, "obs", 42]) assert.equal(predictedTicks(write, obs, PRIOR_RANGE_ONLY, 20000).tier, 2)
+  // a malformed entry does not hide a good one next to it
+  const mixed = predictedTicks(write, [...bad, good], PRIOR_RANGE_ONLY, 20000)
+  assert.equal(mixed.tier, 1)
+  assert.equal(mixed.ticks, 3)
 })
 
 // ------------------------------------------------------------------ scopes

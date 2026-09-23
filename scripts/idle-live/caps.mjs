@@ -107,13 +107,30 @@ function tokensOf(step) {
   return Number.isFinite(t) && t >= 0 ? t : null
 }
 
+// The price of a call without in-run evidence: tier 2, else tier 3, else unpredictable.
+function priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens) {
+  const prior = lowTokensPerTickFromPrior(field, priors)
+  if (prior !== null && prior > 0) return { ticks: Math.max(1, Math.ceil(tokens / prior)), tier: 2, lowTokensPerTick: prior }
+
+  const bound = Number.isFinite(unpricedCallMaxTokens) ? unpricedCallMaxTokens : 20000
+  if (tokens <= bound) return { ticks: 1, tier: 3, lowTokensPerTick: null }
+  return { ticks: "unpredictable", tier: null, lowTokensPerTick: null, reason: "no_price_basis_above_unpriced_bound" }
+}
+
 /**
  * predictedTicks(step, runObservations, priors, unpricedCallMaxTokens)
- *   -> { ticks: number | "unpredictable", tier: 1|2|3|null, tokens, field, lowTokensPerTick, reason? }
- * Tier 1: observations of the same kind in THIS run: [{ kind, tokens, ticks }]; a call of W tokens
- *         that moved the gauge n ticks bounds T > W/(n+1), so lowTokensPerTick = min W/(n+1).
+ *   -> { ticks: number | "unpredictable", tier: 1|2|3|null, tokens, field, kind, lowTokensPerTick, reason? }
  * Tier 2: the prior range (low end) for the dominant field.
  * Tier 3: 1 tick if tokens <= unpricedCallMaxTokens, else "unpredictable".
+ * Tier 1: observations in THIS run: [{ kind, dominantField, tokens, ticks, settled }]. A call of W
+ *         tokens that moved the gauge n ticks bounds T > W/(n+1); every valid bound holds, so
+ *         lowTokensPerTick = max W/(n+1). Only observations of the step's own kind AND dominant
+ *         field marked `settled: true` count - the caller's certificate that the reading was
+ *         non-anomalous, inside one reset window, with its meters present, and taken after the
+ *         gauge settled (delayed accounting makes an early zero delta silence, not a price).
+ *         Tier 1 only ever RAISES the tier 2/3 answer: it never predicts fewer ticks than the step
+ *         gets without observations and never makes an unpredictable call predictable, so in-run
+ *         evidence can refuse a call the prior admits, never admit one the prior refuses.
  */
 export function predictedTicks(step, runObservations, priors, unpricedCallMaxTokens = 20000) {
   const tokens = tokensOf(step)
@@ -121,23 +138,21 @@ export function predictedTicks(step, runObservations, priors, unpricedCallMaxTok
   const base = { tokens, field, kind: step?.kind ?? null }
   if (tokens === null) return { ...base, ticks: "unpredictable", tier: null, lowTokensPerTick: null, reason: "tokens_unknown" }
 
+  const floor = priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens)
+  if (floor.ticks === "unpredictable") return { ...base, ...floor }
+
   let low = null
   if (Array.isArray(runObservations)) {
     for (const o of runObservations) {
-      if (!o || o.kind !== step.kind) continue
-      if (!Number.isFinite(o.tokens) || o.tokens <= 0 || !Number.isFinite(o.ticks) || o.ticks < 0) continue
+      if (!o || o.settled !== true || o.kind !== step.kind || o.dominantField !== field) continue
+      if (!Number.isFinite(o.tokens) || o.tokens <= 0 || !Number.isInteger(o.ticks) || o.ticks < 0) continue
       const l = o.tokens / (o.ticks + 1)
-      if (low === null || l < low) low = l
+      if (low === null || l > low) low = l
     }
   }
-  if (low !== null) return { ...base, ticks: Math.max(1, Math.ceil(tokens / low)), tier: 1, lowTokensPerTick: low }
-
-  const prior = lowTokensPerTickFromPrior(field, priors)
-  if (prior !== null && prior > 0) return { ...base, ticks: Math.max(1, Math.ceil(tokens / prior)), tier: 2, lowTokensPerTick: prior }
-
-  const bound = Number.isFinite(unpricedCallMaxTokens) ? unpricedCallMaxTokens : 20000
-  if (tokens <= bound) return { ...base, ticks: 1, tier: 3, lowTokensPerTick: null }
-  return { ...base, ticks: "unpredictable", tier: null, lowTokensPerTick: null, reason: "no_price_basis_above_unpriced_bound" }
+  const learned = low === null ? null : Math.max(1, Math.ceil(tokens / low))
+  if (learned !== null && learned > floor.ticks) return { ...base, ticks: learned, tier: 1, lowTokensPerTick: low }
+  return { ...base, ...floor }
 }
 
 // ------------------------------------------------------------------ scopes
@@ -176,7 +191,7 @@ const FRESH = Object.freeze({ spentObservedEq: 0, spentUpperEq: RESOLUTION, curr
 /**
  * gate(step, state, approval, priors) -> { ok, reasons, accounting }
  * state: { status, inDoubt, meters: { [meter]: scope | { absent:true } }, scopes: { [scopeKey|plan:<id>]: scope },
- *          runObservations: [{ kind, tokens, ticks }] }
+ *          runObservations: [{ kind, dominantField, tokens, ticks, settled }] }
  * Refuses (each with a machine-readable reason { code, scope?, meter? }) when: an applicable cap would
  * be exceeded, the call is unpredictable, status !== "allowed", a reset epoch changed since a baseline,
  * a step is in doubt, or a reading/meter/experiment is missing or malformed.
