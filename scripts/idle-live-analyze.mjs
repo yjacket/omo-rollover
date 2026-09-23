@@ -194,10 +194,10 @@ function tickView(recs, { baseline = null, meter = METER_5H } = {}) {
 // Producer metadata contract (Appendix B): only these documented fields are consumed, and none
 // of them has a default. `run` is DERIVED from unit.index; a top-level `run` copy is never read.
 const roleOf = (v) => (typeof v.rec.role === "string" && v.rec.role ? v.rec.role : null)
-const unitOf = (v) => {
-  const u = v.rec.unit
-  return u && typeof u === "object" && Number.isInteger(u.index) && u.index > 0 ? u.index : null
-}
+// unit.index is an integer >= 1. windowStatus applies this same rule, so a record that unit
+// grouping would drop always voids its window (schema_incomplete) instead of vanishing from it.
+const unitIndexOf = (unit) => (unit && typeof unit === "object" && Number.isInteger(unit.index) && unit.index >= 1 ? unit.index : null)
+const unitOf = (v) => unitIndexOf(v.rec.unit)
 const unitKindOf = (v) => (v.rec.unit && typeof v.rec.unit.kind === "string" ? v.rec.unit.kind : null)
 const ordinalOf = (v) => (Number.isInteger(v.rec.n) ? v.rec.n : null)
 const workStepOf = (v) => (Number.isInteger(v.rec.k) ? v.rec.k : null)
@@ -666,7 +666,9 @@ export function convertSums(sums, ends) {
 // ------------------------------------------------------- quality scoring
 
 /**
- * cli/<stepId>.json holds the adapter's stdout JSON; the assistant text is its `result` field.
+ * cli/<stepId>.json is the ledger envelope { stepId, experiment, role, exitCode, stdoutJson,
+ * stderrHead, result } (Appendix B "CLI artifact contract"): the assistant text is `result`,
+ * else `stdoutJson.result`; no string in either place is cli_artifact_unreadable.
  * The text is UNTRUSTED input: it is only ever compared against makeTask(seed) ground truth by
  * the pure scorers of protocols.mjs. No instruction inside it is read, followed or evaluated.
  */
@@ -674,7 +676,8 @@ const cliText = (cli, stepId) => {
   const artifact = cli && typeof cli === "object" ? cli[stepId] : undefined
   if (artifact === undefined || artifact === null) return { text: null, reason: "cli_artifact_missing" }
   if (typeof artifact === "string") return { text: artifact, reason: null }
-  if (typeof artifact.result === "string") return { text: artifact.result, reason: null }
+  const text = artifact.result ?? artifact.stdoutJson?.result
+  if (typeof text === "string") return { text, reason: null }
   return { text: null, reason: "cli_artifact_unreadable" }
 }
 
@@ -933,7 +936,7 @@ export function windowStatus(records, events, experiment, opts = {}) {
     } else reasons.add("meter_reading_missing")
     counts.set(r.stepId, (counts.get(r.stepId) ?? 0) + 1)
     if (typeof r.role !== "string" || !r.role) reasons.add("schema_incomplete")
-    if (!r.unit || typeof r.unit !== "object" || !Number.isInteger(r.unit.index) || typeof r.unit.kind !== "string") reasons.add("schema_incomplete")
+    if (unitIndexOf(r.unit) === null || typeof r.unit.kind !== "string") reasons.add("schema_incomplete")
     const f = fields(r)
     if (!f.hasUsage) {
       reasons.add("usage_incomplete")
@@ -1290,12 +1293,15 @@ const taskFor = (seed, steps) => {
   return taskCache.get(key)
 }
 
-/** Seed of one unit: `experiment_started.seeds`, indexed by the unit (or labelled with `run`). */
+/**
+ * Seed of one unit: `experiment_started.seeds`, indexed by the unit (or labelled with `run`).
+ * A start whose `run` is null or absent is not per-run (Appendix B), so its seeds are indexed.
+ */
 function seedOf(events, experiment, unitIndex) {
   const starts = startedEvents(events, experiment)
   for (const e of starts) if (e.run === unitIndex && Array.isArray(e.seeds) && Number.isFinite(e.seeds[0])) return e.seeds[0]
   for (const e of starts) {
-    if (e.run !== undefined) continue
+    if (e.run != null) continue
     if (Array.isArray(e.seeds) && e.seeds.length >= unitIndex && Number.isFinite(e.seeds[unitIndex - 1])) return e.seeds[unitIndex - 1]
   }
   return null
