@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/shadow_candidate_policy/29",
+  "experiment": "policy-effect",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-2712\nrecord id 4084\nsite Cardiff\ndate 2021-06-12\nthreshold 14",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-2712\nrecord id 4084\nsite Cardiff\ndate 2021-06-12\nthreshold 14",
+    "session_id": "C3",
+    "usage": {
+      "input_tokens": 155,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

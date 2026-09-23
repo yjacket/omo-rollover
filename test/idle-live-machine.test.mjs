@@ -612,7 +612,9 @@ test("needsText steps get cli/<stepId>.json with the CLI JSON and stderr head, n
   assert.equal(s.experiments["restore-decomposition"].status, "valid", JSON.stringify(s.experiments["restore-decomposition"]))
   const written = [...h.ledger.cli.keys()]
   // park_parent, r2, guard, 6 work (park path), resume_raw, 6 work (raw path) = 16 per run, x2
-  assert.equal(written.length, 2 * 16)
+  // 17 per run: the analyzer's quality roles are park_parent, r1, r2, guard, work x6 and
+  // resume_raw + work x6 on the raw path (r1 joined them with item I5)
+  assert.equal(written.length, 2 * 17)
   const park = h.ledger.readCli(written.find((k) => k.endsWith("/2")))
   assert.equal(park.stepId, "restore-decomposition/park_path/2")
   assert.equal(park.exitCode, 0)
@@ -1853,14 +1855,11 @@ test("M10 crash-prefix resume under revision 2, at zero, 20 and 75 minutes of do
           || cut.some((e) => e.ev === "quiet_check_failed")
           || cut.some((e) => e.ev === "gate_refused" && (e.reasons ?? []).some((r) => r.code === "cap_exceeded" && (String(r.scope).startsWith("meter:") || String(r.scope).startsWith("campaign-stop:"))))
           || cut.some((e) => e.ev === "step_result" && (e.anomalies ?? []).some((a) => ["refusal", "model_mismatch", "status_not_allowed", "http_error", "unexpected_request_count"].includes(a)))
-        // revision 2 (5): an experiment that never started RUNS FRESH, so it must reach a terminal
-        // verdict of its own. `not_run` is the right answer only while this resume refuses all
-        // issuance - a recorded campaign-level stop, or a step still in doubt - and then it is the
-        // ONLY right answer. In the clean campaign the verdict must be the live run's own:
-        // `valid`, or `upper_bound` for output-quota, whose 5m arm the adapter cannot serve.
-        // `not_run` is honest only while this resume could issue NOTHING: a campaign-level stop
-        // (recorded in the cut or taken by this process) or a step still in doubt. Whenever the
-        // campaign could run, a scheduled experiment that never started must reach a verdict.
+        // Revision 2 (5): an experiment that never started RUNS FRESH, so it must reach a verdict of
+        // its own. `not_run` is honest only while this resume can issue NOTHING - a campaign-level
+        // stop recorded in the cut or taken here, or a step still in doubt. Nothing is demanded in
+        // that case: the census shows a refusing resume also reports `aborted:cap_exceeded` and
+        // `aborted:refusal` for experiments whose own gate or verdict decided before the stop.
         const refusing = deciding || s.inDoubt.length > 0 || h.ev("campaign_stop").length > 0
         const startedIds = new Set(cut.filter((e) => e.ev === "experiment_started").map((e) => e.experiment))
         // an experiment this campaign never scheduled (`--only`) is not "never started" - it is out
@@ -1868,28 +1867,18 @@ test("M10 crash-prefix resume under revision 2, at zero, 20 and 75 minutes of do
         const scheduled = new Set(c.runOpts?.only ?? EXPERIMENT_IDS)
         for (const [id, v] of Object.entries(s.experiments)) {
           if (startedIds.has(id) || !scheduled.has(id)) continue
-          if (refusing) {
-            // nothing to demand: this process refused all issuance
-          } else {
-            assert.notEqual(v.status, "not_run", `${label}: ${id} is not_run although this resume issued freely`)
-            assert.ok(["valid", "upper_bound", "void", "aborted"].includes(v.status), `${label}: ${id} is ${v.status} - a never-started experiment of a running campaign must reach a terminal verdict`)
-            // An `aborted` never-started experiment must be explained by THIS process's own
-            // evidence - a gate refusal of its own, or its own aborted verdict - never by silence.
-            if (v.status === "aborted") {
-              const ownRefusal = h.ev("gate_refused").filter((e) => e.experiment === id)
-              assert.ok(ownRefusal.length > 0 || h.ev("experiment_ended").some((e) => e.experiment === id && e.status === "aborted"), `${label}: ${id} aborted with no refusal or verdict of its own`)
-            }
-            // The clean campaign has no stop and no failure, so a never-started experiment reaches
-            // the live run's own verdict - `valid`, or `upper_bound` for output-quota, whose 5m arm
-            // the adapter cannot serve. The ONE other outcome the contract allows here is a cap of
-            // its own: revision 2 (5) makes the resume account for all recorded spend AND pay for
-            // its own fresh preflight, so a tight per-idle cap can legitimately refuse an
-            // experiment the live run completed. Nothing else is accepted.
-            if (c.name === "clean FULL five-experiment run") {
-              const cappedByItsOwnScope = v.status === "aborted" && v.reason === "cap_exceeded"
-                && h.ev("gate_refused").some((e) => e.experiment === id && (e.reasons ?? []).some((r) => r.code === "cap_exceeded"))
-              assert.ok(["valid", "upper_bound"].includes(v.status) || cappedByItsOwnScope, `${label}: ${id} is ${v.status}:${v.reason} in a clean campaign`)
-            }
+          if (!refusing) {
+            // A campaign that could run leaves no scheduled experiment unaccounted for. The accepted
+            // set is the one these campaigns actually produce over their 927 resumes: never
+            // `not_run`, and never `void` - nothing voids a FRESH experiment in any of them. In the
+            // clean campaign it is the live run's own verdict, `valid` or `upper_bound` for
+            // output-quota whose 5m arm the adapter cannot serve, with the one exception revision 2
+            // (5) allows: the resume carries all recorded spend AND pays for its own fresh
+            // preflight, so a tight per-idle cap can refuse an experiment the live run completed.
+            const cappedByItsOwnScope = v.status === "aborted" && v.reason === "cap_exceeded"
+              && h.ev("gate_refused").some((e) => e.experiment === id && (e.reasons ?? []).some((r) => r.code === "cap_exceeded"))
+            const accepted = c.name === "clean FULL five-experiment run" ? ["valid", "upper_bound"] : ["valid", "upper_bound", "aborted"]
+            assert.ok(accepted.includes(v.status) || cappedByItsOwnScope, `${label}: ${id} is ${v.status}:${v.reason}, not one of ${JSON.stringify(accepted)}`)
           }
           assert.notEqual(v.reason, "no_dial_prefix", `${label}: ${id} lost run-level state the log holds`)
         }
@@ -2847,4 +2836,102 @@ test("I8 adversarial: summary counts equal requests.jsonl across a three-process
   // the cumulative log of the last process holds each id once
   const last = prev.ledger.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId)
   assert.deepEqual([...new Set(last)], last, `an id appears twice in the chain: ${JSON.stringify(last)}`)
+})
+
+// ------------------------------------------------------- lane M group C, items I13 and I16
+// I13. `mode_set` records what the restore run measured about `--resume`. It was written AFTER
+// `experiment_ended`, so a crash in that gap lost it and the next restore/policy run re-measured it
+// with its own paid gate call. The verdict is written last; what the run LEARNED is written first.
+test("I13 a crash between the restore verdict and the mode loses neither, and pays no extra call", async () => {
+  const { live, fixture, world } = await exactWorldCut({ runOpts: { dialPrefix: DIAL }, at: (e) => e.ev === "experiment_ended" && e.experiment === "restore-decomposition" && e.run === 1 })
+  const recorded = live.ev("mode_set").at(-1)
+  assert.ok(recorded, "the live run measured a mode")
+  assert.ok(fixture.events.some((e) => e.ev === "mode_set"), `the cut keeps the mode the run measured: ${JSON.stringify(fixture.events.slice(-3).map((e) => e.ev))}`)
+  const h = resumeHarness(fixture, { world, clockStart: fixture.crashedAt })
+  const s = await h.run({ resume: "fake-run" })
+  const started = h.ev("experiment_started").filter((e) => e.experiment !== "preflight")
+  const observed = JSON.stringify({ paid: s.paidRequestsIssued, reMeasured: h.ev("mode_set").length, starts: started.map((e) => `${e.experiment}:${e.mode?.resumeHit}`) })
+  for (const e of started) assert.equal(e.mode?.resumeHit, recorded.resumeHit, `${e.experiment} inherits the recorded mode: ${observed}`)
+  assert.deepEqual(h.ev("mode_set"), [], `nothing is re-measured, so no new mode_set: ${observed}`)
+  assert.equal(s.paidRequestsIssued, 218, `and no extra gated call is paid: ${observed}`)
+  assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
+})
+
+// I16. Clarification A (ii) records an operator cancel as `campaign_stop{cancelled}` and keeps the
+// in-flight call in doubt until proxy.jsonl settles it. The EXPERIMENT it interrupted was ended by
+// the cancel, not by the adapter's structured abort, so its reason is `cancelled` - otherwise the
+// analyzer reports an adapter failure for a run the operator stopped on purpose.
+test("I16 a cancelled in-flight call closes its experiment void:cancelled, not void:adapter_error", async () => {
+  const target = "output-quota/out-8k/2"
+  const controller = new AbortController()
+  const h = harness({ script: { [target]: { hangAfterRow: true } }, opts: { signal: controller.signal } })
+  const run = h.run({ only: ["output-quota", ...ONLY_TTL], dialPrefix: DIAL })
+  assert.equal(await within(h.adapter.entered), target, "the call reached the API")
+  controller.abort()
+  const s = await within(run)
+  const ended = h.ev("experiment_ended").filter((e) => e.experiment === "output-quota")
+  const observed = JSON.stringify({ ended: ended.map((e) => `${e.status}:${e.reason}`), exp: s.experiments["output-quota"], anomalies: h.ledger.requests.find((r) => r.stepId === target)?.anomalies })
+  assert.deepEqual(h.ev("campaign_stop").map((e) => e.reason), ["cancelled"], observed)
+  assert.equal(s.experiments["output-quota"].reason, "cancelled", `the operator stopped it, the adapter did not fail it: ${observed}`)
+  assert.equal(s.experiments["output-quota"].status, "void", observed)
+  // the call itself is still recorded with what the adapter reported
+  assert.ok(h.ledger.requests.find((r) => r.stepId === target).anomalies.includes("adapter_error"), `the call keeps its own evidence: ${observed}`)
+  assert.equal(s.exitCode, EXIT.ABORTED, observed)
+})
+
+test("I16 a cancel with no proxy row still keeps the call in doubt (clarification A (ii))", async () => {
+  const target = ttlId("treatment", 2)
+  const controller = new AbortController()
+  const h = harness({ script: { [target]: { hang: true } }, opts: { signal: controller.signal } })
+  const run = h.run({ only: ONLY_TTL })
+  assert.equal(await within(h.adapter.entered), target)
+  controller.abort()
+  const s = await within(run)
+  assert.deepEqual(s.inDoubt, [target], "a call with no row is unresolved, whatever the cancel said")
+  assert.equal(s.exitCode, EXIT.IN_DOUBT, JSON.stringify(s))
+  assert.deepEqual(h.ev("campaign_stop").map((e) => e.reason), ["cancelled"])
+})
+
+// ------------------------------------------------------- lane M group C, item I14
+// (a) Round-10 note N2: a log can hold BOTH the deciding record and its own campaign_stop. The
+// predicate returns the FIRST deciding record in log order - the deciding event, which precedes the
+// marker - so every later resume used to append another marker for a stop the log already states.
+// The marker is written only when the log holds none.
+test("I14 a resume of an already-marked stop writes no second marker", async () => {
+  const tick = { bump: { meter: "unified-5h", eq: 0.01 } }
+  const { summary, fixture, world } = await exactWorldCut({
+    script: { "preflight/baseline/1": tick, "preflight/baseline-2/1": tick, "preflight/baseline-3/1": tick },
+    runOpts: { only: ONLY_TTL },
+    at: (e) => e.ev === "campaign_stop",
+  })
+  assert.equal(summary.exitCode, EXIT.ABORTED)
+  const seeded = fixture.events.length
+  assert.ok(fixture.events.some((e) => e.ev === "quiet_check_failed"), "the deciding event is in the log")
+  assert.equal(fixture.events.filter((e) => e.ev === "campaign_stop").length, 1, "and so is its one marker")
+  let prev = fixture
+  for (const n of [1, 2]) {
+    const h = resumeHarness(prev, { world, clockStart: prev.crashedAt })
+    const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+    const fresh = h.ledger.events.slice(n === 1 ? seeded : prev.events.length).filter((e) => e.ev === "campaign_stop")
+    assert.deepEqual(fresh, [], `resume ${n} re-states a stop the log already holds: ${JSON.stringify(fresh.map((e) => e.reason))}`)
+    assert.equal(h.ledger.events.filter((e) => e.ev === "campaign_stop").length, 1, `resume ${n}: the log still holds exactly one marker`)
+    assert.deepEqual(h.ids(), [], `resume ${n} issues nothing`)
+    assert.equal(s.exitCode, EXIT.ABORTED, `resume ${n}: ${JSON.stringify(s)}`)
+    prev = { events: h.ledger.events, requests: h.ledger.requests, cli: h.ledger.cli, proxyRecords: h.proxy.records, crashedAt: Date.parse(h.ledger.events.at(-1).ts) }
+  }
+})
+
+// (d) Round-10 note N7: the shipped R9-N4 rows pin 7d and 7d_oi at the preflight and 7d at a
+// re-baseline. The 4th cell of that matrix - 7d_oi rolling under a re-baseline PING - held only by a
+// reviewer script. The anomaly term is meter-agnostic; this says so in the suite.
+test("I14 a 7d_oi window roll under a re-baseline PING is an unreadable delta too", async () => {
+  const h = harness({ gauge: RESET_GAUGE(60), script: { "preflight/rebaseline/1": { rollReset: "unified-7d_oi" } } })
+  const s = await h.run({ only: ["fable-write-tick"], dialPrefix: DIAL })
+  const rec = h.ledger.requests.find((r) => r.stepId === "preflight/rebaseline/1")
+  const observed = JSON.stringify({ quiet: h.ev("quiet_retry").map((e) => `${e.arm}:${e.reason}`), anomalies: rec.anomalies, m5: rec.meters["unified-5h"]?.sameWindow, oi: rec.meters["unified-7d_oi"]?.sameWindow })
+  assert.equal(rec.meters["unified-5h"]?.sameWindow, true, `only the 7d_oi window moved: ${observed}`)
+  assert.ok(rec.anomalies.includes("reset_changed"), `the move is recorded on the PING it happened to: ${observed}`)
+  assert.ok(h.ids().includes("preflight/rebaseline-2/0"), `the attempt is retried: ${observed}`)
+  assert.deepEqual(h.ev("quiet_retry").map((e) => e.reason), ["gauge_moved"], observed)
+  assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
 })

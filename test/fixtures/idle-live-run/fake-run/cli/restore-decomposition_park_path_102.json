@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/102",
+  "experiment": "restore-decomposition",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-9492\nrecord id 2876\nsite Swansea\ndate 2020-12-02\nthreshold 12",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-9492\nrecord id 2876\nsite Swansea\ndate 2020-12-02\nthreshold 12",
+    "session_id": "C5",
+    "usage": {
+      "input_tokens": 155,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

@@ -39,8 +39,8 @@ const QUIET_ATTEMPTS = 3
 const RESET_SETTLE_MS = 120_000 // Appendix A section 1: sleep to reset + 120 s
 const SMOKE = Object.freeze({ lines: 2000, writeTokens: 59_400, hitFactor: 0.9, pings: 3, pingSpacingMs: 60_000 })
 
-// Random draws are pre-drawn per experiment and recorded in `experiment_started`, so a resume
-// replays the same prompts and session ids.
+// Random draws are pre-drawn per experiment and recorded in `experiment_started`, so the analyzer
+// can rebuild the exact prompt bytes and session ids a run used from its evidence alone.
 const POOL = Object.freeze({
   "fable-write-tick": { seeds: 2, uuids: 0 },
   "output-quota": { seeds: 0, uuids: 0 },
@@ -394,7 +394,6 @@ export function fold(events) {
     inDoubt: [],
     paidRequests: 0,
     resetWaits: 0,
-    resetEpochs: [],       // the reset windows this run waited out, in order
     campaignStop: null,
     mode: { resumeHit: null },
     dialPrefix: null,
@@ -472,8 +471,6 @@ export function fold(events) {
         break
       case "reset_wait": {
         st.resetWaits += 1
-        const at = epochMs(e.resetAtMs)
-        if (at !== null && !st.resetEpochs.includes(at)) st.resetEpochs.push(at)
         break
       }
       case "campaign_stop":
@@ -909,34 +906,25 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   const protocolRecord = p || usageRaw ? { ...record, text } : null
   const result = { record: protocolRecord, anomalies, ticks: applied.ticks, late: false, meters: applied.meters }
   const v = verdictOf(anomalies)
-  // A cancel recorded at the seam above ends the CAMPAIGN whatever this one call's verdict was:
-  // the experiment closes on the cancel (keeping the call's own reason when it had one) and no
-  // later job is started.
-  if (cancelled) return { result, rows, fatal: { status: v?.status ?? "void", reason: v?.reason ?? "cancelled" }, stop: true }
+  // A cancel recorded at the seam above ends the CAMPAIGN whatever this one call's verdict was, and
+  // it is also what ended the EXPERIMENT: `void:cancelled`, not the adapter failure the kill caused.
+  // The call keeps its own evidence in its step_result anomalies, and a stop rule it carried is
+  // still read from there by `campaignStopOf`; what changes is only the reason the experiment
+  // reports, so the analyzer does not blame the adapter for a run the operator stopped (I16).
+  if (cancelled) return { result, rows, fatal: { status: "void", reason: "cancelled" }, stop: true }
   return v ? { result, rows, fatal: { status: v.status, reason: v.reason }, stop: v.stop } : { result, rows }
 }
 
-/**
- * One step served from the log instead of the adapter. It advances exactly the state a live call
- * advances - the meter windows from the recorded headers, the attributed spend, the phase ledger,
- * the paid-call count - and then takes the SAME decision the live path takes, `verdictOf` on the
- * anomalies the log recorded. It writes no evidence: requests.jsonl, cli/ and the step_result
- * event already hold this call, and a resumed process must not double them.
- *
- * `in_doubt` is an issuance the log never resolved: Appendix B forbids re-invoking it, so it is
- * reconciled against proxy.jsonl (present -> a synthesized result, and its spend) or voided and
- * kept in doubt.
- */
 /**
  * The machine's own verdict on a completed step, independent of the protocol. A global stop rule
  * (Appendix A section 0) aborts the experiment AND the campaign; a delivery failure - the adapter,
  * the CLI or the response itself did not report a trustworthy result - voids the experiment with
  * that reason. `null` means the protocol decides.
  *
- * It is applied at exactly two places, and it MUST be both: when a step completes live, and when a
- * recorded step is replayed on resume. The landed protocol does not classify `adapter_error` as
- * fatal, so a crash between the step_result and the experiment_ended used to replay a failed call
- * into a `valid` experiment at exit 0.
+ * It is applied wherever a step completes: a live call, and a response recovered from proxy.jsonl
+ * during a resume. The landed protocol does not classify `adapter_error` as fatal, so without this
+ * verdict a crash between the step_result and the experiment_ended left a failed call inside a
+ * `valid` experiment at exit 0.
  */
 /**
  * Stops the campaign once. The same stop can be reached twice - baselineBlock() sees the PING's
@@ -1066,9 +1054,8 @@ async function maybeResetWait(st, exp, step) {
   // meant a resumed process served a NEW window's quiet check from the PREVIOUS window's recorded
   // PINGs: the new window got no quiet check at all and the waiting step went out straddling the
   // epoch. The first window keeps the bare `rebaseline` arm, so its ids are unchanged.
-  // The Nth reset wait of the RUN gets the Nth set of PING ids, replayed or live: a resumed walk
-  // takes the same waits in the same order, so an interrupted window keeps its ids while a new one
-  // (or a second wait on a stuck epoch) gets its own.
+  // The Nth reset wait of the RUN gets the Nth set of PING ids, and a resumed process keys them by
+  // its resume index as well, so a wait it takes can never reuse ids an earlier run already issued.
   st.resetWaits += 1
   const window = st.resetWaits
   const role = st.resumeIndex ? `rebaseline-r${st.resumeIndex}-w${window}` : (window === 1 ? "rebaseline" : `rebaseline-w${window}`)
@@ -1186,8 +1173,8 @@ function drawPool(st, job) {
   return pool
 }
 
-// Draws come from the pool recorded in `experiment_started`, so a resume replays identical
-// prompt bytes and session ids; an over-draw is appended and recorded as its own event.
+// Draws come from the pool recorded in `experiment_started`, so the prompt bytes and session ids a
+// run used are reproducible from its log; an over-draw is appended and recorded as its own event.
 function pooledRandom(st, job, pool) {
   let si = 0
   let ui = 0
@@ -1303,6 +1290,9 @@ async function runExperiment(st, job) {
     syncCampaignStop(st, { experiment: id, run: job.run ?? null })
     stop = true
   }
+  // I13: the mode this run measured about `--resume` is written BEFORE the verdict. A crash in the
+  // gap used to lose it, and the next restore/policy run re-measured it with its own paid gate call.
+  if (st.mode.resumeHit !== modeBefore) emit(st, { ev: "mode_set", experiment: id, resumeHit: st.mode.resumeHit })
   emit(st, {
     ev: "experiment_ended", experiment: id, run: job.run ?? null, status, reason,
     paidRequests: exp.paid, parity: { ok: par.ok, complete: par.complete, issues: par.issues },
@@ -1319,7 +1309,6 @@ async function runExperiment(st, job) {
   const planSpend = spendOf(st.scopes[`plan:${id}`])
   agg.spentObservedEq = planSpend.observedEq
   agg.spentUpperEq = planSpend.upperEq
-  if (st.mode.resumeHit !== modeBefore) emit(st, { ev: "mode_set", experiment: id, resumeHit: st.mode.resumeHit })
   if (isObject(result?.dialPrefix) && result.dialPrefix.prompt) {
     st.dialPrefix = { prompt: result.dialPrefix.prompt, sessionId: result.dialPrefix.sessionId, seed: pool.seeds[0] ?? null }
     emit(st, { ev: "dial_prefix", experiment: id, run: job.run ?? null, seed: st.dialPrefix.seed, sessionId: st.dialPrefix.sessionId })
@@ -1336,29 +1325,6 @@ async function proxyLogOf(st) {
   if (typeof st.deps.proxy?.readLog === "function") return (await st.deps.proxy.readLog()) ?? []
   return []
 }
-
-const cliText = (st, stepId) => {
-  try {
-    const o = st.deps.ledger.readCli?.(stepId)
-    return typeof o?.stdoutJson?.result === "string" ? o.stdoutJson.result : null
-  } catch {
-    return null
-  }
-}
-
-// A recorded step_result / step_void replayed as the StepResult the protocol was fed before.
-// `rec` is that step's requests.jsonl row (joined by stepId); it carries usage and headers.
-// A checkpoint whose `anomalies` field is not an array says nothing about that step: replaying it
-// as [] would turn a refused, late or short call into a clean one. It is an anomaly of its own.
-const checkpointAnomalies = (ev) => (Array.isArray(ev?.anomalies) ? ev.anomalies : ["checkpoint_anomalies_malformed"])
-
-const resultFromEvent = (st, ev, rec = null) => ({
-  record: rec ? { ...rec, text: cliText(st, ev.stepId) } : null,
-  anomalies: checkpointAnomalies(ev),
-  ticks: ev.ticks ?? {},
-  late: ev.late === true,
-  meters: rec?.meters ?? {},
-})
 
 /**
  * One in-doubt step, reconciled against proxy.jsonl. The request HAPPENED - the proxy logged the
@@ -1434,19 +1400,13 @@ function reconcileStep(st, stepId, intent, matches) {
     st.paidRequests += 1
   }
   const record = written[0]
-  const ev = emit(st, {
+  emit(st, {
     ev: "step_result", ...meta, source: "proxy_reconciled", clean: false,
     ts_req: record.ts_req, ts: record.ts, model: record.model, stop_reason: record.stop_reason, status: record.status,
     ticks, accounting: { source: "proxy_reconciled", requestCount: matches.length, scope: idleKey, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq }, phase_ledger: record.phase_ledger, anomalies, exitCode: null, late: false,
   })
-  return resultFromEvent(st, ev, record)
 }
 
-/**
- * Resume: events.jsonl is the only truth. Fold it, rebuild the spend state, then reconcile every
- * step that has an intent and no result - proxy record present -> synthesize the result; absent ->
- * `step_void{unknown_issue_state}` and the experiment is void. Nothing is ever re-invoked.
- */
 /**
  * Appendix B "Resume verdict contract, revision 2". A resumed run does NOT replay the campaign.
  * Rounds 3-6 each found a new way for a continued experiment to diverge from the live one across
@@ -1524,13 +1484,18 @@ async function resumeFromLog(st) {
  * response recovered from proxy.jsonl in THIS process is part of the evidence it reads.
  */
 function campaignStopFromLog(st) {
-  const hit = campaignStopOf(st.deps.ledger.fold().events)
+  const events = st.deps.ledger.fold().events
+  const hit = campaignStopOf(events)
   if (!hit) return null
   if (hit.source === "run_ended") {
     return { reason: "run_already_ended", stopped: hit.ended?.reason ?? "run_already_ended" }
   }
-  // one writer, so the marker rule cannot differ between the live path and a resume
-  stopCampaign(st, { meter: hit.meter ?? null, reason: hit.reason, record: hit.source !== "campaign_stop" })
+  // One writer, so the marker rule cannot differ between the live path and a resume - and the marker
+  // is written only when the log holds NONE. The predicate returns the first deciding record in log
+  // order, which is the deciding EVENT and precedes the marker the live path wrote for it, so
+  // keying on `hit.source` alone made every later resume re-state a stop the log already says (I14a).
+  const marked = events.some((e) => isObject(e) && e.ev === "campaign_stop")
+  stopCampaign(st, { meter: hit.meter ?? null, reason: hit.reason, record: !marked })
   return { reason: hit.reason, stopped: hit.preflight && !CAMPAIGN_FATAL.has(hit.reason) ? "baseline_failed" : "campaign_stop" }
 }
 
@@ -1666,6 +1631,9 @@ export async function runMachine(deps, approval, opts = {}) {
     emit(st, { ev: "run_ended", exitCode: EXIT.OK, reason: "dry_run" })
     return summary
   }
+  // TEST SEAM. In production the dial prefix comes from the restore run that primes it (or, on a
+  // resume, from the recorded seed); `opts.dialPrefix` lets a test run an experiment that consumes
+  // the prefix without running restore-decomposition first. The runner never passes it.
   st.dialPrefix = rebuildDialPrefix(opts.dialPrefix) ?? st.dialPrefix
 
   if (opts.smoke) {

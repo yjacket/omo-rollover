@@ -439,7 +439,7 @@ async function* parkPath(s, { unit, arm, big, task, childId, at, flags }) {
   if (c.u.billedModelOutput < lo || c.u.billedModelOutput > hi) flags.push("park_output_out_of_range")
   path.quality.handoffLossy = handoffLossy(handoff, task.guardAnswer)
   if (path.quality.handoffLossy) flags.push("handoff_lossy")
-  const r1 = s.request({ arm, kind: "work", phase: "restore_child", role: "r1", unit, at: s.now() + RULES.spacingMs, prompt: task.restorePrompts.R1(handoff), session: { id: childId, mode: "new" }, expect: { ttlLane: "1h", hit: false }, dominantField: "uncachedInput" })
+  const r1 = s.request({ arm, kind: "work", phase: "restore_child", role: "r1", unit, at: s.now() + RULES.spacingMs, prompt: task.restorePrompts.R1(handoff), session: { id: childId, mode: "new" }, expect: { ttlLane: "1h", hit: false }, needsText: true, dominantField: "uncachedInput" })
   c = s.accept(r1, yield r1, {})
   if (c.fatal) return { fatal: c.fatal, path }
   const first = c.record

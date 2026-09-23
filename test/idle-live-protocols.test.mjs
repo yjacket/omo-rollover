@@ -120,7 +120,7 @@ test("promptOf carries sha256, chars and a tokens estimate (29.4/filler line, ch
   assert.equal(p.tokensEst, Math.round(NULLP.length / 3.4))
   assert.equal(p.fillerLines, 0)
   const body = filler(3, 2000)
-  const q = promptOf(body + "\n\n" + NULLP, { fillerLines: 2000, fillerChars: body.length })
+  const q = promptOf(`${body}\n\n${NULLP}`, { fillerLines: 2000, fillerChars: body.length })
   assert.equal(q.fillerLines, 2000)
   assert.equal(q.tokensEst, Math.round(2000 * 29.4 + (2 + NULLP.length) / 3.4))
 })
@@ -140,7 +140,7 @@ test("makeTask is deterministic per seed and its ground truth matches the lines 
   // CTX prompt = brief + 4800-line log + NULLP suffix, hashed like every other prompt.
   assert.ok(a.ctxPrompt.text.startsWith("[BRIEF]"))
   assert.ok(a.ctxPrompt.text.includes(`Weather station log (synthetic test data, seed 11)`))
-  assert.ok(a.ctxPrompt.text.endsWith("\n\n" + NULLP))
+  assert.ok(a.ctxPrompt.text.endsWith(`\n\n${NULLP}`))
   assert.equal(a.ctxPrompt.fillerLines, 4800)
   assert.equal(a.ctxPrompt.sha256, sha(a.ctxPrompt.text))
   assert.ok(a.ctxPrompt.tokensEst > 141000 && a.ctxPrompt.tokensEst < 143000, `ctx tokens ${a.ctxPrompt.tokensEst}`)
@@ -171,7 +171,7 @@ test("makeTask is deterministic per seed and its ground truth matches the lines 
   assert.equal(a.restorePrompts.R1("HANDOFF-TEXT").text, "You are taking over an interrupted session. Here is the handoff:\nHANDOFF-TEXT\nConfirm by listing the key facts, one per line.")
   assert.equal(a.restorePrompts.R2.text, "Before we continue: what is the next step, and is there anything you are missing that you would need to ask me about?")
   assert.equal(a.restorePrompts.R3.text, "Quick check: which record id is under investigation, at which site, and what is the alert threshold? Answer as 'id, site, threshold'.")
-  assert.equal(a.guardPromptRaw.text, "I'm back. " + a.restorePrompts.R3.text)
+  assert.equal(a.guardPromptRaw.text, `I'm back. ${a.restorePrompts.R3.text}`)
 })
 
 test("scorers are exact-match and never throw on odd input", () => {
@@ -236,7 +236,7 @@ test("fable-write-tick: pre-walk until a tick, WRITE-2400, 7 hold pings at the e
   assert.equal(write.role, "write")
   assert.equal(write.kind, "write")
   assert.equal(write.prompt.fillerLines, 2400)
-  assert.ok(write.prompt.text.endsWith("\n\n" + NULLP))
+  assert.ok(write.prompt.text.endsWith(`\n\n${NULLP}`))
   assert.equal(write.prompt.tokensEst, Math.round(2400 * 29.4 + (2 + NULLP.length) / 3.4))
   assert.equal(write.session.mode, "ephemeral")
   assert.equal(write.dominantField, "cacheWrite1h")
@@ -544,7 +544,7 @@ test("ttl-1h-unique-prefix: 10 timed steps, identical bytes per prefix, HIT/MISS
     const shas = new Set(byPrefix(p).map((s) => s.prompt.sha256))
     assert.equal(shas.size, 1, `prefix ${p} re-sends its exact bytes`)
     assert.equal(byPrefix(p)[0].prompt.fillerLines, 2000)
-    assert.ok(byPrefix(p)[0].prompt.text.endsWith("\n\n" + NULLP))
+    assert.ok(byPrefix(p)[0].prompt.text.endsWith(`\n\n${NULLP}`))
     for (const s of byPrefix(p)) {
       assert.equal(s.session.mode, "ephemeral")
       assert.equal(s.expect.ttlLane, "1h")
@@ -740,7 +740,7 @@ test("restore-decomposition: gate FAIL switches big-context requests to rf-emula
   assert.equal(r.gate.pass, false)
   const park = requests[2]
   assert.deepEqual(park.session, { id: null, mode: "ephemeral" })
-  assert.equal(park.prompt.text, task.ctxPrompt.text + "\n\n" + task.parkPrompt)
+  assert.equal(park.prompt.text, `${task.ctxPrompt.text}\n\n${task.parkPrompt}`)
   assert.equal(park.prompt.fillerLines, 4800)
   assert.equal(park.expect.hit, true)
   assert.equal(park.dominantField, "cacheRead")
@@ -748,10 +748,10 @@ test("restore-decomposition: gate FAIL switches big-context requests to rf-emula
   assert.deepEqual(requests[6].session, { id: "uuid-2", mode: "resume" })
   const raw = requests[12]
   assert.deepEqual(raw.session, { id: null, mode: "ephemeral" })
-  assert.equal(raw.prompt.text, task.ctxPrompt.text + "\n\n" + task.guardPromptRaw.text)
+  assert.equal(raw.prompt.text, `${task.ctxPrompt.text}\n\n${task.guardPromptRaw.text}`)
   for (const s of requests.slice(13, 19)) {
     assert.deepEqual(s.session, { id: null, mode: "ephemeral" })
-    assert.equal(s.prompt.text, task.ctxPrompt.text + "\n\n" + task.workSteps[s.k - 1].prompt.text)
+    assert.equal(s.prompt.text, `${task.ctxPrompt.text}\n\n${task.workSteps[s.k - 1].prompt.text}`)
   }
   assert.deepEqual(r.flags, [])
   assert.equal(r.status, "valid")
@@ -882,7 +882,7 @@ test("policy-effect: a second warm miss stops the current arm of that pair; the 
   assert.equal(gated.result.mode, "rf-emulation")
   const warm = gated.requests.find((s) => s.role === "warm")
   assert.deepEqual(warm.session, { id: null, mode: "ephemeral" })
-  assert.equal(warm.prompt.text, tasks[0].ctxPrompt.text + "\n\n" + NULLP)
+  assert.equal(warm.prompt.text, `${tasks[0].ctxPrompt.text}\n\n${NULLP}`)
   assert.equal(gated.result.status, "valid")
 })
 
@@ -942,5 +942,26 @@ test("protocol modules reference no network, timer, scheduler, write API, wall c
   for (const file of ["protocols.mjs", "task.mjs", "filler.mjs"]) {
     const src = readFileSync(new URL(`../scripts/idle-live/${file}`, import.meta.url), "utf8")
     for (const f of forbidden) assert.ok(!src.includes(f), `${file} must not reference ${f}`)
+  }
+})
+
+// ------------------------------------------------------- lane M group C, item I5
+// `scripts/idle-live-analyze.mjs:1704` names the roles the analyzer scores for quality:
+// QUALITY_ROLES = { park_parent, r1, r2, guard, work, resume_raw }. A step whose assistant text the
+// analyzer reads has to ASK for it: without `needsText` the machine writes no cli/<stepId>.json and
+// the analyzer can only report `cli_artifact_missing` for that role.
+const QUALITY_ROLES = ["park_parent", "r1", "r2", "guard", "work", "resume_raw"]
+
+test("I5 every quality-scored role asks for its assistant text, and no other role pays for one", async () => {
+  // restore-decomposition issues all six of them in one run
+  const task = makeTask(1001)
+  const restore = await run("restore-decomposition", { dial: false }, restoreResponder(task))
+  for (const [name, { requests }] of [["restore-decomposition", restore]]) {
+    const scored = requests.filter((r) => QUALITY_ROLES.includes(r.role))
+    assert.ok(scored.length > 0, `${name}: no quality-scored step`)
+    const silent = [...new Set(scored.filter((r) => r.needsText !== true).map((r) => r.role))]
+    assert.deepEqual(silent, [], `${name}: roles the analyzer scores but that ask for no text: ${JSON.stringify(silent)}`)
+    const wasteful = [...new Set(requests.filter((r) => !QUALITY_ROLES.includes(r.role) && r.needsText === true).map((r) => r.role))]
+    assert.deepEqual(wasteful, [], `${name}: roles asking for text nobody scores: ${JSON.stringify(wasteful)}`)
   }
 })
