@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PC2",
+  "stepId": "policy-effect/shadow_candidate_policy/152",
+  "result": "Key facts, one per line:\nticket: WX-1309\nrecord id: 362\nsite: Falmouth\ndate: 2021-12-14\nthreshold: 13.0 C\nnext step: Scan the log windows I send for Falmouth readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

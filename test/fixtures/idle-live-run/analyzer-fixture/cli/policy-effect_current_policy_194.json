@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PP3",
+  "stepId": "policy-effect/current_policy/194",
+  "result": "4498, Cardiff, 18",
+  "stderrHead": ""
+}

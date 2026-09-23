@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PP2",
+  "stepId": "policy-effect/current_policy/168",
+  "result": "3605, 3617",
+  "stderrHead": ""
+}

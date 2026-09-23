@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "P1",
+  "stepId": "restore-decomposition/park_path/2",
+  "result": "Handoff note for WX-3886.\nGoal: decide whether neighbouring readings support the alert before escalating.\nKey facts: ticket WX-3886; record id 1592; site Swansea; date 2023-04-19; alert threshold 17.0 C.\nDecision: Treat any Swansea reading with temp_c above 17.0 as a confirmed alert for this ticket.\nDone so far: read the brief and the log, no windows scored yet.\nNext step: Scan the log windows I send for Swansea readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

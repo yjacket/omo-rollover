@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PP3",
+  "stepId": "policy-effect/shadow_candidate_policy/178",
+  "result": "Handoff note for WX-9328.\nGoal: decide whether neighbouring readings support the alert before escalating.\nKey facts: ticket WX-9328; record id 4498; site Cardiff; date 2024-12-21; alert threshold 18.0 C.\nDecision: Treat any Cardiff reading with temp_c above 18.0 as a confirmed alert for this ticket.\nDone so far: read the brief and the log, no windows scored yet.\nNext step: Scan the log windows I send for Cardiff readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

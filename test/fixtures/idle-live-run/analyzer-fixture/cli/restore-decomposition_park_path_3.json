@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "C1",
+  "stepId": "restore-decomposition/park_path/3",
+  "result": "Key facts, one per line:\nticket: WX-3886\nrecord id: 1592\nsite: Swansea\ndate: 2023-04-19\nthreshold: 17.0 C\nnext step: Scan the log windows I send for Swansea readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

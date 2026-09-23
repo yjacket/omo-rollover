@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PC1",
+  "stepId": "policy-effect/shadow_candidate_policy/126",
+  "result": "Next step: Scan the log windows I send for Norwich readings above the threshold and list their ids. I have the brief and the threshold, so nothing else is outstanding on my side.",
+  "stderrHead": ""
+}

@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "C1",
+  "stepId": "restore-decomposition/park_path/9",
+  "result": "1116",
+  "stderrHead": ""
+}

@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "P2",
+  "stepId": "restore-decomposition/park_path/206",
+  "result": "Handoff note for WX-1900.\nGoal: decide whether neighbouring readings support the alert before escalating.\nKey facts: ticket WX-1900; record id 3312; site Jarrow; date 2020-01-14; alert threshold 14.0 C.\nDecision: Treat any Jarrow reading with temp_c above 14.0 as a confirmed alert for this ticket.\nDone so far: read the brief and the log, no windows scored yet.\nNext step: Scan the log windows I send for Jarrow readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

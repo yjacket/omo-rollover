@@ -1,0 +1,25 @@
+{
+  "runId": "fixture-20260923-010000",
+  "approvalPath": "docs/idle-experiments-approval-2026-09-23.json",
+  "approvalSha256": "ea91b2d883d80d69ee2eb7cac31b076b02a31469a3e2b21a16988dee29ce044c",
+  "plannerSha256": "0f6269d169687d54b8bdc67984d5cb4a32ba8699c7402e9d2d53e3306e8900b8",
+  "order": [
+    "restore-decomposition",
+    "fable-write-tick",
+    "output-quota",
+    "policy-effect",
+    "ttl-1h-unique-prefix"
+  ],
+  "adapterCapabilities": {
+    "ttlLanes": [
+      "1h"
+    ],
+    "resume": true,
+    "maxOutputTokens": null,
+    "model": "claude-fable-5-1"
+  },
+  "cliVersion": "2.1.278",
+  "model": "claude-fable-5-1",
+  "startedAt": "2026-09-23T01:00:00.000Z",
+  "note": "hand-built analyzer fixture; no live request was ever issued for these records"
+}

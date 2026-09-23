@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PC1",
+  "stepId": "policy-effect/shadow_candidate_policy/125",
+  "result": "Key facts, one per line:\nticket: WX-7553\nrecord id: 2749\nsite: Norwich\ndate: 2020-06-04\nthreshold: 16.0 C\nnext step: Scan the log windows I send for Norwich readings above the threshold and list their ids.",
+  "stderrHead": ""
+}

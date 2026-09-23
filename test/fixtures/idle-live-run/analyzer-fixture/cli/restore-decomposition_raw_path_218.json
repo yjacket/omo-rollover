@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "P2",
+  "stepId": "restore-decomposition/raw_path/218",
+  "result": "4113",
+  "stderrHead": ""
+}

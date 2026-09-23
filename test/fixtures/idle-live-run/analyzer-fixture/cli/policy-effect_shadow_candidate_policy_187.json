@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "session_id": "PC3",
+  "stepId": "policy-effect/shadow_candidate_policy/187",
+  "result": "none",
+  "stderrHead": ""
+}

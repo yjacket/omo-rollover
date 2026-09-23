@@ -1,0 +1,57 @@
+{
+  "v": "idle-live-summary/1",
+  "runId": "fixture-20260923-010000",
+  "exitCode": 0,
+  "experiments": {
+    "fable-write-tick": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 47
+    },
+    "output-quota": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 56
+    },
+    "ttl-1h-unique-prefix": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 10
+    },
+    "restore-decomposition": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 40
+    },
+    "policy-effect": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 81
+    }
+  },
+  "meters": {
+    "unified-5h": {
+      "windows": 1,
+      "startUtil": 0.1,
+      "endUtil": 0.29,
+      "cumulativeUpperEq": 0.2,
+      "capEq": 0.53
+    },
+    "unified-7d": {
+      "windows": 1,
+      "startUtil": 0.4,
+      "endUtil": 0.41,
+      "cumulativeUpperEq": 0.02,
+      "capEq": 0.12
+    },
+    "unified-7d_oi": {
+      "windows": 1,
+      "startUtil": 0.6,
+      "endUtil": 0.62,
+      "cumulativeUpperEq": 0.03,
+      "capEq": 0.12
+    }
+  },
+  "resumable": false,
+  "evidenceDir": "test/fixtures/idle-live-run/analyzer-fixture"
+}
