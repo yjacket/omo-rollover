@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/101",
+  "experiment": "restore-decomposition",
+  "role": "park_parent",
+  "exitCode": 0,
+  "result": "Goal: close ticket WX-2012.\nKey facts: ticket WX-2012; record id 4609; site York; date 2022-10-25; alert threshold 14.0 C.\nDecision: Treat any York reading with temp_c above 14.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for York readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "Goal: close ticket WX-2012.\nKey facts: ticket WX-2012; record id 4609; site York; date 2022-10-25; alert threshold 14.0 C.\nDecision: Treat any York reading with temp_c above 14.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for York readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+    "session_id": "P1r2",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 12
+      },
+      "cache_read_input_tokens": 145655,
+      "output_tokens": 1200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

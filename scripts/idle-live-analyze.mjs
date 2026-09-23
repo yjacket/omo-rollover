@@ -1263,6 +1263,64 @@ function spendByMeter(records, events) {
 
 const startedEvents = (events, experiment) => (events ?? []).filter((e) => e?.ev === "experiment_started" && e.experiment === experiment)
 
+// Void reasons the MACHINE records itself (Appendix B "Resume verdict contract, revision 2" and
+// clarification A), with the words the Korean results doc uses for them. The analyzer reports
+// each one explicitly; it never re-derives a verdict for an experiment the machine closed.
+export const RECORDED_REASONS = Object.freeze({
+  interrupted_by_crash: "크래시 시점에 진행 중이던 실험: 재개가 남은 단계를 발행하지 않고 무효로 닫았다",
+  cancelled: "호출이 진행 중일 때 운영자가 취소하여 실험을 무효로 닫았다",
+  cancelled_before_start: "첫 발행 전에 운영자가 취소했다(시작 전 취소): 요청이 없고 측정한 것이 없다",
+})
+const CLOSED_STATUS_RANK = { void: 1, aborted: 2 }
+
+/**
+ * The verdict the machine recorded for one experiment: the LAST experiment_ended per unit (a
+ * resume re-states the verdicts it keeps, with source "resume"), and of those the worst closed one
+ * (void or aborted, the machine's own ranking). A closed experiment is reported with that status
+ * and reason, whatever its partial rows would have measured: a crash or a cancel ends it, and its
+ * rows are not a complete protocol. Returns null when no unit was closed.
+ */
+function recordedVerdictOf(events, experiment) {
+  const lastByUnit = new Map()
+  for (const e of events ?? []) {
+    if (e?.ev === "experiment_ended" && e.experiment === experiment) lastByUnit.set(e.run ?? null, e)
+  }
+  let worst = null
+  for (const e of lastByUnit.values()) {
+    const rank = CLOSED_STATUS_RANK[e.status]
+    if (!rank || (worst && rank <= CLOSED_STATUS_RANK[worst.status])) continue
+    worst = e
+  }
+  if (!worst) return null
+  return { status: worst.status, reason: typeof worst.reason === "string" && worst.reason ? worst.reason : "unspecified", run: worst.run ?? null, source: worst.source ?? "live", seq: worst.seq ?? null }
+}
+
+/**
+ * The campaign as the log records it: processes (a resume appends run_resumed), campaign stops,
+ * and the one case with nothing to measure - a cancel recorded before any issuance (clarification
+ * A (ii): campaign_stop{cancelled} is written first; there may be no run_started and no request).
+ * Null for an uninterrupted, unstopped run, so its analysis.json is unchanged.
+ */
+export function campaignOf(events, records) {
+  const evs = events ?? []
+  const stops = evs
+    .filter((e) => e?.ev === "campaign_stop")
+    .map((e) => ({ reason: e.reason ?? null, experiment: e.experiment ?? null, stepId: e.stepId ?? null, meter: e.meter ?? null, seq: e.seq ?? null }))
+  const resumes = evs.filter((e) => e?.ev === "run_resumed").length
+  const issued = evs.some((e) => e?.ev === "step_intent")
+  const cancelledBeforeStart = (records ?? []).length === 0 && !issued && stops.length > 0 && stops[0].reason === "cancelled"
+  if (!stops.length && !resumes) return null
+  const ended = [...evs].reverse().find((e) => e?.ev === "run_ended") ?? null
+  return {
+    status: cancelledBeforeStart ? "cancelled_before_start" : stops.length ? "stopped" : "ran",
+    reason: cancelledBeforeStart ? "cancelled_before_start" : (stops[0]?.reason ?? null),
+    processes: resumes + 1,
+    stops,
+    requests: (records ?? []).length,
+    runEnded: ended ? { exitCode: ended.exitCode ?? null, reason: ended.reason ?? null } : null,
+  }
+}
+
 const experimentBaseline = (events, experiment, meter = METER_5H) => {
   for (const e of startedEvents(events, experiment)) if (e.baselines?.[meter]) return e.baselines[meter]
   return null
@@ -1337,10 +1395,14 @@ export function analyzeRun(records, events, opts = {}) {
     EXPERIMENT_IDS.map((id) => [id, windowStatus(records, events, id, { malformedRows, baselineResets: baselineResetsOf(events, id) })]),
   )
 
+  const campaign = campaignOf(events, records)
   const analyzeOne = (id, fn) => {
     const recs = byExperiment[id]
     const w = windows[id]
-    if (!recs.length) return { status: "not_run", reason: "no_request_in_evidence", window: w, findings: null }
+    if (campaign?.status === "cancelled_before_start") return { status: "not_run", reason: "cancelled_before_start", window: w, findings: null }
+    const recorded = recordedVerdictOf(events, id)
+    if (recorded) return { status: recorded.status, reason: recorded.reason, window: w, findings: null, recordedVerdict: recorded }
+    if (!recs.length) return { status: "not_run", reason: campaign?.stops.length ? `campaign_stopped:${campaign.stops[0].reason}` : "no_request_in_evidence", window: w, findings: null }
     const hard = hardReasonOf(w.reasons)
     if (hard) return { status: "void", reason: hard, window: w, findings: null }
     const findings = fn(recs, { baseline: experimentBaseline(events, id) })
@@ -1370,6 +1432,9 @@ export function analyzeRun(records, events, opts = {}) {
     "ttl-1h-unique-prefix": { status: ttl.status, reason: ttl.reason, window: ttl.window, hypotheses: [], findings: ttl.findings },
     "restore-decomposition": { status: restore.status, reason: restore.reason, window: restore.window, hypotheses: [], findings: restore.findings },
     "policy-effect": { status: policy.status, reason: policy.reason, window: policy.window, hypotheses: [], findings: policy.findings },
+  }
+  for (const [id, x] of [["fable-write-tick", fable], ["output-quota", output], ["ttl-1h-unique-prefix", ttl], ["restore-decomposition", restore], ["policy-effect", policy]]) {
+    if (x.recordedVerdict) experiments[id].recordedVerdict = x.recordedVerdict
   }
 
   const { records: coefficientRecords, provenance: coefficientProvenance } = buildCoefficientRecords({
@@ -1466,6 +1531,7 @@ export function analyzeRun(records, events, opts = {}) {
       malformedEventRows: skippedEvents,
       rule: "a request row that does not parse voids every experiment: it cannot be attributed",
     },
+    ...(campaign ? { campaign } : {}),
     experiments,
     coefficientRecords,
     coefficientProvenance,
@@ -1481,6 +1547,8 @@ const fmt = (x, digits = 6) => (typeof x === "number" && Number.isFinite(x) ? Nu
 const interval = (iv, digits = 6) => (iv && typeof iv.lo === "number" ? `[${fmt(iv.lo, digits)}, ${fmt(iv.hi, digits)}]` : "미측정")
 const qval = (field) => (field && field.value !== null && field.value !== undefined ? String(field.value) : `미상(${field?.reason ?? "unknown"})`)
 
+const verdict = (x) => `- 판정: ${x.status}${x.reason ? ` (${x.reason}${RECORDED_REASONS[x.reason] ? `: ${RECORDED_REASONS[x.reason]}` : ""})` : ""}`
+
 export function renderMarkdown(analysis) {
   const L = []
   const e = analysis.experiments
@@ -1489,10 +1557,15 @@ export function renderMarkdown(analysis) {
   L.push(`증거: requests.jsonl sha256 \`${analysis.generatedFrom.requests.sha256 ?? "없음"}\`, events.jsonl sha256 \`${analysis.generatedFrom.events.sha256 ?? "없음"}\`.`)
   L.push("게이지 해상도는 0.01이므로 모든 계수는 양자화 구간으로만 보고한다. 이 구간은 신뢰구간이 아니며 점추정값은 발표하지 않는다(발표하는 점은 구간의 상단이라고 명시한다).")
   L.push(`증거 무결성: 해석 불가 요청 행 ${analysis.integrity.malformedRequestRows}개 -> ${analysis.integrity.ok ? "없음" : "모든 실험 void"}.`)
+  const c = analysis.campaign
+  if (c) {
+    const stops = c.stops.map((s) => `${s.reason}${s.experiment ? ` (${s.experiment})` : ""}`).join(", ")
+    L.push(`캠페인: ${c.status}${RECORDED_REASONS[c.reason] ? ` - ${RECORDED_REASONS[c.reason]}` : ""}. 프로세스 ${c.processes}개(재개 ${c.processes - 1}회), 요청 ${c.requests}건, 중단 기록: ${stops || "없음"}.`)
+  }
   L.push("")
   L.push("## 1. fable-write-tick (쓰기 tick)")
   const f = e["fable-write-tick"]
-  L.push(`- 판정: ${f.status}${f.reason ? ` (${f.reason})` : ""}`)
+  L.push(verdict(f))
   if (f.findings) {
     for (const b of f.findings.blocks) {
       L.push(`- 블록 ${b.block}: W=${b.writeTokens ?? "?"} tokens, n=${b.n ?? "?"}, m=${b.m ?? "?"}, phi=${interval(b.phi, 4)} -> W/T ${interval(b.writeOverT, 6)}, T ${interval(b.T, 1)} tokens/tick`)
@@ -1506,7 +1579,7 @@ export function renderMarkdown(analysis) {
   L.push("")
   L.push("## 2. output-quota (출력 계수)")
   const o = e["output-quota"]
-  L.push(`- 판정: ${o.status}${o.reason ? ` (${o.reason})` : ""}`)
+  L.push(verdict(o))
   if (o.findings) {
     for (const b of o.findings.blocks) L.push(`- 블록 ${b.block}: N=${b.N}, tick=${b.ticks}, Sum_out=${b.sumOut}, phi 출처 ${b.phiSource}, k_out ${b.kOut ? interval(b.kOut, 12) : `상한만 < ${fmt(b.kOutUpperBound, 12)}`} ticks/token`)
     L.push(`- k_out: ${o.findings.kOut ? interval(o.findings.kOut, 12) : `상한만 < ${fmt(o.findings.kOutUpperBound, 12)}`} ticks/token, 블록 겹침 ${o.findings.overlap ? "예" : "아니오"}`)
@@ -1517,7 +1590,7 @@ export function renderMarkdown(analysis) {
   L.push("")
   L.push("## 3. ttl-1h-unique-prefix (1h TTL 갱신)")
   const t = e["ttl-1h-unique-prefix"]
-  L.push(`- 판정: ${t.status}${t.reason ? ` (${t.reason})` : ""}`)
+  L.push(verdict(t))
   if (t.findings) {
     for (const r of t.findings.runs)
       L.push(`- run ${r.run}: 처치 ping ${r.treatment.ping ?? "?"}, 처치 check ${r.treatment.check ?? "?"}, 대조 check ${r.control.check ?? "?"} (${r.status}${r.reason ? `: ${r.reason}` : ""}, 일정 준수 ${r.timing.ok === null ? "확인 불가" : r.timing.ok ? "예" : "아니오"})`)
@@ -1526,7 +1599,7 @@ export function renderMarkdown(analysis) {
   L.push("")
   L.push("## 4. restore-decomposition (복원 분해)")
   const rs = e["restore-decomposition"]
-  L.push(`- 판정: ${rs.status}${rs.reason ? ` (${rs.reason})` : ""}`)
+  L.push(verdict(rs))
   for (const r of rs.findings?.runs ?? []) {
     L.push(`- run ${r.run} (${r.mode}): 파킹 경로 ${interval(r.converted.park, 5)} / 원문 경로 ${interval(r.converted.raw, 5)} (unified-5h 환산, 구간)`)
     L.push(`  - 복원 지연: 파킹 ${r.resumeDelayMs.park ?? "미측정"} ms, 원문 ${r.resumeDelayMs.raw ?? "미측정"} ms`)
@@ -1542,7 +1615,7 @@ export function renderMarkdown(analysis) {
   L.push("")
   L.push("## 5. policy-effect (정책 효과)")
   const p = e["policy-effect"]
-  L.push(`- 판정: ${p.status}${p.reason ? ` (${p.reason})` : ""}`)
+  L.push(verdict(p))
   if (p.findings) {
     L.push(`- 쌍 수 n=${p.findings.pairedDifferences.n} (평균과 범위만, 구간 추정 주장 없음)`)
     for (const m of Object.keys(p.findings.pairedDifferences.perMeter).sort()) {
@@ -1634,7 +1707,14 @@ export function loadRunDir(dir) {
   const requestsPath = path.join(dir, "requests.jsonl")
   const eventsPath = path.join(dir, "events.jsonl")
   const summaryPath = path.join(dir, "summary.json")
-  const requestsText = readFileSync(requestsPath, "utf8")
+  // An absent requests.jsonl is only acceptable for a campaign cancelled before any issuance;
+  // main() decides that from the events and fails closed otherwise.
+  let requestsText = null
+  try {
+    requestsText = readFileSync(requestsPath, "utf8")
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error
+  }
   let eventsText = ""
   try {
     eventsText = readFileSync(eventsPath, "utf8")
@@ -1663,6 +1743,12 @@ export function loadRunDir(dir) {
   return { requestsText, eventsText, summary, requests, events, cli }
 }
 
+/** Reasons of every experiment that is not valid, so the one-line summary never reads as success. */
+const reasonsOf = (analysis) => {
+  const reasons = Object.fromEntries(Object.entries(analysis.experiments).filter(([, v]) => v.status !== "valid" && v.reason).map(([k, v]) => [k, v.reason]))
+  return Object.keys(reasons).length ? { reasons } : {}
+}
+
 async function main(argv) {
   const args = parseArgs(argv)
   if (args.error) return { code: 3, payload: usage(args.error) }
@@ -1672,7 +1758,9 @@ async function main(argv) {
   } catch (error) {
     return { code: 2, payload: usage(`unreadable_run_directory:${error?.code ?? "unknown"}`) }
   }
-  if (!loaded.requests.records.length) return { code: 2, payload: usage("no_request_record") }
+  if (!loaded.requests.records.length && campaignOf(loaded.events.records, [])?.status !== "cancelled_before_start") {
+    return { code: 2, payload: usage(loaded.requestsText === null ? "unreadable_run_directory:ENOENT" : "no_request_record") }
+  }
   const analysis = analyzeRun(loaded.requests.records, loaded.events.records, {
     requestsText: loaded.requestsText,
     eventsText: loaded.eventsText,
@@ -1698,6 +1786,8 @@ async function main(argv) {
       md: args.md,
       skippedLines: { requests: loaded.requests.skipped.length, events: loaded.events.skipped.length },
       experiments: Object.fromEntries(Object.entries(analysis.experiments).map(([k, v]) => [k, v.status])),
+      ...reasonsOf(analysis),
+      ...(analysis.campaign ? { campaign: analysis.campaign.status } : {}),
       policyAnswer: analysis.policyAnswer.action,
     },
   }

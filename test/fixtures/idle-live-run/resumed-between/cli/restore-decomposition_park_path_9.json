@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/9",
+  "experiment": "restore-decomposition",
+  "role": "work",
+  "exitCode": 0,
+  "result": "931, 940",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "931, 940",
+    "session_id": "C1",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 4740,
+      "output_tokens": 30,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/raw_path/15",
+  "experiment": "restore-decomposition",
+  "role": "work",
+  "exitCode": 0,
+  "result": "4372",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "4372",
+    "session_id": "P1",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 12
+      },
+      "cache_read_input_tokens": 145655,
+      "output_tokens": 30,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

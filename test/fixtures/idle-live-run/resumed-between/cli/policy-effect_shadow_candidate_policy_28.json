@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/shadow_candidate_policy/28",
+  "experiment": "policy-effect",
+  "role": "park_parent",
+  "exitCode": 0,
+  "result": "Goal: close ticket WX-2293.\nKey facts: ticket WX-2293; record id 1764; site Hull; date 2025-01-06; alert threshold 17.0 C.\nDecision: Treat any Hull reading with temp_c above 17.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for Hull readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "Goal: close ticket WX-2293.\nKey facts: ticket WX-2293; record id 1764; site Hull; date 2025-01-06; alert threshold 17.0 C.\nDecision: Treat any Hull reading with temp_c above 17.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for Hull readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+    "session_id": "P2r1",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 12
+      },
+      "cache_read_input_tokens": 145655,
+      "output_tokens": 1200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

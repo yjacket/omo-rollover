@@ -2,7 +2,7 @@
 // Pure analysis over a committed evidence fixture: no timers, no sleeps, no network.
 import test from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, cpSync, mkdtempSync, rmSync, existsSync } from "node:fs"
+import { readFileSync, cpSync, mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -860,4 +860,237 @@ test("I7 cli artifact: the text is read from result, else from the stdoutJson en
       assert.equal(a.experiments["policy-effect"].findings.pairedDifferences.quality.workCorrectMeanDiff.value, null)
     })
   }
+})
+
+// ------------------------------------------------------------------------------------------
+// Todo 7 I9/I10: resumed and cancelled evidence (Appendix B "Resume verdict contract,
+// revision 2" + clarification A). The fixtures under test/fixtures/idle-live-run/resumed-* and
+// cancelled-* were produced by the COMMITTED machine with the fakes of
+// test/idle-live-machine.test.mjs (generator and its sha256 under the task-7 lane-a evidence dir).
+// Every mutation below works on a temp copy; the committed fixtures are never written.
+// ------------------------------------------------------------------------------------------
+
+const RUN_FIXTURES = "test/fixtures/idle-live-run"
+const EXPERIMENTS = ["fable-write-tick", "output-quota", "ttl-1h-unique-prefix", "restore-decomposition", "policy-effect"]
+
+/** The analyzer CLI on `dir` (outputs go to a temp dir); returns exit code, stdout payload, analysis and markdown. */
+function analyzeCli(t, dir) {
+  const out = mkdtempSync(path.join(tmpdir(), "idle-live-analyze-i9-"))
+  t.after(() => rmSync(out, { recursive: true, force: true }))
+  const r = spawnSync(process.execPath, [SCRIPT, dir, "--out", path.join(out, "analysis.json"), "--md", path.join(out, "results.md")], { encoding: "utf8" })
+  const payload = r.stdout.trim() ? JSON.parse(r.stdout.trim().split("\n").pop()) : null
+  const analysis = existsSync(path.join(out, "analysis.json")) ? JSON.parse(readFileSync(path.join(out, "analysis.json"), "utf8")) : null
+  const md = existsSync(path.join(out, "results.md")) ? readFileSync(path.join(out, "results.md"), "utf8") : null
+  return { code: r.status, stderr: r.stderr, payload, analysis, md }
+}
+
+/** A temp copy of a committed fixture, mutated by `edit(dir)`. */
+function fixtureCopy(t, name, edit = () => {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), `idle-live-analyze-${name}-`))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  cpSync(path.join(RUN_FIXTURES, name), dir, { recursive: true })
+  edit(dir)
+  return dir
+}
+const readJsonl = (file) => parseRecords(readFileSync(file, "utf8")).records
+const writeJsonl = (file, rows) => writeFileSync(file, rows.map((r) => `${JSON.stringify(r)}\n`).join(""))
+
+// Per resumed fixture: which experiments ENDED before the first crash and never started again
+// (their analysis must equal the uninterrupted fake-run's), which were closed by the resume, and
+// which ran fresh after it. Read off the generator's report (lane-a/gen/generate.stdout.json).
+const RESUMED = {
+  "resumed-between": { processes: 2, before: ["fable-write-tick", "output-quota"], closed: {}, fresh: ["policy-effect", "restore-decomposition", "ttl-1h-unique-prefix"] },
+  "resumed-mid": { processes: 2, before: ["fable-write-tick", "output-quota"], closed: { "policy-effect": ["void", "interrupted_by_crash"] }, fresh: ["restore-decomposition", "ttl-1h-unique-prefix"] },
+  "resumed-indoubt": { processes: 2, before: ["fable-write-tick"], closed: { "output-quota": ["void", "interrupted_by_crash"] }, fresh: ["policy-effect", "restore-decomposition", "ttl-1h-unique-prefix"] },
+  "resumed-3proc": {
+    processes: 3,
+    before: [],
+    closed: { "fable-write-tick": ["void", "interrupted_by_crash"], "policy-effect": ["void", "interrupted_by_crash"], "output-quota": ["aborted", "cap_exceeded"] },
+    fresh: ["restore-decomposition", "ttl-1h-unique-prefix"],
+  },
+}
+
+test("I9 resumed logs: the analyzer exits 0 and experiments ended before the cut match the uninterrupted run", async (t) => {
+  const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
+  assert.equal(reference.code, 0, reference.stderr)
+  for (const [name, spec] of Object.entries(RESUMED)) {
+    await t.test(name, (tt) => {
+      const evs = readJsonl(path.join(RUN_FIXTURES, name, "events.jsonl"))
+      assert.equal(evs.filter((e) => e.ev === "run_resumed").length + 1, spec.processes, "the log spans the declared processes")
+      const r = analyzeCli(tt, path.join(RUN_FIXTURES, name))
+      assert.equal(r.code, 0, `${r.stderr}\n${JSON.stringify(r.payload)}`)
+      for (const id of spec.before) {
+        assert.deepEqual(r.analysis.experiments[id], reference.analysis.experiments[id], `${id} ended before the cut: identical per-experiment analysis`)
+      }
+    })
+  }
+})
+
+test("I9/I10 the experiment in progress at the crash is void:interrupted_by_crash, never valid", async (t) => {
+  for (const [name, spec] of Object.entries(RESUMED)) {
+    await t.test(name, (tt) => {
+      const r = analyzeCli(tt, path.join(RUN_FIXTURES, name))
+      assert.equal(r.code, 0, r.stderr)
+      for (const [id, [status, reason]] of Object.entries(spec.closed)) {
+        const e = r.analysis.experiments[id]
+        assert.equal(e.status, status, `${id}: ${JSON.stringify({ status: e.status, reason: e.reason })}`)
+        assert.equal(e.reason, reason, `${id} carries the recorded reason explicitly`)
+        assert.equal(e.findings, null, `${id}: nothing is measured from a closed experiment`)
+        assert.equal(e.recordedVerdict?.reason, reason)
+        assert.equal(r.payload.experiments[id], status, "the CLI summary line does not call it valid")
+        assert.equal(r.payload.reasons?.[id], reason, "and prints the reason")
+        assert.ok(r.md.includes(`판정: ${status} (${reason}`), `the Korean doc states ${id} ${status}:${reason}`)
+      }
+      if (Object.values(spec.closed).some(([, reason]) => reason === "interrupted_by_crash")) {
+        assert.ok(r.md.includes("크래시"), "the Korean doc explains interrupted_by_crash in words")
+      }
+      assert.equal(r.analysis.campaign.processes, spec.processes)
+      // the policy answer never rests on a closed experiment
+      if (spec.closed["restore-decomposition"] || spec.closed["policy-effect"]) assert.equal(r.analysis.policyAnswer.action, "NO_DECISION")
+    })
+  }
+})
+
+test("I9 fresh post-resume experiments are analyzed from their own rows, 1:1 across processes", async (t) => {
+  for (const [name, spec] of Object.entries(RESUMED)) {
+    await t.test(name, (tt) => {
+      const dir = path.join(RUN_FIXTURES, name)
+      const recs = readJsonl(path.join(dir, "requests.jsonl"))
+      const evs = readJsonl(path.join(dir, "events.jsonl"))
+      const r = analyzeCli(tt, dir)
+      assert.equal(r.code, 0, r.stderr)
+      const lastResume = evs.findLastIndex((e) => e.ev === "run_resumed")
+      for (const id of spec.fresh) {
+        const e = r.analysis.experiments[id]
+        assert.ok(["valid", "upper_bound"].includes(e.status), `${id}: ${e.status} (${e.reason})`)
+        assert.equal(e.window.requests, recs.filter((x) => x.experiment === id).length, `${id}: every row of its own, none borrowed`)
+        const startedAfter = evs.findIndex((x, i) => i > lastResume && x.ev === "experiment_started" && x.experiment === id)
+        assert.ok(startedAfter > lastResume, `${id} started after the last resume`)
+      }
+      // intent/result/row 1:1 for every experiment the analyzer did not close, whichever process
+      // wrote the intent, the result and the row
+      for (const id of EXPERIMENTS) {
+        const e = r.analysis.experiments[id]
+        if (spec.closed[id] || e.status === "not_run") continue
+        const p = e.window.stepParity
+        assert.deepEqual([p.missingRequest, p.unannounced], [[], []], `${id}: ${JSON.stringify(p)}`)
+        assert.equal(p.intents, p.results, id)
+        assert.equal(p.requests, p.results, id)
+      }
+    })
+  }
+})
+
+test("I9 an in-doubt step reconciled by the resume joins its intent across processes", async (t) => {
+  const dir = path.join(RUN_FIXTURES, "resumed-indoubt")
+  const evs = readJsonl(path.join(dir, "events.jsonl"))
+  const recs = readJsonl(path.join(dir, "requests.jsonl"))
+  const resumeAt = evs.findIndex((e) => e.ev === "run_resumed")
+  const reconciled = evs.filter((e) => e.ev === "step_result" && e.source === "proxy_reconciled")
+  assert.equal(reconciled.length, 1, "the generator's cut left exactly one in-doubt step")
+  const stepId = reconciled[0].stepId
+  const intents = evs.map((e, i) => [e, i]).filter(([e]) => e.ev === "step_intent" && e.stepId === stepId)
+  assert.equal(intents.length, 1, "one intent, never re-issued")
+  assert.ok(intents[0][1] < resumeAt && evs.indexOf(reconciled[0]) > resumeAt, "intent before the crash, result after the resume")
+  assert.equal(recs.filter((x) => x.stepId === stepId).length, 1, "one request row")
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const oq = r.analysis.experiments["output-quota"]
+  assert.equal(oq.status, "void")
+  assert.equal(oq.reason, "interrupted_by_crash")
+  assert.ok(!oq.window.reasons.includes("in_doubt_step"), "the reconciled step is no longer in doubt")
+  assert.ok(!oq.window.reasons.includes("request_step_mismatch"), oq.window.reasons.join(","))
+})
+
+test("I9 the resume's preflight PINGs and unknown event types never enter an experiment window", async (t) => {
+  for (const name of Object.keys(RESUMED)) {
+    await t.test(name, (tt) => {
+      const dir = path.join(RUN_FIXTURES, name)
+      const recs = readJsonl(path.join(dir, "requests.jsonl"))
+      const resumePings = recs.filter((x) => x.experiment === "preflight" && /baseline-r\d/.test(x.stepId))
+      assert.ok(resumePings.length >= 3, `the resume issued its own three-PING quiet check (${resumePings.length})`)
+      const base = analyzeCli(tt, dir)
+      assert.equal(base.code, 0, base.stderr)
+      const counted = EXPERIMENTS.reduce((a, id) => a + base.analysis.experiments[id].window.requests, 0)
+      assert.equal(counted, recs.filter((x) => EXPERIMENTS.includes(x.experiment)).length, "only experiment rows are windowed")
+
+      // unknown event types (also ones naming an experiment and a step), a torn final line and a
+      // missing run_started change nothing an experiment reports
+      const noisy = fixtureCopy(tt, name, (d) => {
+        const file = path.join(d, "events.jsonl")
+        const rows = readJsonl(file).filter((e) => e.ev !== "run_started")
+        const out = []
+        for (const e of rows) {
+          out.push(e)
+          if (e.ev === "experiment_started") out.push({ seq: e.seq, ev: "mystery_event", experiment: e.experiment, stepId: `${e.experiment}/ghost/0`, t0: 0, baselines: { "unified-5h": { util: 0.99, reset: 1 } } })
+        }
+        writeJsonl(file, out)
+        writeFileSync(file, `${readFileSync(file, "utf8")}{"seq":99999,"ev":"step_int`)
+      })
+      const n = analyzeCli(tt, noisy)
+      assert.equal(n.code, 0, n.stderr)
+      for (const id of EXPERIMENTS) assert.deepEqual(n.analysis.experiments[id], base.analysis.experiments[id], `${id} is unchanged by unknown events`)
+      assert.equal(n.analysis.generatedFrom.events.skipped, 1, "the torn line is counted, not parsed")
+    })
+  }
+})
+
+test("I10 a cancel that lands while a call is in flight closes the experiment void:cancelled", (t) => {
+  const dir = path.join(RUN_FIXTURES, "cancelled-inflight")
+  const evs = readJsonl(path.join(dir, "events.jsonl"))
+  const stop = evs.find((e) => e.ev === "campaign_stop")
+  assert.equal(stop.reason, "cancelled")
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const oq = r.analysis.experiments["output-quota"]
+  assert.equal(oq.status, "void")
+  assert.equal(oq.reason, "cancelled")
+  assert.equal(oq.findings, null)
+  assert.equal(r.payload.reasons["output-quota"], "cancelled")
+  assert.deepEqual(r.analysis.campaign.stops.map((s) => s.reason), ["cancelled"])
+  for (const id of ["policy-effect", "ttl-1h-unique-prefix"]) {
+    assert.equal(r.analysis.experiments[id].status, "not_run")
+    assert.equal(r.analysis.experiments[id].reason, "campaign_stopped:cancelled", `${id} is not reached because of the cancel`)
+  }
+  assert.ok(r.md.includes("판정: void (cancelled"), "the Korean doc states the cancel")
+  assert.ok(r.md.includes("취소"), "and explains it in words")
+  assert.equal(r.analysis.policyAnswer.action, "NO_DECISION")
+})
+
+test("I10 a run cancelled before any issuance is reported as cancelled before start, no requests", async (t) => {
+  const variants = [
+    ["as the committed machine writes it", () => {}],
+    ["with no run_started and no summary", (d) => {
+      const file = path.join(d, "events.jsonl")
+      writeJsonl(file, readJsonl(file).filter((e) => e.ev !== "run_started"))
+      rmSync(path.join(d, "summary.json"), { force: true })
+    }],
+  ]
+  for (const [label, edit] of variants) {
+    await t.test(label, (tt) => {
+      const dir = fixtureCopy(tt, "cancelled-before-start", edit)
+      assert.ok(!existsSync(path.join(dir, "requests.jsonl")), "no request was ever written")
+      assert.equal(readJsonl(path.join(dir, "events.jsonl"))[0].ev, "campaign_stop", "the cancel is event 0")
+      const r = analyzeCli(tt, dir)
+      assert.equal(r.code, 0, `${r.stderr}\n${JSON.stringify(r.payload)}`)
+      assert.equal(r.payload.campaign, "cancelled_before_start")
+      assert.equal(r.analysis.campaign.status, "cancelled_before_start")
+      assert.equal(r.analysis.campaign.requests, 0)
+      for (const id of EXPERIMENTS) {
+        assert.equal(r.analysis.experiments[id].status, "not_run", id)
+        assert.equal(r.analysis.experiments[id].reason, "cancelled_before_start", id)
+      }
+      assert.equal(r.analysis.policyAnswer.action, "NO_DECISION")
+      assert.ok(r.md.includes("cancelled_before_start") && r.md.includes("시작 전"), "the Korean doc says so explicitly")
+    })
+  }
+  await t.test("an evidence dir with no request rows and no cancel still fails closed (exit 2)", (tt) => {
+    const dir = fixtureCopy(tt, "cancelled-before-start", (d) => {
+      const file = path.join(d, "events.jsonl")
+      writeJsonl(file, readJsonl(file).filter((e) => e.ev !== "campaign_stop"))
+    })
+    const r = analyzeCli(tt, dir)
+    assert.equal(r.code, 2)
+    assert.equal(r.analysis, null)
+  })
 })

@@ -1,0 +1,31 @@
+{
+  "v": "idle-live-run/1",
+  "runId": "fake-run",
+  "evidenceDir": "test/fixtures/idle-live-run/resumed-between",
+  "startedAt": "2026-09-24T00:00:00.000Z",
+  "model": "claude-fable-5-1",
+  "order": [
+    "fable-write-tick",
+    "output-quota",
+    "restore-decomposition",
+    "ttl-1h-unique-prefix",
+    "policy-effect"
+  ],
+  "approval": {
+    "path": "docs/idle-experiments-approval-2026-09-23.json",
+    "sha256": "9faedb6ff7e155e9a27bfbf01a19b3445d140d45547af60ec61c55b0dbbc7719",
+    "plannerSha256": "f40e2ebec8977b3cb2195421b16e074ebcb5eb8bf54171564b6238fc030ed28f",
+    "proposalSha256": "7bb94e667aea613dde34674c376233f4f1d44623a20878a1c4f0ee0547714e91"
+  },
+  "adapter": {
+    "ttlLanes": [
+      "1h"
+    ],
+    "resume": true,
+    "maxOutputTokens": null,
+    "model": "claude-fable-5-1"
+  },
+  "cliVersion": "fake-adapter/1",
+  "proxyPort": null,
+  "resumedFrom": null
+}

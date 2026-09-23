@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/shadow_candidate_policy/55",
+  "experiment": "policy-effect",
+  "role": "park_parent",
+  "exitCode": 0,
+  "result": "Goal: close ticket WX-5057.\nKey facts: ticket WX-5057; record id 972; site York; date 2021-11-21; alert threshold 13.0 C.\nDecision: Treat any York reading with temp_c above 13.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for York readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "Goal: close ticket WX-5057.\nKey facts: ticket WX-5057; record id 972; site York; date 2021-11-21; alert threshold 13.0 C.\nDecision: Treat any York reading with temp_c above 13.0 as a confirmed alert for this ticket.\nNext step: Scan the log windows I send for York readings above the threshold and list their ids.\nDone so far: read the brief and the log. To do next: score the windows the operator sends.",
+    "session_id": "P3r1",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 12
+      },
+      "cache_read_input_tokens": 145655,
+      "output_tokens": 1200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

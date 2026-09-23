@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/104",
+  "experiment": "restore-decomposition",
+  "role": "guard",
+  "exitCode": 0,
+  "result": "4609, York, 14",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "4609, York, 14",
+    "session_id": "C1r2",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 4200,
+      "output_tokens": 60,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

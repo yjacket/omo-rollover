@@ -1,0 +1,72 @@
+{
+  "v": "idle-live-summary/1",
+  "runId": "fake-run",
+  "exitCode": 0,
+  "experiments": {
+    "fable-write-tick": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 31,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {
+        "fable-write-5m": "adapter_capability"
+      }
+    },
+    "output-quota": {
+      "status": "void",
+      "reason": "interrupted_by_crash",
+      "paidRequests": 2,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {}
+    },
+    "ttl-1h-unique-prefix": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 10,
+      "spentObservedEq": 0.04,
+      "spentUpperEq": 0.05,
+      "skippedArms": {}
+    },
+    "restore-decomposition": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 39,
+      "spentObservedEq": 0.04,
+      "spentUpperEq": 0.05,
+      "skippedArms": {}
+    },
+    "policy-effect": {
+      "status": "valid",
+      "reason": null,
+      "paidRequests": 81,
+      "spentObservedEq": 0.06,
+      "spentUpperEq": 0.07,
+      "skippedArms": {}
+    }
+  },
+  "meters": {
+    "unified-5h": {
+      "windows": 1,
+      "cumulativeUpperEq": 0.17,
+      "capEq": 0.53
+    },
+    "unified-7d": {
+      "windows": 1,
+      "cumulativeUpperEq": 0.03,
+      "capEq": 0.12
+    },
+    "unified-7d_oi": {
+      "windows": 1,
+      "cumulativeUpperEq": 0.04,
+      "capEq": 0.12
+    }
+  },
+  "resumable": false,
+  "evidenceDir": "test/fixtures/idle-live-run/resumed-indoubt",
+  "paidRequestsIssued": 173,
+  "inDoubt": [],
+  "issues": [],
+  "stopped": null
+}

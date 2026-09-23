@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/103",
+  "experiment": "restore-decomposition",
+  "role": "r2",
+  "exitCode": 0,
+  "result": "Next step: Scan the log windows I send for York readings above the threshold and list their ids. I have everything I need; nothing is missing.",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "Next step: Scan the log windows I send for York readings above the threshold and list their ids. I have everything I need; nothing is missing.",
+    "session_id": "C1r2",
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 4150,
+      "output_tokens": 60,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

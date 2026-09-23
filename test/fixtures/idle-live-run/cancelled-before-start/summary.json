@@ -1,0 +1,75 @@
+{
+  "v": "idle-live-summary/1",
+  "runId": "fake-run",
+  "exitCode": 3,
+  "experiments": {
+    "fable-write-tick": {
+      "status": "not_run",
+      "reason": "campaign_stopped",
+      "paidRequests": 0,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {
+        "fable-write-5m": "adapter_capability"
+      }
+    },
+    "output-quota": {
+      "status": "not_run",
+      "reason": "campaign_stopped",
+      "paidRequests": 0,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {}
+    },
+    "ttl-1h-unique-prefix": {
+      "status": "not_run",
+      "reason": "campaign_stopped",
+      "paidRequests": 0,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {}
+    },
+    "restore-decomposition": {
+      "status": "not_run",
+      "reason": "campaign_stopped",
+      "paidRequests": 0,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {}
+    },
+    "policy-effect": {
+      "status": "not_run",
+      "reason": "campaign_stopped",
+      "paidRequests": 0,
+      "spentObservedEq": 0,
+      "spentUpperEq": 0,
+      "skippedArms": {}
+    }
+  },
+  "meters": {
+    "unified-5h": {
+      "windows": 0,
+      "cumulativeUpperEq": null,
+      "capEq": 0.53,
+      "absent": true
+    },
+    "unified-7d": {
+      "windows": 0,
+      "cumulativeUpperEq": null,
+      "capEq": 0.12,
+      "absent": true
+    },
+    "unified-7d_oi": {
+      "windows": 0,
+      "cumulativeUpperEq": null,
+      "capEq": 0.12,
+      "absent": true
+    }
+  },
+  "resumable": false,
+  "evidenceDir": "test/fixtures/idle-live-run/cancelled-before-start",
+  "paidRequestsIssued": 0,
+  "inDoubt": [],
+  "issues": [],
+  "stopped": "campaign_stopped"
+}
