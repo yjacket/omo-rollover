@@ -2,8 +2,8 @@
   "schema": "idle-experiments-approval-proposal/1",
   "status": "approved",
   "preparedAt": "2026-09-22T00:00:00Z",
-  "approvedAt": "2026-09-23T15:50:00Z",
-  "approvalExpiresAt": "2026-10-23T15:50:00Z",
+  "approvedAt": "2026-09-22T17:50:00Z",
+  "approvalExpiresAt": "2026-10-22T17:50:00Z",
   "target": {
     "modelId": "claude-fable-5-1",
     "authLane": "claude-sdk-oauth",
