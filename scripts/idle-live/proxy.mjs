@@ -125,8 +125,7 @@ export async function startProxy({ port, logPath, runId, labelFile, upstream = D
   const up = { ...DEFAULT_UPSTREAM, ...upstream }
   const transport = up.protocol === "https" ? https : http
   fs.mkdirSync(path.dirname(logPath), { recursive: true })
-  settleTail(logPath)
-  const log = fs.openSync(logPath, "a")
+  let log = null // opened only once the port is ours: see below
   const records = []
 
   const readLabelFile = () => {
@@ -188,6 +187,17 @@ export async function startProxy({ port, logPath, runId, labelFile, upstream = D
     server.once("error", reject)
     server.listen(port, "127.0.0.1", () => { server.off("error", reject); resolve() })
   })
+  // The log is touched only after the bind succeeded. A start refused with EADDRINUSE may be
+  // racing the same run's LIVE proxy, whose unterminated last line is a write in progress, not
+  // crash debris - settling it would truncate a live record. Requests cannot arrive before this
+  // synchronous block ends, so no record is written before the log is open.
+  try {
+    settleTail(logPath)
+    log = fs.openSync(logPath, "a")
+  } catch (e) {
+    await new Promise((resolve) => server.close(resolve))
+    throw e
+  }
 
   return {
     port: server.address().port,

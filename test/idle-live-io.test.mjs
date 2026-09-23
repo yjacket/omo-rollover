@@ -586,3 +586,48 @@ test("proxy: readLog rejects interior corruption, keeps a complete unterminated 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// I19 (gate mutant P7): the torn tail is cut at a BYTE offset. With multibyte rows before it, a cut
+// counted in UTF-16 units would land inside a complete row and destroy it.
+test("proxy: a torn tail after multibyte rows is truncated byte-exactly; every complete row survives", async () => {
+  const dir = tmpDir()
+  try {
+    const logPath = path.join(dir, "proxy.jsonl")
+    const rows = [
+      JSON.stringify({ stepId: "s/1", msg_id: "m1", error: "caf\u00e9 \u00fcber" }),
+      JSON.stringify({ stepId: "s/2", msg_id: "m2", error: "\ud55c\uae00 \ub85c\uadf8 emoji \ud83d\ude80" }),
+    ]
+    const kept = `${rows[0]}\n${rows[1]}\n`
+    writeFileSync(logPath, `${kept}{"stepId":"s/3","error":"\ud55c\uae00 \ud83d`) // killed mid-append
+    assert.ok(Buffer.byteLength(kept, "utf8") > kept.length, "the fixture must contain multibyte characters before the cut")
+    await withUpstream(jsonUpstream, (upstream) =>
+      withProxy(upstream, dir, async (handle) => {
+        assert.deepEqual((await handle.readLog()).map((r) => r.msg_id), ["m1", "m2"])
+      }),
+    )
+    assert.ok(readFileSync(logPath).equals(Buffer.from(kept, "utf8")), "the file is exactly the complete rows, byte for byte")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// I19 (c), gate repro C8: a proxy that cannot bind (the port is held, e.g. by the same run's live
+// proxy) must not touch the log - the owner may be mid-append, so its "torn" tail is not debris.
+test("proxy: a start refused with EADDRINUSE leaves proxy.jsonl byte-for-byte untouched", async () => {
+  const dir = tmpDir()
+  const holder = http.createServer((req, res) => res.end())
+  try {
+    await new Promise((resolve) => holder.listen(0, "127.0.0.1", resolve))
+    const logPath = path.join(dir, "proxy.jsonl")
+    const before = `{"stepId":"a","msg_id":"m1"}\n{"stepId":"b","ms`
+    writeFileSync(logPath, before)
+    await assert.rejects(
+      startProxy({ port: holder.address().port, logPath, runId: "run-1", labelFile: null, upstream: { host: "127.0.0.1", port: 9, protocol: "http" } }),
+      (e) => e.code === "EADDRINUSE",
+    )
+    assert.equal(readFileSync(logPath, "utf8"), before, "the torn-looking tail of a live owner is left alone")
+  } finally {
+    await new Promise((resolve) => holder.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

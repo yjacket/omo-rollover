@@ -239,8 +239,21 @@ function printSchedule(write, schedule, skippedArms) {
  * it can classify. `io` is a TEST SEAM: tests replace the process/network effects (stdout,
  * stderr, startProxy, runMachine, createAdapter, conflicting, fetch) so main can be driven
  * without spawning, binding a real upstream, or paying. The CLI passes nothing.
+ *
+ * The seam FAILS CLOSED: once an `io` object is given, every live dependency (LIVE_DEPS) must be in
+ * it, or main throws `live_dep_not_injected` before any effect - a test that forgets one must
+ * never fall through to a real process scan, port bind, spawn or network call. Only the CLI's
+ * seamless call (`io` undefined) uses the real dependencies; its behaviour is unchanged.
  */
-export async function main(argv = process.argv.slice(2), io = {}) {
+const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch"]
+
+export async function main(argv = process.argv.slice(2), io = undefined) {
+  if (io !== undefined) {
+    const missing = LIVE_DEPS.filter((k) => typeof io?.[k] !== "function")
+    if (missing.length) {
+      throw Object.assign(new Error(`main(argv, io): test seam lacks ${missing.join(", ")}; refusing to fall through to the live path`), { code: "live_dep_not_injected", missing })
+    }
+  }
   const env = {
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),

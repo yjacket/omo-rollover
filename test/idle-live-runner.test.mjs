@@ -4,7 +4,7 @@
 // nothing is paid. Appendix B: only exit 4 is resumable.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
@@ -302,4 +302,106 @@ test("the live path hands the machine the proxy handle's readLog, not a runner-o
   assert.equal(typeof seen.proxy.readLog, "function")
   assert.equal(h.proxy.closed, 1)
   assert.equal(existsSync(join(seen.ledger.dir, "run.json")), true)
+})
+
+// ------------------------------------------------------------- I19 (a): gate survivors R5-R7, R10
+
+// R5/R6: a log that exists but cannot be folded proves nothing - never "no run", never resumable.
+for (const [name, corrupt] of [
+  ["interior-corrupt", (dir) => appendFileSync(join(dir, "events.jsonl"), `{not json\n${JSON.stringify({ ev: "preflight", ok: true })}\n`)],
+  ["a directory", (dir) => { rmSync(join(dir, "events.jsonl"), { force: true }); mkdirSync(join(dir, "events.jsonl")) }],
+]) {
+  test(`a crash that leaves an unreadable event log (${name}) exits 3 event_log_unreadable, resumable:false, paid unknown`, async (t) => {
+    const fx = fixture(t)
+    const h = harness({
+      runMachine: async (deps) => {
+        for (const e of OPEN_EXPERIMENT) deps.ledger.append(e)
+        corrupt(deps.ledger.dir)
+        throw new Error("crash over a damaged log")
+      },
+    })
+    const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
+    const s = h.summary()
+    assert.equal(code, EXIT.ABORTED)
+    assert.equal(s.exitCode, EXIT.ABORTED)
+    assert.equal(s.resumable, false, "an unreadable log must never advertise a resume")
+    assert.deepEqual(s.issues, ["runner_crashed", "event_log_unreadable"])
+    assert.equal(s.paidRequestsIssued, null, "the paid count cannot be claimed from an unreadable log")
+    assert.equal(typeof s.logError, "string")
+    assert.equal(h.proxy.closed, 1)
+  })
+}
+
+// R7: an events.jsonl that exists but never got a run_started (a cancel recorded before the run's
+// bookkeeping, or an empty file) is "no run began": exit 2, not 3.
+for (const [name, write] of [
+  ["campaign_stop{cancelled} only", (deps) => deps.ledger.append({ ev: "campaign_stop", reason: "cancelled" })],
+  ["empty", (deps) => writeFileSync(join(deps.ledger.dir, "events.jsonl"), "")],
+]) {
+  test(`a crash whose event log holds no run_started (${name}) exits 2, resumable:false`, async (t) => {
+    const fx = fixture(t)
+    const h = harness({ runMachine: async (deps) => { write(deps); throw new Error("crash before the run began") } })
+    const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
+    const s = h.summary()
+    assert.equal(code, EXIT.PREFLIGHT)
+    assert.equal(s.resumable, false)
+    assert.deepEqual(s.issues, ["runner_crashed_before_run_started"])
+  })
+}
+
+// R10: the /__health probe of a port owner is bounded. A silent owner only ever ends through the
+// signal main passes. The fake never waits: handed a live AbortSignal it rejects at once (standing
+// in for the 2 s timeout firing); handed none, it rejects too, and the assertion below fails - an
+// unbounded probe is caught as a failed test, never as a hung one.
+test("the port-owner health probe carries an abort signal, so a silent owner cannot hang the runner", async (t) => {
+  const fx = fixture(t)
+  const seen = []
+  const h = harness({
+    startProxy: async () => { throw inUse() },
+    fetch: async (url, init) => {
+      seen.push({ url, signal: init?.signal })
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" })
+    },
+  })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--port", "18999"], h.io)
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].url, "http://127.0.0.1:18999/__health")
+  assert.ok(seen[0].signal instanceof AbortSignal, "the probe must be bounded by a signal")
+  assert.equal(seen[0].signal.aborted, false, "the bound is a timeout, not an already-aborted signal")
+  assert.equal(code, EXIT.PREFLIGHT)
+  const s = h.summary()
+  assert.deepEqual(s.issues, ["proxy_port_in_use"])
+  assert.equal(s.health, null)
+})
+
+// ------------------------------------------------------------- I19 (b): fail-closed test seam
+
+// Driving main() with a seam that lacks any live dependency must throw BEFORE any effect: no
+// evidence dir, no port bind, no process scan, no spawn. Each case below would otherwise stop at
+// an injected EACCES proxy failure, so even without the guard nothing here reaches a real machine.
+const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch"]
+for (const missing of LIVE_DEPS) {
+  test(`a test seam without ${missing} throws live_dep_not_injected before touching anything`, async (t) => {
+    const fx = fixture(t)
+    const io = {
+      stdout: () => {},
+      stderr: () => {},
+      startProxy: async () => { throw Object.assign(new Error("listen EACCES"), { code: "EACCES" }) },
+      runMachine: async () => { throw new Error("never reached") },
+      createAdapter: () => ({ capabilities: {}, invoke: async () => { throw new Error("never invoked") } }),
+      conflicting: async () => [],
+      fetch: async () => { throw new Error("never fetched") },
+    }
+    delete io[missing]
+    await assert.rejects(main(["--approval", fx.approval, "--evidence", fx.evidence], io), (e) => {
+      assert.equal(e.code, "live_dep_not_injected")
+      assert.match(e.message, new RegExp(`\\b${missing}\\b`))
+      return true
+    })
+    assert.equal(existsSync(fx.evidence), false, "nothing was created before the guard fired")
+  })
+}
+
+test("an empty test seam throws; only the CLI (no seam at all) may use the real dependencies", async () => {
+  await assert.rejects(main(["--dry-run"], {}), (e) => e.code === "live_dep_not_injected")
 })
