@@ -118,21 +118,17 @@ function priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens) 
 }
 
 /**
- * predictedTicks(step, runObservations, priors, unpricedCallMaxTokens)
- *   -> { ticks: number | "unpredictable", tier: 1|2|3|null, tokens, field, kind, lowTokensPerTick, reason? }
+ * predictedTicks(step, priors, unpricedCallMaxTokens)
+ *   -> { ticks: number | "unpredictable", tier: 2|3|null, tokens, field, kind, lowTokensPerTick, reason? }
  * Tier 2: the prior range (low end) for the dominant field.
  * Tier 3: 1 tick if tokens <= unpricedCallMaxTokens, else "unpredictable".
- * Tier 1: observations in THIS run: [{ kind, dominantField, tokens, ticks, settled }]. A call of W
- *         tokens that moved the gauge n ticks bounds T > W/(n+1); every valid bound holds, so
- *         lowTokensPerTick = max W/(n+1). Only observations of the step's own kind AND dominant
- *         field marked `settled: true` count - the caller's certificate that the reading was
- *         non-anomalous, inside one reset window, with its meters present, and taken after the
- *         gauge settled (delayed accounting makes an early zero delta silence, not a price).
- *         Tier 1 only ever RAISES the tier 2/3 answer: it never predicts fewer ticks than the step
- *         gets without observations and never makes an unpredictable call predictable, so in-run
- *         evidence can refuse a call the prior admits, never admit one the prior refuses.
+ * There is no in-run learning tier. It existed to tighten a price from observations of THIS run,
+ * but the machine never fed it: certifying that a reading has settled needs a quiet window the
+ * campaign does not have (gate round 2, R2-B4), so `gateState` passed no observations and every
+ * prediction came from the prior. An unreachable path that can only move a cap decision is worse
+ * than no path, so it is gone: a price comes from the prior range or the call is refused.
  */
-export function predictedTicks(step, runObservations, priors, unpricedCallMaxTokens = 20000) {
+export function predictedTicks(step, priors, unpricedCallMaxTokens = 20000) {
   const tokens = tokensOf(step)
   const field = step?.dominantField ?? null
   const base = { tokens, field, kind: step?.kind ?? null }
@@ -141,17 +137,6 @@ export function predictedTicks(step, runObservations, priors, unpricedCallMaxTok
   const floor = priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens)
   if (floor.ticks === "unpredictable") return { ...base, ...floor }
 
-  let low = null
-  if (Array.isArray(runObservations)) {
-    for (const o of runObservations) {
-      if (!o || o.settled !== true || o.kind !== step.kind || o.dominantField !== field) continue
-      if (!Number.isFinite(o.tokens) || o.tokens <= 0 || !Number.isInteger(o.ticks) || o.ticks < 0) continue
-      const l = o.tokens / (o.ticks + 1)
-      if (low === null || l > low) low = l
-    }
-  }
-  const learned = low === null ? null : Math.max(1, Math.ceil(tokens / low))
-  if (learned !== null && learned > floor.ticks) return { ...base, ticks: learned, tier: 1, lowTokensPerTick: low }
   return { ...base, ...floor }
 }
 
@@ -222,7 +207,7 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
   if (state.status !== "allowed") reasons.push({ code: "status_not_allowed", status: state.status ?? null })
   if (state.inDoubt) reasons.push({ code: "in_doubt_step" })
 
-  const prediction = predictedTicks(step, state.runObservations ?? [], priors, approval.unpricedCallMaxTokens)
+  const prediction = predictedTicks(step, priors, approval.unpricedCallMaxTokens)
   accounting.predictedTicks = prediction.ticks
   accounting.predictionTier = prediction.tier
   if (prediction.ticks === "unpredictable") {
@@ -281,8 +266,8 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
   const stops = approval.campaignStop && typeof approval.campaignStop === "object" ? approval.campaignStop : {}
   const meterIds = [...new Set([...METERS, ...Object.keys(meterCaps), ...Object.keys(stops)])]
   for (const meter of meterIds) {
-    const hasCap = Object.prototype.hasOwnProperty.call(meterCaps, meter)
-    const hasStop = Object.prototype.hasOwnProperty.call(stops, meter)
+    const hasCap = Object.hasOwn(meterCaps, meter)
+    const hasStop = Object.hasOwn(stops, meter)
     if (!hasCap && !hasStop) continue
     const scope = meters[meter]
     if (scope === undefined || scope === null) {

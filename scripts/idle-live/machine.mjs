@@ -145,13 +145,36 @@ function largestCall(experimentId) {
   }
 }
 
+/**
+ * Appendix A section 3 interleaves the TTL frame's two runs on ONE gauge - run 1 issues
+ * treatment/0, control/1, treatment/4, treatment/6, control/7 and run 2 the calls between them - so
+ * a tick the gauge posts while either run is in flight is charged to whichever run happened to be
+ * issuing. A per-RUN cap is therefore not a property of the run: measured on the shipped fakes, two
+ * extra ticks landing on run 1 refuse `treatment/6` on `idle:ttl-1h-unique-prefix/run-1` while the
+ * FRAME still has 0.02 to spend. The approval's "0.03 per run over 2 runs" is enforced where it IS
+ * a property of the work - the frame, one scope, 2 x 0.03 = 0.06. The approval file is unchanged
+ * and no total cap moves; this is how the machine reads it (Appendix B proposal in lane-m-b).
+ */
+const INTERLEAVED_FRAMES = Object.freeze({ "ttl-1h-unique-prefix": 2 })
+
+/** The per-idle cap as ENFORCED: the frame for an interleaved experiment, the approval's own otherwise. */
+function perIdleCapOf(approval, experiment) {
+  const capEq = num(approval?.plans?.[experiment]?.limits?.maxProactiveSpendPerIdle?.value) ?? 0
+  const runs = INTERLEAVED_FRAMES[experiment] ?? 0
+  if (!runs) return { capEq, scopeType: approval?.perIdleScope?.[experiment] ?? null }
+  return { capEq: eq(capEq * runs), scopeType: "frame" }
+}
+
+/** The scope a step's per-idle cap is accounted and gated on. */
+const idleScopeOf = (step) => (INTERLEAVED_FRAMES[step?.experiment] ? `${step.experiment}/frame` : scopeKey(step))
+
 /** scheduleTable(approval, jobs, skipped, priors) -> one row per job for --dry-run. */
 export function scheduleTable(approval, jobs, skipped = {}, priors = PRIOR_RANGE_ONLY) {
   return jobs.map((job) => {
     const sch = schedule(job.experiment) ?? {}
     const limits = approval?.plans?.[job.experiment]?.limits ?? {}
     const big = largestCall(job.experiment)
-    const pred = predictedTicks(big, [], priors, approval?.unpricedCallMaxTokens)
+    const pred = predictedTicks(big, priors, approval?.unpricedCallMaxTokens)
     const perUnit = sch.paidCallsPerRun ?? sch.paidCallsPerPair ?? null
     const units = job.run ? 1 : (sch.maxUnits ?? 1)
     const perRun = job.run ? perUnit : null
@@ -165,8 +188,9 @@ export function scheduleTable(approval, jobs, skipped = {}, priors = PRIOR_RANGE
       paidCallsExpected: perRun ?? sch.paidCallsExpected ?? (perUnit === null ? (sch.paidCallsMax ?? 0) : perUnit * units),
       paidCallsMax: job.run ? (perRun ?? sch.paidCallsMax ?? 0) : (sch.paidCallsMax ?? 0),
       expectedWallClockMs: job.run ? Math.round((sch.expectedDurationMs ?? 0) / ((sch.maxUnits ?? 1) || 1)) : (sch.expectedDurationMs ?? 0),
-      perIdleCapEq: num(limits.maxProactiveSpendPerIdle?.value) ?? 0,
-      perIdleScope: approval?.perIdleScope?.[job.experiment] ?? (sch.unit ?? null),
+      // the cap the machine will ENFORCE, so the dry run cannot advertise one it does not apply
+      perIdleCapEq: perIdleCapOf(approval, job.experiment).capEq,
+      perIdleScope: perIdleCapOf(approval, job.experiment).scopeType ?? (sch.unit ?? null),
       perPlanCapEq: num(limits.maxTotalExperimentalSpend?.value) ?? 0,
       largestCall: { label: big.label, tokensEst: pred.tokens, predictedTicks: pred.ticks, predictedEq: pred.ticks === "unpredictable" ? Infinity : eq(pred.ticks * RESOLUTION), tier: pred.tier },
       skippedArms: skipped[job.experiment] ?? {},
@@ -433,8 +457,11 @@ export function fold(events) {
         const s = st.steps[e.stepId] ?? { state: "intent", experiment: e.experiment, run: e.run ?? null, intent: null }
         st.steps[e.stepId] = { ...s, state: "result", source: e.source ?? "adapter", event: e }
         st.results.push(e)
-        x.paidRequests += 1
-        st.paidRequests += 1
+        // a response may have produced more than one request row (an extra request, or a
+        // multi-row reconciliation); the event carries the true multiplicity
+        const n = Number.isInteger(e.accounting?.requestCount) && e.accounting.requestCount > 0 ? e.accounting.requestCount : 1
+        x.paidRequests += n
+        st.paidRequests += n
         break
       }
       case "step_void":
@@ -589,7 +616,7 @@ const spendOf = (sc) => (sc ? { observedEq: eq(sc.ticks * RESOLUTION), upperEq: 
  * is declined outright: every call is priced from the approved prior.
  */
 function gateState(st) {
-  return { status: st.status, inDoubt: st.inDoubt.length > 0, meters: st.meters, scopes: scopeViews(st), runObservations: [] }
+  return { status: st.status, inDoubt: st.inDoubt.length > 0, meters: st.meters, scopes: scopeViews(st) }
 }
 
 const knownCost = (step) => (step?.kind === "dial" ? DIAL_TICKS : step?.kind === "ping" ? PING_TICKS : null)
@@ -664,13 +691,13 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   }
 
   // The gate needs both scopes to exist so their (attributed) spend is reported even at zero.
-  const idleKey = scopeKey(step)
+  const idleKey = idleScopeOf(step)
   const planKey = `plan:${step.experiment}`
   if (idleKey) attributedScope(st, idleKey)
   attributedScope(st, planKey)
   let accounting = { caps: [], predictedTicks: null, predictedEq: null, predictionTier: null, warnings: [] }
   if (!ungated) {
-    const g = gate(step, gateState(st), gateApprovalOf(st), st.priors)
+    const g = gate({ ...step, scopeId: idleKey }, gateState(st), gateApprovalOf(st), st.priors)
     accounting = g.accounting
     if (!g.ok) {
       emit(st, { ev: "gate_refused", ...META_OF(step), reasons: g.reasons, predictedTicks: accounting.predictedTicks, caps: compactCaps(accounting) })
@@ -681,7 +708,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
       return { fatal: { status: "aborted", reason: first }, stop: !!campaignLevel }
     }
   } else {
-    const pred = predictedTicks(step, [], st.priors, st.approval?.unpricedCallMaxTokens)
+    const pred = predictedTicks(step, st.priors, st.approval?.unpricedCallMaxTokens)
     accounting = { caps: [], predictedTicks: pred.ticks, predictedEq: pred.ticks === "unpredictable" ? null : eq(pred.ticks * RESOLUTION), predictionTier: pred.tier, warnings: [{ code: "ungated_baseline_block" }] }
   }
 
@@ -838,6 +865,24 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     anomalies,
   }
   st.deps.ledger.writeRequestRecord(record)
+  // Every drained response is a call that was paid for. A step that produced more than one - the
+  // `unexpected_request_count` case - keeps each of them as its own requests.jsonl row, the way a
+  // multi-row reconciliation does, so the rows on disk are the calls that happened and the
+  // run-level count can be read off them.
+  const extras = records.filter((r) => r !== p)
+  for (const x of extras) {
+    st.deps.ledger.writeRequestRecord({
+      ...record,
+      label: x?.label ?? "",
+      ts_req: x?.ts_req ?? record.ts_req, ts: x?.ts ?? record.ts,
+      status: Number.isFinite(x?.status) ? x.status : null,
+      requestId: x?.headers?.["request-id"] ?? null, msgId: x?.msg_id ?? null,
+      model: x?.model ?? null, stop_reason: x?.stop_reason ?? null, error: x?.error ?? null,
+      usage: x?.usage ?? null, headers: x?.headers ?? {},
+      accounting: { ...record.accounting, source: "extra_request" },
+    })
+  }
+  const rows = 1 + extras.length
   const text = typeof res?.stdoutJson?.result === "string" ? res.stdoutJson.result : (typeof res?.stdoutJson?.text === "string" ? res.stdoutJson.text : null)
   // Assistant text is needed to score restore/policy quality; it is synthetic and never a prompt.
   if (step.needsText) {
@@ -867,8 +912,8 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   // A cancel recorded at the seam above ends the CAMPAIGN whatever this one call's verdict was:
   // the experiment closes on the cancel (keeping the call's own reason when it had one) and no
   // later job is started.
-  if (cancelled) return { result, fatal: { status: v?.status ?? "void", reason: v?.reason ?? "cancelled" }, stop: true }
-  return v ? { result, fatal: { status: v.status, reason: v.reason }, stop: v.stop } : { result }
+  if (cancelled) return { result, rows, fatal: { status: v?.status ?? "void", reason: v?.reason ?? "cancelled" }, stop: true }
+  return v ? { result, rows, fatal: { status: v.status, reason: v.reason }, stop: v.stop } : { result, rows }
 }
 
 /**
@@ -1235,13 +1280,15 @@ async function runExperiment(st, job) {
     const step = next.value
     exp.steps.push({ id: step.id, arm: step.arm, role: step.role, unit: step.unit, index: step.index })
     const r = await runStep(st, exp, step)
+    // What the experiment paid is what it recorded: the request rows this step wrote, counted
+    // before the verdict, because a call that ended the experiment was still a paid call.
+    exp.paid += r.rows ?? 0
     if (r.fatal) {
       result = { experiment: id, status: r.fatal.status, reason: r.fatal.reason }
       stop = r.stop === true
       inDoubt = r.inDoubt === true
       break
     }
-    exp.paid += 1
     feed = r.result
   }
   const par = parity(id, exp.steps)
@@ -1363,8 +1410,9 @@ function reconcileStep(st, stepId, intent, matches) {
   const m5 = applied.meters[METER_5H]
   const planKey = meta.experiment ? `plan:${meta.experiment}` : null
   const ownTicks = ticks[METER_5H] ?? 0
-  attribute(st, [meta.scopeId, planKey], m5?.absent || m5?.sameWindow === false ? Math.max(1, ownTicks) : ownTicks, m5?.reset ?? null)
-  const spend = spendOf(meta.scopeId ? st.scopes[meta.scopeId] : null)
+  const idleKey = idleScopeOf(meta)
+  attribute(st, [idleKey, planKey], m5?.absent || m5?.sameWindow === false ? Math.max(1, ownTicks) : ownTicks, m5?.reset ?? null)
+  const spend = spendOf(idleKey ? st.scopes[idleKey] : null)
   const recordOf = ({ p, applied: a }) => ({
     v: REQUEST_VERSION, runId: st.runId, ...meta, label: p.label ?? stepId,
     ts_req: p.ts_req ?? null, ts: p.ts ?? null,
@@ -1374,7 +1422,7 @@ function reconcileStep(st, stepId, intent, matches) {
     requestId: p.headers?.["request-id"] ?? null, msgId: p.msg_id ?? null,
     model: p.model ?? null, stop_reason: p.stop_reason ?? null, error: p.error ?? null,
     usage: p.usage ?? null, headers: p.headers ?? {}, meters: a.meters,
-    accounting: { meter: METER_5H, source: "proxy_reconciled", gateOk: null, gated: false, caps: [], requestCount: matches.length, unexplainedTicks: 0, ticks: a.ticks, sameWindow: a.meters[METER_5H]?.sameWindow ?? null, scope: meta.scopeId, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq, learnedBound: false },
+    accounting: { meter: METER_5H, source: "proxy_reconciled", gateOk: null, gated: false, caps: [], requestCount: matches.length, unexplainedTicks: 0, ticks: a.ticks, sameWindow: a.meters[METER_5H]?.sameWindow ?? null, scope: idleKey, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq, learnedBound: false },
     phase_ledger: { phiLo: null, phiHi: null, early: null, phiHat: null, knownCost: null },
     adapterError: null, exitCode: null, anomalies,
   })
@@ -1389,7 +1437,7 @@ function reconcileStep(st, stepId, intent, matches) {
   const ev = emit(st, {
     ev: "step_result", ...meta, source: "proxy_reconciled", clean: false,
     ts_req: record.ts_req, ts: record.ts, model: record.model, stop_reason: record.stop_reason, status: record.status,
-    ticks, accounting: { source: "proxy_reconciled", requestCount: matches.length, scope: meta.scopeId, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq }, phase_ledger: record.phase_ledger, anomalies, exitCode: null, late: false,
+    ticks, accounting: { source: "proxy_reconciled", requestCount: matches.length, scope: idleKey, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq }, phase_ledger: record.phase_ledger, anomalies, exitCode: null, late: false,
   })
   return resultFromEvent(st, ev, record)
 }
@@ -1423,8 +1471,13 @@ async function resumeFromLog(st) {
     const rec = rows.get(ev.stepId) ?? null
     const applied = applyReading(st, rec?.headers ?? null)
     const m5 = applied.meters[METER_5H]
-    attribute(st, [ev.scopeId, `plan:${ev.experiment}`], m5?.absent || m5?.sameWindow === false ? 1 : (applied.ticks[METER_5H] ?? 0), m5?.reset ?? null)
-    st.paidRequests += 1
+    const charged = m5?.absent || m5?.sameWindow === false ? 1 : (applied.ticks[METER_5H] ?? 0)
+    attribute(st, [idleScopeOf(ev), `plan:${ev.experiment}`], charged, m5?.reset ?? null)
+    // A recorded result whose requests.jsonl row is gone has NO reading to re-account. The charge
+    // stays conservative (one tick), but silence would let a truncated evidence dir look clean:
+    // the resume says which call it could not read and what it charged for it instead.
+    if (!rec) emit(st, { ev: "row_missing", stepId: ev.stepId, experiment: ev.experiment ?? null, run: ev.run ?? null, anomalies: ["request_row_missing"], charged, source: "resume" })
+    st.paidRequests += Number.isInteger(ev.accounting?.requestCount) && ev.accounting.requestCount > 0 ? ev.accounting.requestCount : 1
   }
 
   // (3) an issuance the log never resolved: reconcile from proxy.jsonl (its spend is attributed
@@ -1441,10 +1494,13 @@ async function resumeFromLog(st) {
     st.inDoubt.push(stepId)
   }
 
-  // Verdicts: ended keeps its own, started-but-not-ended is closed by the crash.
+  // Verdicts: ended keeps its own, started-but-not-ended is closed by the crash. Read from the
+  // log AS IT NOW STANDS: the rows this process reconciled above belong to the experiment that
+  // paid for them, so its reported count is the rows on disk and not the count at crash time.
+  const settled = fold(st.deps.ledger.fold().events)
   const done = new Map()
   const interrupted = new Set()
-  for (const [key, x] of Object.entries(folded.experiments)) {
+  for (const [key, x] of Object.entries(settled.experiments)) {
     if (x.status && x.status !== "started") done.set(key, { status: x.status, reason: x.reason, paidRequests: x.endedPaid ?? x.paidRequests })
     else if (x.status === "started") interrupted.add(key)
   }
@@ -1457,7 +1513,9 @@ async function resumeFromLog(st) {
   // dial prefix, fable and output-quota abort `no_dial_prefix` on the runner's resume path.
   st.dialPrefix = rebuildDialPrefix(folded.dialPrefix ?? dialPrefixSeedOf(folded)) ?? st.dialPrefix
   st.mode.resumeHit = folded.mode?.resumeHit ?? st.mode.resumeHit
-  st.resume = { folded, done, interrupted }
+  // what each job has paid, read from the settled log (reconciled rows included)
+  const paidByJob = Object.fromEntries(Object.entries(settled.experiments).map(([key, x]) => [key, x.paidRequests]))
+  st.resume = { folded, done, interrupted, paidByJob }
   return st.resume
 }
 
@@ -1484,7 +1542,24 @@ function campaignStopFromLog(st) {
 // budgets ~0.55 tick (3 PINGs + WRITE-2000 + one DIAL read), this allows 2 ticks. The meter caps
 // and the campaign stop rules still come from the approval.
 const SMOKE_PLAN = Object.freeze({ limits: { maxProactiveSpendPerIdle: { value: 0.02, unit: "quota_fraction" }, maxTotalExperimentalSpend: { value: 0.02, unit: "quota_fraction" } } })
-const gateApprovalOf = (st) => (st.extraPlans ? { ...st.approval, plans: { ...st.approval.plans, ...st.extraPlans } } : st.approval)
+/**
+ * The approval as the gate reads it: the smoke run's extra plans, and the per-idle cap of an
+ * interleaved frame stated at the scope it is enforced on (see INTERLEAVED_FRAMES). The approval
+ * file itself is never modified.
+ */
+function gateApprovalOf(st) {
+  const base = st.extraPlans ? { ...st.approval, plans: { ...st.approval.plans, ...st.extraPlans } } : st.approval
+  const plans = { ...base.plans }
+  let framed = false
+  for (const id of Object.keys(INTERLEAVED_FRAMES)) {
+    const plan = plans[id]
+    if (!plan?.limits?.maxProactiveSpendPerIdle) continue
+    plans[id] = { ...plan, limits: { ...plan.limits, maxProactiveSpendPerIdle: { ...plan.limits.maxProactiveSpendPerIdle, value: perIdleCapOf(base, id).capEq } } }
+    framed = true
+  }
+  if (!framed) return base
+  return { ...base, plans, perIdleScope: { ...base.perIdleScope, ...Object.fromEntries(Object.keys(INTERLEAVED_FRAMES).map((id) => [id, "frame"])) } }
+}
 
 function smokeStep({ index, arm, kind, role, atOffsetMs, prompt, dominantField, hit, seed }) {
   return {
@@ -1620,12 +1695,17 @@ export async function runMachine(deps, approval, opts = {}) {
       reported.add(job.key)
       st.experiments[job.experiment] ??= { status: null, reason: null, paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, runs: [] }
       const agg = st.experiments[job.experiment]
-      agg.paidRequests += prior?.paidRequests ?? st.resume.folded.experiments[job.key]?.paidRequests ?? 0
+      agg.paidRequests += prior?.paidRequests ?? st.resume.paidByJob[job.key] ?? 0
       agg.runs.push({ run: job.run ?? null, status, reason })
       if (agg.status === null || (RANK[status] ?? 0) > (RANK[agg.status] ?? 0)) {
         agg.status = status
         agg.reason = reason
       }
+      // the spend of a job reported from the log is the spend the resume re-attributed for it,
+      // exactly as the live path reports it - not zero
+      const reportedSpend = spendOf(st.scopes[`plan:${job.experiment}`])
+      agg.spentObservedEq = reportedSpend.observedEq
+      agg.spentUpperEq = reportedSpend.upperEq
       emit(st, { ev: "experiment_ended", experiment: job.experiment, ...(job.run == null ? {} : { run: job.run }), status, reason, paidRequests: agg.paidRequests, source: "resume" })
     }
   }

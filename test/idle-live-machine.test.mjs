@@ -2709,3 +2709,142 @@ test("R9-N4 a weekly-meter window roll under a quiet-check PING is an unreadable
   await reb.run({ only: ["fable-write-tick"], dialPrefix: DIAL })
   assert.ok(reb.ids().includes("preflight/rebaseline-2/0"), `re-baseline: ${JSON.stringify(reb.ids().filter((x) => x.startsWith("preflight/")))}`)
 })
+
+// ============================================================ lane M group B
+// I4. Appendix A section 3 interleaves the TTL frame's two runs on ONE gauge (run-1 issues
+// treatment/0, control/1, treatment/4, treatment/6, control/7; run-2 the rest), so a tick posted
+// while either run's call is in flight is charged to whichever run happened to be issuing. A
+// per-RUN 0.03 cap is therefore not a property of the run: the same frame refuses run 1 and passes
+// run 2 purely on posting order. The cap is enforced on the FRAME - both runs, one scope, 0.06.
+test("I4 the ttl per-idle cap is enforced on the interleaved frame, not on one run's share of it", async () => {
+  const tick = { bump: { meter: "unified-5h", eq: 0.01 } }
+  // two extra ticks land on run-1's calls; run-1's own share reaches 0.03 while the FRAME is 0.04
+  const h = harness({ script: { [ttlId("treatment", 0)]: tick, [ttlId("treatment", 4)]: tick } })
+  const s = await h.run({ only: ONLY_TTL })
+  const refusals = h.ev("gate_refused").map((e) => `${e.stepId}:${(e.reasons ?? []).map((r) => r.scope).join(",")}`)
+  const byScope = h.ledger.requests.filter((r) => r.experiment === TTL).reduce((m, r) => { m[r.accounting?.scope] = (m[r.accounting?.scope] ?? 0) + 1; return m }, {})
+  const observed = JSON.stringify({ refusals, byScope, exp: s.experiments[TTL] })
+  assert.deepEqual(refusals, [], `no run's share of the frame may refuse a call the frame can afford: ${observed}`)
+  assert.equal(s.experiments[TTL].status, "valid", observed)
+  assert.equal(s.experiments[TTL].paidRequests, 10, observed)
+  // the gate reads ONE scope for the whole frame
+  assert.deepEqual(Object.keys(byScope), [`${TTL}/frame`], observed)
+  assert.ok(s.experiments[TTL].spentObservedEq <= 0.06, observed)
+})
+
+test("I4 the frame cap still refuses a frame that would exceed 0.06", async () => {
+  const tick = { bump: { meter: "unified-5h", eq: 0.01 } }
+  const script = {}
+  for (const n of [0, 1, 2, 3, 4, 5]) script[n % 2 ? ttlId("control", n) : ttlId("treatment", n)] = tick
+  const h = harness({ script })
+  const s = await h.run({ only: ONLY_TTL })
+  const refused = h.ev("gate_refused")
+  const observed = JSON.stringify({ refused: refused.map((e) => `${e.stepId}:${(e.reasons ?? []).map((r) => `${r.code}@${r.scope}`).join(",")}`), exp: s.experiments[TTL] })
+  assert.ok(refused.length > 0, `a frame over 0.06 is refused: ${observed}`)
+  assert.ok(refused.some((e) => (e.reasons ?? []).some((r) => r.code === "cap_exceeded" && r.scope === `idle:${TTL}/frame`)), observed)
+  assert.equal(s.experiments[TTL].status, "aborted", observed)
+})
+
+// I8. `experiments[id].paidRequests` counted protocol steps, so a fatal last call and a multi-row
+// reconciliation left it below the rows actually recorded in requests.jsonl. The summary must
+// count what was paid for, and the run-level total must equal the rows on disk.
+const rowsOf = (h, id) => h.ledger.requests.filter((r) => r.experiment === id).length
+
+test("I8 a fatal last call is still a paid request in the experiment's own count", async () => {
+  const h = harness({ script: { [ttlId("control", 9)]: { stop_reason: "refusal" } } })
+  const s = await h.run({ only: ONLY_TTL })
+  const observed = JSON.stringify({ exp: s.experiments[TTL], rows: rowsOf(h, TTL), runLevel: s.paidRequestsIssued, totalRows: h.ledger.requests.length })
+  assert.equal(s.experiments[TTL].paidRequests, rowsOf(h, TTL), `per-experiment count equals its request rows: ${observed}`)
+  assert.equal(s.paidRequestsIssued, h.ledger.requests.length, `run-level total equals requests.jsonl: ${observed}`)
+})
+
+test("I8 a two-row response is counted once per row, per experiment and per run", async () => {
+  const h = harness({ script: { [ttlId("treatment", 2)]: { records: 2 } } })
+  const s = await h.run({ only: ONLY_TTL })
+  const observed = JSON.stringify({ exp: s.experiments[TTL], rows: rowsOf(h, TTL), runLevel: s.paidRequestsIssued, totalRows: h.ledger.requests.length })
+  assert.equal(s.paidRequestsIssued, h.ledger.requests.length, `run-level total equals requests.jsonl: ${observed}`)
+  assert.equal(s.experiments[TTL].paidRequests, rowsOf(h, TTL), `per-experiment count equals its request rows: ${observed}`)
+})
+
+test("I8 a two-row reconciliation counts both rows in the experiment's own count", async () => {
+  const fx = await crashFixture({ withProxyRecord: true })
+  const extra = clone(fx.proxyRecords.find((r) => r.stepId === fx.stepId))
+  extra.msg_id = `${extra.msg_id}_dup`
+  const h = resumeHarness({ ...fx, proxyRecords: [...fx.proxyRecords, extra] })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+  const reconciled = h.ledger.requests.filter((r) => r.stepId === fx.stepId).length
+  const observed = JSON.stringify({ exp: s.experiments[TTL], rows: rowsOf(h, TTL), reconciled, runLevel: s.paidRequestsIssued, totalRows: h.ledger.requests.length })
+  assert.equal(reconciled, 2, `both rows are kept as evidence: ${observed}`)
+  assert.equal(s.experiments[TTL].paidRequests, rowsOf(h, TTL), `per-experiment count equals its request rows: ${observed}`)
+  assert.equal(s.paidRequestsIssued, h.ledger.requests.length, observed)
+})
+
+test("I8 a resume reports the recorded spend of an experiment that ended before the crash", async () => {
+  const { live, fixture, world } = await exactWorldCut({ runOpts: { only: ONLY_TTL }, at: (e) => e.ev === "experiment_ended" && e.experiment === TTL })
+  const h = resumeHarness(fixture, { world, clockStart: fixture.crashedAt })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+  const observed = JSON.stringify({ resumed: s.experiments[TTL], live: live.summary?.experiments?.[TTL] ?? null })
+  assert.equal(s.experiments[TTL].paidRequests, 10, observed)
+  assert.ok(s.experiments[TTL].spentObservedEq > 0, `the recorded spend is reported, not zeroed: ${observed}`)
+  assert.equal(s.experiments[TTL].spentObservedEq, 0.04, observed)
+  assert.equal(s.experiments[TTL].spentUpperEq, 0.05, observed)
+})
+
+// I11. A reconciled response whose requests.jsonl row is missing was charged one tick silently.
+// The charge is right (conservative), the silence is not: the reading is unknown, and the log must
+// say so.
+test("I11 a recorded response with no requests.jsonl row records request_row_missing", async () => {
+  const { fixture, world } = await exactWorldCut({ runOpts: { only: ONLY_TTL }, at: (e) => e.ev === "experiment_ended" && e.experiment === TTL })
+  const dropped = fixture.requests.filter((r) => r.stepId !== ttlId("control", 1))
+  assert.equal(dropped.length, fixture.requests.length - 1, "exactly one row is missing")
+  const h = resumeHarness({ ...fixture, requests: dropped }, { world, clockStart: fixture.crashedAt })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+  const flagged = h.ev("row_missing")
+  const observed = JSON.stringify({ flagged: flagged.map((e) => e.stepId), exp: s.experiments[TTL] })
+  assert.deepEqual(flagged.map((e) => e.stepId), [ttlId("control", 1)], `the missing row is recorded, not assumed: ${observed}`)
+  assert.equal(flagged[0].anomalies?.[0], "request_row_missing", observed)
+  assert.equal(flagged[0].charged, 1, `and the conservative tick charge is kept: ${observed}`)
+})
+
+// Adversarial for this lane: repeated_interruptions + misleading_success_output. Across a chain of
+// processes the summary must keep saying what the evidence on disk says - every per-experiment
+// count equals that experiment's request rows, the run total equals the file, and no id is issued
+// twice - including when a two-row reconciliation and a cancelled call are in the chain.
+test("I8 adversarial: summary counts equal requests.jsonl across a three-process chain", async () => {
+  const check = (tag, h, s) => {
+    const rows = h.ledger.requests
+    assert.equal(s.paidRequestsIssued, rows.length, `${tag}: run total ${s.paidRequestsIssued} vs ${rows.length} rows`)
+    for (const [id, v] of Object.entries(s.experiments)) {
+      const own = rows.filter((r) => r.experiment === id).length
+      if (v.paidRequests === 0 && own === 0) continue
+      assert.equal(v.paidRequests, own, `${tag}: ${id} says ${v.paidRequests}, the file has ${own}`)
+    }
+    assert.deepEqual([...new Set(h.ids())], h.ids(), `${tag}: a call was issued twice`)
+  }
+  // P1: a cancel while a call is in flight, its row present
+  const target = ttlId("treatment", 2)
+  const controller = new AbortController()
+  const p1 = harness({ script: { [target]: { hangAfterRow: true } }, opts: { signal: controller.signal } })
+  const run = p1.run({ only: ONLY_TTL })
+  assert.equal(await within(p1.adapter.entered), target)
+  controller.abort()
+  const s1 = await within(run)
+  check("P1", p1, s1)
+  assert.equal(s1.exitCode, EXIT.ABORTED)
+
+  // P2 and P3: resume the cancelled log; the recorded cancel is final and nothing is issued
+  let prev = p1
+  const intents = []
+  for (const tag of ["P2", "P3"]) {
+    const h = resumeHarness({ events: prev.ledger.events, requests: prev.ledger.requests, cli: prev.ledger.cli, proxyRecords: prev.proxy.records, crashedAt: Date.parse(prev.ledger.events.at(-1).ts) })
+    const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+    check(tag, h, s)
+    assert.deepEqual(h.ids(), [], `${tag} issues nothing after a recorded cancel`)
+    assert.equal(s.exitCode, EXIT.ABORTED, `${tag}: ${JSON.stringify(s)}`)
+    intents.push(...h.ledger.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId))
+    prev = h
+  }
+  // the cumulative log of the last process holds each id once
+  const last = prev.ledger.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId)
+  assert.deepEqual([...new Set(last)], last, `an id appears twice in the chain: ${JSON.stringify(last)}`)
+})
