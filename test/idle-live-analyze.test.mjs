@@ -1094,3 +1094,293 @@ test("I10 a run cancelled before any issuance is reported as cancelled before st
     assert.equal(r.analysis, null)
   })
 })
+
+// ------------------------------------------------------------------------------------------
+// Todo 7 I17 (gate lane A note N1): a crashed log that was never resumed. The machine never
+// closed the experiment in progress, so Appendix B revision 2 (4) is mirrored by the analyzer:
+// an experiment still open at the end of the log is void:interrupted_by_crash. The crashed logs
+// are cut mechanically from the committed fake-run at test time (events up to the cut, the
+// request rows whose step_result made it, no summary.json: a crashed process writes none).
+// Plus the pins for the gate's surviving mutants M9, M12 and M13 (note N5).
+// ------------------------------------------------------------------------------------------
+
+/** Temp copy of fake-run cut right after the nth (1-based) event matching `at`. */
+function crashedCopy(t, at, nth = 1, edit = () => {}) {
+  return fixtureCopy(t, "fake-run", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    let seen = 0
+    const idx = evs.findIndex((e) => at(e) && ++seen === nth)
+    assert.ok(idx > 0, "the cut event exists in the fake-run")
+    const cut = evs.slice(0, idx + 1)
+    const done = new Set(cut.filter((e) => e.ev === "step_result").map((e) => e.stepId))
+    writeJsonl(path.join(d, "events.jsonl"), cut)
+    writeJsonl(path.join(d, "requests.jsonl"), readJsonl(path.join(d, "requests.jsonl")).filter((r) => done.has(r.stepId)))
+    rmSync(path.join(d, "summary.json"), { force: true })
+    edit(d)
+  })
+}
+
+const CRASHES = {
+  "mid policy-effect": {
+    at: (e) => e.ev === "step_result" && e.experiment === "policy-effect" && e.index === 10,
+    open: "policy-effect",
+    endedBefore: ["fable-write-tick", "output-quota"],
+    restoreRunsBefore: 1,
+    notRun: ["ttl-1h-unique-prefix"],
+  },
+  "mid restore run 2": {
+    at: (e) => e.ev === "step_result" && e.experiment === "restore-decomposition" && e.unit?.index === 2,
+    nth: 5,
+    open: "restore-decomposition",
+    endedBefore: ["fable-write-tick", "output-quota", "policy-effect"],
+    notRun: ["ttl-1h-unique-prefix"],
+  },
+  "mid fable-write-tick": {
+    at: (e) => e.ev === "step_result" && e.experiment === "fable-write-tick" && e.role === "hold",
+    open: "fable-write-tick",
+    endedBefore: [],
+    restoreRunsBefore: 1,
+    notRun: ["output-quota", "policy-effect", "ttl-1h-unique-prefix"],
+  },
+}
+
+test("I17 an experiment still open at the end of a never-resumed log is void:interrupted_by_crash", async (t) => {
+  const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
+  assert.equal(reference.code, 0, reference.stderr)
+  for (const [label, c] of Object.entries(CRASHES)) {
+    await t.test(label, (tt) => {
+      const dir = crashedCopy(tt, c.at, c.nth)
+      const evs = readJsonl(path.join(dir, "events.jsonl"))
+      assert.ok(!evs.some((e) => e.ev === "run_resumed" || e.ev === "run_ended"), "a crashed, never-resumed log")
+      assert.ok(readJsonl(path.join(dir, "requests.jsonl")).some((r) => r.experiment === c.open), "the open experiment has partial rows")
+      const r = analyzeCli(tt, dir)
+      assert.equal(r.code, 0, `${r.stderr}\n${JSON.stringify(r.payload)}`)
+      const open = r.analysis.experiments[c.open]
+      assert.equal(open.status, "void", `${c.open}: ${JSON.stringify({ status: open.status, reason: open.reason })}`)
+      assert.equal(open.reason, "interrupted_by_crash")
+      assert.equal(open.findings, null, "nothing is measured from the partial rows")
+      assert.equal(open.recordedVerdict.source, "open_at_end_of_log", "the analyzer, not the machine, closed it")
+      assert.equal(r.payload.experiments[c.open], "void", "the CLI line never calls it valid")
+      assert.equal(r.payload.reasons[c.open], "interrupted_by_crash")
+      assert.ok(r.md.includes("판정: void (interrupted_by_crash"), "the Korean doc states the verdict and its reason code")
+      // experiments that ended before the crash keep their verdicts and numbers
+      for (const id of c.endedBefore) assert.deepEqual(r.analysis.experiments[id], reference.analysis.experiments[id], id)
+      if (c.restoreRunsBefore) {
+        const runs = r.analysis.experiments["restore-decomposition"].findings.runs
+        assert.equal(r.analysis.experiments["restore-decomposition"].status, "valid")
+        assert.deepEqual(runs, reference.analysis.experiments["restore-decomposition"].findings.runs.slice(0, c.restoreRunsBefore), "restore run 1 keeps its numbers")
+      }
+      for (const id of c.notRun) assert.equal(r.analysis.experiments[id].status, "not_run", id)
+      // it feeds neither the coefficients nor the policy answer
+      assert.equal(r.analysis.policyAnswer.action, "NO_DECISION")
+      const coeff = (a) => a.coefficientRecords.map(({ quotaMeterOrCostUnit, sourceKind, coefficients, observedRangeOrUncertainty }) => ({ quotaMeterOrCostUnit, sourceKind, coefficients, observedRangeOrUncertainty }))
+      if (c.open === "fable-write-tick") {
+        for (const rec of coeff(r.analysis)) assert.deepEqual([rec.sourceKind, Object.values(rec.coefficients).every((v) => v === null)], ["unknown", true], rec.quotaMeterOrCostUnit)
+      } else {
+        assert.deepEqual(coeff(r.analysis), coeff(reference.analysis), "the coefficients are those of the uninterrupted run")
+      }
+    })
+  }
+})
+
+test("I17 a torn final line does not close the open experiment, and the cut is deterministic", (t) => {
+  const c = CRASHES["mid policy-effect"]
+  const torn = crashedCopy(t, c.at, 1, (d) => {
+    const file = path.join(d, "events.jsonl")
+    writeFileSync(file, `${readFileSync(file, "utf8")}{"seq":271,"ev":"experiment_ended","experiment":"policy-effect","status":"val`)
+  })
+  const again = crashedCopy(t, c.at)
+  const a = analyzeCli(t, torn)
+  const b = analyzeCli(t, again)
+  assert.equal(a.code, 0, a.stderr)
+  assert.equal(a.analysis.experiments["policy-effect"].status, "void")
+  assert.equal(a.analysis.experiments["policy-effect"].reason, "interrupted_by_crash")
+  assert.equal(a.analysis.generatedFrom.events.skipped, 1)
+  assert.deepEqual(a.analysis.experiments, b.analysis.experiments, "the torn line changes no experiment")
+  assert.equal(readFileSync(path.join(again, "requests.jsonl"), "utf8"), readFileSync(path.join(crashedCopy(t, c.at), "requests.jsonl"), "utf8"), "two cuts write the same bytes")
+})
+
+// M9: `!issued`. A first call that is IN DOUBT (step_intent, no row) and then cancelled is not
+// "cancelled before start, no requests": that call may have reached the API. Fail closed.
+test("M9 an in-doubt first call followed by a cancel is not 'cancelled before start': exit 2", (t) => {
+  const ref = readJsonl(path.join(RUN_FIXTURES, "fake-run", "events.jsonl"))
+  const intent = ref.find((e) => e.ev === "step_intent")
+  const dir = fixtureCopy(t, "cancelled-before-start", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    const started = evs.find((e) => e.ev === "run_started")
+    const preflight = evs.find((e) => e.ev === "preflight")
+    writeJsonl(path.join(d, "events.jsonl"), [
+      { ...started, seq: 0 },
+      { ...preflight, seq: 1 },
+      { ...intent, seq: 2 },
+      { seq: 3, ts: intent.ts, runId: intent.runId, ev: "campaign_stop", meter: null, reason: "cancelled", experiment: intent.experiment, run: intent.run, stepId: intent.stepId },
+      { seq: 4, ts: intent.ts, runId: intent.runId, ev: "step_void", stepId: intent.stepId, experiment: intent.experiment, reason: "unknown_issue_state", inDoubt: true },
+      { seq: 5, ts: intent.ts, runId: intent.runId, ev: "run_ended", exitCode: 4, reason: "in_doubt", paidRequests: 0 },
+    ])
+  })
+  assert.ok(!existsSync(path.join(dir, "requests.jsonl")))
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 2, JSON.stringify(r.payload))
+  assert.equal(r.analysis, null)
+})
+
+/** fake-run copy with extra experiment_ended events appended after the run's own. */
+const withEnded = (t, extra) =>
+  fixtureCopy(t, "fake-run", (d) => {
+    const file = path.join(d, "events.jsonl")
+    const evs = readJsonl(file)
+    const last = evs[evs.length - 1]
+    writeJsonl(file, [...evs, ...extra.map((e, i) => ({ seq: last.seq + 1 + i, ts: last.ts, runId: last.runId, ev: "experiment_ended", source: "resume", ...e }))])
+  })
+
+// M12: the machine's LATEST statement about a unit is its verdict (a resume re-states verdicts);
+// a later closing statement is never overridden by the earlier valid one.
+test("M12 the last experiment_ended per unit is the recorded verdict", (t) => {
+  const dir = withEnded(t, [{ experiment: "output-quota", run: null, status: "aborted", reason: "cap_exceeded" }])
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  assert.equal(r.analysis.experiments["output-quota"].status, "aborted")
+  assert.equal(r.analysis.experiments["output-quota"].reason, "cap_exceeded")
+  assert.equal(r.analysis.experiments["output-quota"].findings, null)
+  assert.equal(r.analysis.experiments["fable-write-tick"].status, "valid", "other experiments keep theirs")
+})
+
+// M13: across units, aborted outranks void (the machine's RANK: aborted 4 > void 3), in either order.
+test("M13 aborted outranks void across the units of one experiment", async (t) => {
+  const orders = [
+    ["void run 1, aborted run 2", [{ run: 1, status: "void", reason: "interrupted_by_crash" }, { run: 2, status: "aborted", reason: "cap_exceeded" }]],
+    ["aborted run 1, void run 2", [{ run: 1, status: "aborted", reason: "cap_exceeded" }, { run: 2, status: "void", reason: "interrupted_by_crash" }]],
+  ]
+  for (const [label, ended] of orders) {
+    await t.test(label, (tt) => {
+      const r = analyzeCli(tt, withEnded(tt, ended.map((e) => ({ experiment: "restore-decomposition", ...e }))))
+      assert.equal(r.code, 0, r.stderr)
+      const x = r.analysis.experiments["restore-decomposition"]
+      assert.deepEqual([x.status, x.reason], ["aborted", "cap_exceeded"])
+    })
+  }
+})
+
+// The hand-built analyzer fixture measures the write coefficient, so it shows the other half of
+// "feeds no coefficients": the same measured fable becomes unknown once its log ends mid-experiment.
+test("I17 an open fable-write-tick publishes no measured coefficient; an open later experiment leaves it measured", () => {
+  const cutAt = (pred) => {
+    const idx = events.findIndex(pred)
+    assert.ok(idx > 0)
+    const evs = cloneEvents().slice(0, idx + 1)
+    const done = new Set(evs.filter((e) => e.ev === "step_result").map((e) => e.stepId))
+    return run(clone().filter((r) => done.has(r.stepId)), evs)
+  }
+  const full = run()
+  assert.equal(full.coefficientRecords.find((x) => x.sourceKind === "measured") !== undefined, true, "the uncut fixture measures")
+  const fableOpen = cutAt((e) => e.ev === "step_result" && e.experiment === "fable-write-tick" && e.ticks?.["unified-5h"] === 1)
+  assert.deepEqual([fableOpen.experiments["fable-write-tick"].status, fableOpen.experiments["fable-write-tick"].reason], ["void", "interrupted_by_crash"])
+  for (const rec of fableOpen.coefficientRecords) assert.equal(rec.sourceKind, "unknown", rec.quotaMeterOrCostUnit)
+  assert.equal(fableOpen.policyAnswer.action, "NO_DECISION")
+  const policyOpen = cutAt((e) => e.ev === "step_result" && e.experiment === "policy-effect")
+  assert.deepEqual([policyOpen.experiments["policy-effect"].status, policyOpen.experiments["policy-effect"].reason], ["void", "interrupted_by_crash"])
+  assert.deepEqual(policyOpen.coefficientRecords.map((x) => [x.sourceKind, x.coefficients]), full.coefficientRecords.map((x) => [x.sourceKind, x.coefficients]))
+  assert.equal(policyOpen.policyAnswer.action, "NO_DECISION", "an open policy-effect takes the policy answer out")
+})
+
+// ------------------------------------------------------------------------------------------
+// I17 item 5 (steer): two log shapes from the machine's group B (w1 18109eb), built
+// synthetically on temp copies of the fake-run. (1) A step that drew two responses keeps BOTH
+// as requests.jsonl rows with the same stepId (the extra one: accounting.source "extra_request");
+// (2) a resume that finds a recorded result with no row appends row_missing{request_row_missing}.
+// ------------------------------------------------------------------------------------------
+
+const OQ_STEP = "output-quota/out-8k/2"
+const util5h = (rec) => Number(rec.headers["anthropic-ratelimit-unified-5h-utilization"])
+
+/** fake-run cut right after OQ_STEP's step_result, with that step drawing a second response. */
+function extraRowCopy(t, { closeAs = "aborted" } = {}) {
+  return fixtureCopy(t, "fake-run", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    const idx = evs.findIndex((e) => e.ev === "step_result" && e.stepId === OQ_STEP)
+    const cut = evs.slice(0, idx + 1)
+    const result = cut[idx]
+    result.anomalies = [...(result.anomalies ?? []), "unexpected_request_count"]
+    result.accounting = { ...(result.accounting ?? {}), requestCount: 2 }
+    const done = new Set(cut.filter((e) => e.ev === "step_result").map((e) => e.stepId))
+    const rows = readJsonl(path.join(d, "requests.jsonl")).filter((r) => done.has(r.stepId))
+    const own = rows.find((r) => r.stepId === OQ_STEP)
+    own.anomalies = [...(own.anomalies ?? []), "unexpected_request_count"]
+    const extra = JSON.parse(JSON.stringify(own))
+    extra.label = ""
+    extra.msgId = `${own.msgId}_extra`
+    extra.headers["anthropic-ratelimit-unified-5h-utilization"] = (util5h(own) + 0.02).toFixed(2)
+    extra.accounting = { ...own.accounting, source: "extra_request" }
+    rows.splice(rows.indexOf(own) + 1, 0, extra)
+    const at = { ts: result.ts, runId: result.runId }
+    const tail = closeAs === "aborted"
+      ? [
+          { ...at, ev: "campaign_stop", meter: null, reason: "unexpected_request_count", experiment: "output-quota", run: null, stepId: OQ_STEP },
+          { ...at, ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: "unexpected_request_count" },
+          { ...at, ev: "run_ended", exitCode: 3, reason: "campaign_stop" },
+        ]
+      : [{ ...at, ev: "experiment_ended", experiment: "output-quota", run: null, status: "valid", reason: null }] // a producer that did not close it
+    writeJsonl(path.join(d, "events.jsonl"), [...cut, ...tail.map((e, i) => ({ seq: result.seq + 1 + i, ...e }))])
+    writeJsonl(path.join(d, "requests.jsonl"), rows)
+    rmSync(path.join(d, "summary.json"), { force: true })
+  })
+}
+
+test("I17/5 a step with two response rows: no crash, no mis-join, never measured, both rows counted", async (t) => {
+  for (const closeAs of ["aborted", "valid"]) {
+    await t.test(`experiment_ended ${closeAs}`, (tt) => {
+      const dir = extraRowCopy(tt, { closeAs })
+      const rows = readJsonl(path.join(dir, "requests.jsonl"))
+      const pair = rows.filter((r) => r.stepId === OQ_STEP)
+      assert.equal(pair.length, 2)
+      const r = analyzeCli(tt, dir)
+      assert.equal(r.code, 0, `${r.stderr}\n${JSON.stringify(r.payload)}`)
+      const oq = r.analysis.experiments["output-quota"]
+      assert.notEqual(oq.status, "valid")
+      assert.equal(oq.findings, null, "never measured")
+      assert.equal(oq.reason, "unexpected_request_count")
+      assert.ok(oq.window.reasons.includes("unexpected_request_count"), oq.window.reasons.join(","))
+      assert.equal(oq.window.requests, rows.filter((x) => x.experiment === "output-quota").length, "both rows are the experiment's requests")
+      assert.deepEqual([oq.window.stepParity.missingRequest, oq.window.stepParity.unannounced], [[], []], "the two rows join their one intent and one result")
+      // both rows count in every total the analysis reports
+      assert.equal(r.analysis.generatedFrom.requests.records, rows.length)
+      if (r.analysis.campaign) assert.equal(r.analysis.campaign.requests, rows.length)
+      assert.equal(r.analysis.spend["unified-5h"].endUtil, util5h(pair[1]), "the extra response's reading is part of the meter spend")
+      assert.equal(r.analysis.experiments["fable-write-tick"].status, "valid", "an earlier experiment is untouched")
+    })
+  }
+})
+
+test("I17/5 a row_missing step keeps its experiment out of measurement; a row_missing naming nothing is ignored", async (t) => {
+  const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
+  const TTL_STEP = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl")).find((r) => r.experiment === "ttl-1h-unique-prefix" && r.kind === "check").stepId
+  const resumedWith = (tt, rowMissing, dropRow) =>
+    fixtureCopy(tt, "fake-run", (d) => {
+      const evs = readJsonl(path.join(d, "events.jsonl"))
+      const last = evs[evs.length - 1]
+      const at = { ts: last.ts, runId: last.runId }
+      const tail = [
+        { ...at, ev: "run_resumed", lastSeq: last.seq, inDoubt: [], paidRequests: 211, mode: { resumeHit: true } },
+        { ...at, ev: "row_missing", ...rowMissing, anomalies: ["request_row_missing"], charged: 1, source: "resume" },
+        { ...at, ev: "experiment_ended", experiment: "ttl-1h-unique-prefix", status: "valid", reason: null, paidRequests: 10, source: "resume" },
+      ]
+      writeJsonl(path.join(d, "events.jsonl"), [...evs, ...tail.map((e, i) => ({ seq: last.seq + 1 + i, ...e }))])
+      if (dropRow) writeJsonl(path.join(d, "requests.jsonl"), readJsonl(path.join(d, "requests.jsonl")).filter((r) => r.stepId !== dropRow))
+    })
+
+  await t.test("the machine kept the verdict valid: the analyzer still does not measure it", (tt) => {
+    const r = analyzeCli(tt, resumedWith(tt, { stepId: TTL_STEP, experiment: "ttl-1h-unique-prefix", run: null }, TTL_STEP))
+    assert.equal(r.code, 0, r.stderr)
+    const ttl = r.analysis.experiments["ttl-1h-unique-prefix"]
+    assert.deepEqual([ttl.status, ttl.reason, ttl.findings], ["void", "request_row_missing", null])
+    assert.ok(ttl.window.reasons.includes("request_row_missing"), ttl.window.reasons.join(","))
+    for (const id of ["fable-write-tick", "output-quota", "restore-decomposition", "policy-effect"]) {
+      assert.deepEqual(r.analysis.experiments[id], reference.analysis.experiments[id], `${id} is unchanged`)
+    }
+  })
+  await t.test("a row_missing that names no experiment of the run changes nothing", (tt) => {
+    const r = analyzeCli(tt, resumedWith(tt, { stepId: "preflight/baseline/0", experiment: "preflight", run: 1 }, null))
+    assert.equal(r.code, 0, r.stderr)
+    for (const id of EXPERIMENTS) assert.deepEqual(r.analysis.experiments[id], reference.analysis.experiments[id], id)
+  })
+})

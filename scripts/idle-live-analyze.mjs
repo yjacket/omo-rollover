@@ -76,6 +76,7 @@ const HARD_REASONS = [
   "usage_incomplete",
   "reset_in_window",
   "baseline_reset_mismatch",
+  "request_row_missing",
   "request_step_mismatch",
   "in_doubt_step",
   "unexpected_request_count",
@@ -962,6 +963,9 @@ export function windowStatus(records, events, experiment, opts = {}) {
     if (e.ev === "step_result" && typeof e.stepId === "string") results.add(e.stepId)
   }
   for (const id of intents) if (!results.has(id)) reasons.add("in_doubt_step")
+  // A resume that found a recorded result without its requests.jsonl row says so (row_missing):
+  // that call's usage and reading are gone, so the experiment cannot be measured.
+  if ((events ?? []).some((e) => e?.ev === "row_missing" && e.experiment === experiment)) reasons.add("request_row_missing")
   // Request rows and the checkpoint must describe the same set of paid calls, 1:1.
   const requestIds = new Set(recs.map((r) => r.stepId))
   const missingRequest = [...results].filter((id) => !requestIds.has(id))
@@ -1263,30 +1267,71 @@ function spendByMeter(records, events) {
 
 const startedEvents = (events, experiment) => (events ?? []).filter((e) => e?.ev === "experiment_started" && e.experiment === experiment)
 
-// Void reasons the MACHINE records itself (Appendix B "Resume verdict contract, revision 2" and
-// clarification A), with the words the Korean results doc uses for them. The analyzer reports
-// each one explicitly; it never re-derives a verdict for an experiment the machine closed.
-export const RECORDED_REASONS = Object.freeze({
+// Reason codes the MACHINE records on experiment_ended and campaign_stop (Appendix B "Resume
+// verdict contract, revision 2", clarification A, and the machine's gate, delivery and stop-rule
+// verdicts), with the words the Korean results doc uses for them. The analyzer reports each one
+// explicitly; it never re-derives a verdict for an experiment the machine closed.
+const REASON_TEXT = Object.freeze({
   interrupted_by_crash: "크래시 시점에 진행 중이던 실험: 재개가 남은 단계를 발행하지 않고 무효로 닫았다",
   cancelled: "호출이 진행 중일 때 운영자가 취소하여 실험을 무효로 닫았다",
   cancelled_before_start: "첫 발행 전에 운영자가 취소했다(시작 전 취소): 요청이 없고 측정한 것이 없다",
+  cap_exceeded: "다음 호출이 지출 한도를 넘을 것으로 예측되어 게이트가 거부했다: 이 실험만 중단했다",
+  aborted_before_invoke: "호출 직전에 운영자 취소가 도착해 호출하지 않았다",
+  aborted_in_quiet_wait: "조용함 확인 대기 중 운영자 취소로 중단했다",
+  unknown_issue_state: "호출이 실제로 나갔는지 알 수 없다(proxy 기록 없음): 재발행하지 않고 무효로 닫았다",
+  skipped_arm_requested: "어댑터가 지원하지 않는 arm의 단계가 요청되어 중단했다",
+  foreign_traffic: "조용함 확인에서 다른 트래픽이 감지되어 중단했다",
+  checkpoint_anomalies_malformed: "체크포인트의 이상 기록을 읽을 수 없어 무효로 닫았다",
+  late_step: "허용 오차를 넘겨 늦게 발행될 단계라 무효로 닫았다",
+  refusal: "모델이 응답을 거부했다(캠페인 중단 규칙)",
+  model_mismatch: "응답 모델이 승인된 모델과 달랐다(캠페인 중단 규칙)",
+  status_not_allowed: "한도 상태가 allowed가 아니었다(캠페인 중단 규칙)",
+  http_error: "HTTP 오류 응답을 받았다(캠페인 중단 규칙)",
+  unexpected_request_count: "한 단계의 요청 수가 1이 아니었다(캠페인 중단 규칙)",
+  adapter_error: "CLI 어댑터가 실패해 결과를 신뢰할 수 없다",
+  cli_is_error: "CLI가 오류 결과를 보고했다",
+  cli_stdout_not_json: "CLI 출력이 JSON이 아니었다",
+  usage_missing: "응답에 사용량(usage)이 없었다",
+  response_error: "응답이 오류였다",
+  in_doubt_step: "결과가 확정되지 않은 단계가 있어 게이트가 거부했다",
+  unpredictable_call: "호출 비용을 예측할 수 없어 게이트가 거부했다",
+  meter_missing: "한도 계기 값이 없어 게이트가 거부했다",
+  reset_changed: "기준선 이후 한도 창이 바뀌어 게이트가 거부했다",
+  request_row_missing: "기록된 응답의 requests.jsonl 행이 없어(row_missing) 사용량을 읽을 수 없다",
 })
+// A code the machine recorded that has no entry above is still printed, and marked as recorded.
+const UNDESCRIBED_REASON_TEXT = "기계가 기록한 사유 코드(추가 설명 없음)"
+// Appendix B revision 2 (4), mirrored for a log no process ever resumed (todo 7 I17).
+const OPEN_AT_END_OF_LOG = "open_at_end_of_log"
+const OPEN_AT_END_TEXT = "로그가 이 실험 도중에 끝났다(experiment_ended도 재개 기록도 없다): 크래시로 중단된 실험으로 보고 무효로 닫았다"
 const CLOSED_STATUS_RANK = { void: 1, aborted: 2 }
 
 /**
- * The verdict the machine recorded for one experiment: the LAST experiment_ended per unit (a
- * resume re-states the verdicts it keeps, with source "resume"), and of those the worst closed one
- * (void or aborted, the machine's own ranking). A closed experiment is reported with that status
- * and reason, whatever its partial rows would have measured: a crash or a cancel ends it, and its
- * rows are not a complete protocol. Returns null when no unit was closed.
+ * The verdict one experiment is closed with, or null. Per unit (the `run` of a per-run job, null
+ * otherwise): the LAST experiment_ended is the machine's latest statement (a resume re-states the
+ * verdicts it keeps, with source "resume"); a unit whose experiment_started has NO later
+ * experiment_ended is still open at the end of the log - a crashed run nobody resumed - and is
+ * closed here as void:interrupted_by_crash (source "open_at_end_of_log"), exactly as a resume
+ * would close it (Appendix B revision 2 (4)). Of the closed units the worst wins (void < aborted,
+ * the machine's own ranking). A closed experiment is reported with that status and reason,
+ * whatever its partial rows would have measured: its rows are not a complete protocol.
  */
 function recordedVerdictOf(events, experiment) {
   const lastByUnit = new Map()
+  const openByUnit = new Map()
   for (const e of events ?? []) {
-    if (e?.ev === "experiment_ended" && e.experiment === experiment) lastByUnit.set(e.run ?? null, e)
+    if (e?.experiment !== experiment) continue
+    if (e.ev === "experiment_started") openByUnit.set(e.run ?? null, e)
+    else if (e.ev === "experiment_ended") {
+      // an end that names no run closes the unit opened last (a producer may omit `run`)
+      const unit = e.run ?? (openByUnit.size ? [...openByUnit.keys()].pop() : null)
+      lastByUnit.set(unit, e)
+      openByUnit.delete(unit)
+    }
   }
+  const open = [...openByUnit.values()].map((e) => ({ status: "void", reason: "interrupted_by_crash", run: e.run ?? null, source: OPEN_AT_END_OF_LOG, seq: e.seq ?? null }))
   let worst = null
-  for (const e of lastByUnit.values()) {
+  for (const e of [...lastByUnit.values(), ...open]) {
     const rank = CLOSED_STATUS_RANK[e.status]
     if (!rank || (worst && rank <= CLOSED_STATUS_RANK[worst.status])) continue
     worst = e
@@ -1301,7 +1346,7 @@ function recordedVerdictOf(events, experiment) {
  * A (ii): campaign_stop{cancelled} is written first; there may be no run_started and no request).
  * Null for an uninterrupted, unstopped run, so its analysis.json is unchanged.
  */
-export function campaignOf(events, records) {
+function campaignOf(events, records) {
   const evs = events ?? []
   const stops = evs
     .filter((e) => e?.ev === "campaign_stop")
@@ -1547,7 +1592,12 @@ const fmt = (x, digits = 6) => (typeof x === "number" && Number.isFinite(x) ? Nu
 const interval = (iv, digits = 6) => (iv && typeof iv.lo === "number" ? `[${fmt(iv.lo, digits)}, ${fmt(iv.hi, digits)}]` : "미측정")
 const qval = (field) => (field && field.value !== null && field.value !== undefined ? String(field.value) : `미상(${field?.reason ?? "unknown"})`)
 
-const verdict = (x) => `- 판정: ${x.status}${x.reason ? ` (${x.reason}${RECORDED_REASONS[x.reason] ? `: ${RECORDED_REASONS[x.reason]}` : ""})` : ""}`
+const reasonText = (x) => {
+  if (x.recordedVerdict?.source === OPEN_AT_END_OF_LOG) return OPEN_AT_END_TEXT
+  if (x.recordedVerdict) return REASON_TEXT[x.reason] ?? UNDESCRIBED_REASON_TEXT
+  return x.reason === "cancelled_before_start" ? REASON_TEXT.cancelled_before_start : null
+}
+const verdict = (x) => `- 판정: ${x.status}${x.reason ? ` (${x.reason}${reasonText(x) ? `: ${reasonText(x)}` : ""})` : ""}`
 
 export function renderMarkdown(analysis) {
   const L = []
@@ -1560,7 +1610,7 @@ export function renderMarkdown(analysis) {
   const c = analysis.campaign
   if (c) {
     const stops = c.stops.map((s) => `${s.reason}${s.experiment ? ` (${s.experiment})` : ""}`).join(", ")
-    L.push(`캠페인: ${c.status}${RECORDED_REASONS[c.reason] ? ` - ${RECORDED_REASONS[c.reason]}` : ""}. 프로세스 ${c.processes}개(재개 ${c.processes - 1}회), 요청 ${c.requests}건, 중단 기록: ${stops || "없음"}.`)
+    L.push(`캠페인: ${c.status}${REASON_TEXT[c.reason] ? ` - ${REASON_TEXT[c.reason]}` : ""}. 프로세스 ${c.processes}개(재개 ${c.processes - 1}회), 요청 ${c.requests}건, 중단 기록: ${stops || "없음"}.`)
   }
   L.push("")
   L.push("## 1. fable-write-tick (쓰기 tick)")
