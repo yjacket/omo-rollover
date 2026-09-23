@@ -4,7 +4,8 @@
 // model, usage, stop_reason, error, msg_id, body_bytes, headers) plus `stepId`
 // (request header x-idle-step) and `runId`. `label` = stepId when present, else the
 // contents of `labelFile`. Never logs Authorization, cookies, or bodies.
-// GET /__health -> { runId, logPath }.
+// GET /__health -> { runId, logPath }. The handle's readLog() returns every record of the log,
+// including those an earlier (crashed) process of the same run wrote.
 import fs from "node:fs"
 import http from "node:http"
 import https from "node:https"
@@ -70,10 +71,61 @@ function pickRatelimitHeaders(h) {
   return rl
 }
 
+/**
+ * Every record in a proxy.jsonl (this process's and any earlier process's of the same run).
+ * The corruption rule matches the machine's event log: only the LAST line may be torn - that is
+ * what a kill mid-append leaves - and it is ignored. A bad line anywhere before it means rows are
+ * missing from the middle of the evidence; skipping it would hide a paid call from in-doubt
+ * reconciliation, so it rejects with code `proxy_log_corrupt`. A log that does not exist yet is [].
+ */
+export async function readProxyLog(logPath) {
+  let text
+  try {
+    text = fs.readFileSync(logPath, "utf8")
+  } catch (e) {
+    if (e.code === "ENOENT") return []
+    throw e
+  }
+  const lines = text.split("\n")
+  const rows = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) continue
+    try {
+      rows.push(JSON.parse(line))
+    } catch (e) {
+      if (i === lines.length - 1) break
+      throw Object.assign(new Error(`${logPath} line ${i + 1} is not JSON: ${e.message}`), { code: "proxy_log_corrupt", line: i + 1 })
+    }
+  }
+  return rows
+}
+
+// A previous process of this run may have died mid-append. Appending after its unterminated tail
+// would glue the first new record onto it and turn a torn FINAL line into interior corruption, so
+// the tail is settled before the log is reopened: a torn fragment (the same row readProxyLog
+// ignores) is truncated away, a complete row that only lacks its newline gets one.
+function settleTail(logPath) {
+  let text
+  try {
+    text = fs.readFileSync(logPath, "utf8")
+  } catch (e) {
+    if (e.code === "ENOENT") return
+    throw e
+  }
+  if (text === "" || text.endsWith("\n")) return
+  const cut = text.lastIndexOf("\n") + 1
+  let complete = true
+  try { JSON.parse(text.slice(cut)) } catch { complete = false }
+  if (complete) fs.appendFileSync(logPath, "\n")
+  else fs.truncateSync(logPath, Buffer.byteLength(text.slice(0, cut), "utf8"))
+}
+
 export async function startProxy({ port, logPath, runId, labelFile, upstream = DEFAULT_UPSTREAM }) {
   const up = { ...DEFAULT_UPSTREAM, ...upstream }
   const transport = up.protocol === "https" ? https : http
   fs.mkdirSync(path.dirname(logPath), { recursive: true })
+  settleTail(logPath)
   const log = fs.openSync(logPath, "a")
   const records = []
 
@@ -143,6 +195,10 @@ export async function startProxy({ port, logPath, runId, labelFile, upstream = D
     runId,
     async drainSince(cursor = 0) {
       return { records: records.slice(cursor), cursor: records.length }
+    },
+    // The whole log, history included: drainSince only sees this process's records.
+    async readLog() {
+      return readProxyLog(logPath)
     },
     async close() {
       await new Promise((resolve) => server.close(resolve))

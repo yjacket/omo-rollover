@@ -12,6 +12,13 @@
 //   0 every experiment terminal | 2 preflight refusal | 3 aborted by a cap or a stop rule
 //   4 in doubt after a crash (resumable with --resume <runId>)
 //
+// A failure the machine does not report itself (a thrown error, a proxy that cannot bind) is
+// classified from the evidence dir's event log, never assumed resumable (Appendix B: only exit 4
+// is resumable): exit 4 only when the log holds a state --resume can act on (an in-doubt step, or
+// an experiment_started without experiment_ended); exit 2 when the log holds no run_started (bad
+// arguments, unwritable evidence dir, port in use, proxy start failure); exit 3 otherwise - the run
+// stopped live with nothing left for a resume to reconcile.
+//
 // Without --approval pointing at an APPROVED artifact nothing is issued: exit 2. The approval is
 // bound to the planner and proposal bytes by sha256, so plan drift refuses the run.
 import fs from "node:fs"
@@ -20,10 +27,10 @@ import crypto from "node:crypto"
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { runMachine, manifest, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
+import { runMachine, fold, manifest, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
 import { createClaudeCliAdapter } from "./idle-live/adapters/claude-cli.mjs"
-import { startProxy } from "./idle-live/proxy.mjs"
+import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
 import { EXPERIMENT_IDS } from "./idle-live/protocols.mjs"
@@ -33,19 +40,12 @@ const repo = path.resolve(here, "..")
 const PLANNER = path.join(repo, "scripts/idle-experiments.mjs")
 const PROPOSAL = path.join(repo, "docs/idle-experiments-approval-proposal.json")
 const DEFAULT_CLI = process.env.IDLE_LIVE_CLI ?? "claude"
+const HEALTH_TIMEOUT_MS = 2000
 
 const USAGE = `usage: node scripts/idle-live-runner.mjs --approval <file> --evidence <dir> [--resume <runId>] [--only <id>[,<id>]] [--dry-run] [--smoke] [--port <n>]`
 
 const sha256 = (text) => crypto.createHash("sha256").update(text, "utf8").digest("hex")
 const readText = (file) => fs.readFileSync(file, "utf8")
-const out = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`)
-
-/** One JSON line and the exit code; nothing else is ever printed to stdout. */
-function finish(summary, code) {
-  out(summary)
-  process.exitCode = code
-  return code
-}
 
 const refusal = (issues, extra = {}) => ({
   v: SUMMARY_VERSION,
@@ -139,42 +139,80 @@ function fakeDeps(capabilities) {
   }
 }
 
-// The proxy's JSONL log, read back for in-doubt reconciliation on --resume. startProxy() only
-// exposes the records of the CURRENT process, so the runner reads the file itself.
-export const proxyLogReader = (logPath) => ({
-  async records() {
-    let text
+// A proxy.jsonl reader for callers without a live proxy handle. The live runner does NOT use it:
+// the machine reads history through deps.proxy.readLog(). Same rule, same code (readProxyLog).
+export const proxyLogReader = (logPath) => ({ records: () => readProxyLog(logPath) })
+
+// Why the live run could not create `dir`, checked WITHOUT creating anything (the dry run must
+// leave no trace): the nearest existing ancestor must be a writable directory. null = creatable.
+function evidenceBlocker(dir) {
+  let p = path.resolve(dir)
+  for (;;) {
+    let st
     try {
-      text = fs.readFileSync(logPath, "utf8")
+      st = fs.statSync(p)
     } catch (e) {
-      if (e.code === "ENOENT") return []
-      throw e
+      if (e.code !== "ENOENT") return String(e.code ?? e.message)
+      const up = path.dirname(p)
+      if (up === p) return "ENOENT"
+      p = up
+      continue
     }
-    const lines = text.split("\n")
-    const rows = []
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (!line.trim()) continue
-      try {
-        rows.push(JSON.parse(line))
-      } catch (e) {
-        // Only the LAST line may be torn - that is what a kill mid-append leaves. A bad line
-        // anywhere before it means rows are missing from the middle of the evidence, and skipping
-        // it would hide a paid call from reconciliation.
-        if (i === lines.length - 1) break
-        throw Object.assign(new Error(`${logPath} line ${i + 1} is not JSON: ${e.message}`), { code: "proxy_log_corrupt", line: i + 1 })
-      }
+    if (!st.isDirectory()) return "ENOTDIR"
+    try {
+      fs.accessSync(p, fs.constants.W_OK)
+    } catch (e) {
+      return String(e.code ?? e.message)
     }
-    return rows
-  },
-})
+    return null
+  }
+}
+
+// ------------------------------------------------------- failure classification
+
+/**
+ * What the evidence dir's event log says a failure left behind. `started` is false when no
+ * run_started was ever written; `inDoubt` are issued steps the log never resolved and
+ * `interrupted` are experiments started and never ended - the two states --resume acts on
+ * (Appendix B, resume verdict contract revision 2, items 3 and 4). `unreadable` is set when the
+ * log exists but cannot be read or folded: nothing about it can be claimed.
+ */
+export function logState(evidenceDir) {
+  const none = { started: false, inDoubt: [], interrupted: [], paidRequests: 0, unreadable: null }
+  if (!evidenceDir) return none
+  let text
+  try {
+    text = fs.readFileSync(path.join(evidenceDir, "events.jsonl"), "utf8")
+  } catch (e) {
+    if (e.code === "ENOENT") return none
+    return { ...none, started: null, paidRequests: null, unreadable: String(e.code ?? e.message) }
+  }
+  let st
+  try {
+    st = fold(text)
+  } catch (e) {
+    return { ...none, started: null, paidRequests: null, unreadable: String(e.message) }
+  }
+  const interrupted = Object.entries(st.experiments).filter(([, x]) => x.status === "started").map(([key]) => key)
+  return { started: st.startedAt !== null, inDoubt: st.inDoubt.slice(), interrupted, paidRequests: st.paidRequests, unreadable: null }
+}
+
+/** The summary for a failure the machine did not report itself, classified from the log. */
+function classified(ctx, issues, extra = {}) {
+  const s = logState(ctx.evidenceDir)
+  const base = { runId: ctx.runId, evidenceDir: ctx.evidenceDir, paidRequestsIssued: s.paidRequests, inDoubt: s.inDoubt, interrupted: s.interrupted, ...extra }
+  if (s.unreadable) return refusal([...issues, "event_log_unreadable"], { ...base, exitCode: EXIT.ABORTED, logError: s.unreadable })
+  if (s.inDoubt.length || s.interrupted.length) return refusal(issues, { ...base, exitCode: EXIT.IN_DOUBT, resumable: true })
+  if (s.started) return refusal(issues, { ...base, exitCode: EXIT.ABORTED })
+  return refusal(issues, { ...base, exitCode: EXIT.PREFLIGHT })
+}
 
 // ------------------------------------------------------------ schedule table
 
-function printSchedule(schedule, skippedArms) {
+function printSchedule(write, schedule, skippedArms) {
   const ms = (v) => (v >= 3600_000 ? `${(v / 3600_000).toFixed(1)}h` : `${Math.round(v / 60_000)}m`)
-  const line = (c) => process.stdout.write(`# ${c.join("  ")}\n`)
-  process.stdout.write("# idle-live dry run: preflight only, paidRequestsIssued=0\n")
+  const line = (c) => write(`# ${c.join("  ")}\n`)
+  write("# idle-live dry run: preflight only, paidRequestsIssued=0\n")
   line(["ord", "experiment".padEnd(22), "unit ", "n", "calls(exp/max)", "wall  ", "perIdle", "perPlan", "largest call"])
   for (const r of schedule) {
     line([
@@ -196,20 +234,51 @@ function printSchedule(schedule, skippedArms) {
 
 // ---------------------------------------------------------------------- main
 
-export async function main(argv = process.argv.slice(2)) {
+/**
+ * main(argv, io) -> exit code. Prints exactly one JSON summary line; never throws for a failure
+ * it can classify. `io` is a TEST SEAM: tests replace the process/network effects (stdout,
+ * stderr, startProxy, runMachine, createAdapter, conflicting, fetch) so main can be driven
+ * without spawning, binding a real upstream, or paying. The CLI passes nothing.
+ */
+export async function main(argv = process.argv.slice(2), io = {}) {
+  const env = {
+    stdout: (s) => process.stdout.write(s),
+    stderr: (s) => process.stderr.write(s),
+    startProxy,
+    runMachine,
+    createAdapter: createClaudeCliAdapter,
+    conflicting,
+    fetch: (...args) => globalThis.fetch(...args),
+    ...io,
+  }
+  const ctx = { runId: null, evidenceDir: null }
+  const finish = (summary) => {
+    env.stdout(`${JSON.stringify(summary)}\n`)
+    return summary.exitCode
+  }
+  try {
+    return await run(argv, env, ctx, finish)
+  } catch (e) {
+    const s = logState(ctx.evidenceDir)
+    const issue = s.started === false ? "runner_crashed_before_run_started" : "runner_crashed"
+    return finish(classified(ctx, [issue], { detail: String(e?.message ?? e) }))
+  }
+}
+
+async function run(argv, env, ctx, finish) {
   const parsed = parseArgs(argv)
   if (parsed.error) {
-    process.stderr.write(`${USAGE}\n`)
-    return finish(refusal([parsed.error], { arg: parsed.arg ?? null }), EXIT.PREFLIGHT)
+    env.stderr(`${USAGE}\n`)
+    return finish(refusal([parsed.error], { arg: parsed.arg ?? null }))
   }
   const opts = parsed.opts
   if (opts.help) {
-    process.stderr.write(`${USAGE}\n`)
-    return finish(refusal(["help"]), EXIT.PREFLIGHT)
+    env.stderr(`${USAGE}\n`)
+    return finish(refusal(["help"]))
   }
   if (!opts.approval) {
-    process.stderr.write(`${USAGE}\n`)
-    return finish(refusal(["no_approval"]), EXIT.PREFLIGHT)
+    env.stderr(`${USAGE}\n`)
+    return finish(refusal(["no_approval"]))
   }
 
   // 1. approval: parsed, signed, current, and bound to the planner + proposal bytes.
@@ -217,18 +286,18 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     approvalText = readText(opts.approval)
   } catch (e) {
-    return finish(refusal(["approval_unreadable"], { detail: String(e.code ?? e.message) }), EXIT.PREFLIGHT)
+    return finish(refusal(["approval_unreadable"], { detail: String(e.code ?? e.message) }))
   }
   let approvalJson = null
   try {
     approvalJson = JSON.parse(approvalText)
   } catch {
-    return finish(refusal(["approval_not_json"]), EXIT.PREFLIGHT)
+    return finish(refusal(["approval_not_json"]))
   }
   const plannerSource = readText(PLANNER)
   const proposalJson = readText(PROPOSAL)
   const check = loadApproval(approvalJson, { now: Date.now(), plannerSource, proposalJson })
-  if (!check.ok) return finish(refusal(check.issues, { approvalPath: opts.approval }), EXIT.PREFLIGHT)
+  if (!check.ok) return finish(refusal(check.issues, { approvalPath: opts.approval }))
   const approval = check.approval
   const shas = { plannerSha256: sha256(plannerSource), proposalSha256: sha256(proposalJson) }
 
@@ -236,24 +305,34 @@ export async function main(argv = process.argv.slice(2)) {
 
   // 2. dry run: preflight on fake deps. Nothing is created, nothing is spawned, nothing is paid.
   if (opts.dryRun) {
+    if (opts.evidence) {
+      const blocker = evidenceBlocker(opts.evidence)
+      if (blocker) return finish(refusal(["evidence_dir_unwritable"], { evidenceDir: path.resolve(opts.evidence), detail: blocker }))
+    }
     const deps = fakeDeps(capabilities)
-    const summary = await runMachine(deps, approval, {
+    const summary = await env.runMachine(deps, approval, {
       runId: "dry-run",
       evidenceDir: null,
       dryRun: true,
       only: opts.only,
       ...shas,
     })
-    if (summary.exitCode === EXIT.OK) printSchedule(summary.schedule, summary.experiments && deps.ledger.fold().events.find((e) => e.ev === "preflight")?.skippedArms)
-    return finish({ ...summary, evidenceDirCreated: false }, summary.exitCode)
+    if (summary.exitCode === EXIT.OK) printSchedule(env.stdout, summary.schedule, summary.experiments && deps.ledger.fold().events.find((e) => e.ev === "preflight")?.skippedArms)
+    return finish({ ...summary, evidenceDirCreated: false })
   }
 
-  if (!opts.evidence) return finish(refusal(["no_evidence_dir"]), EXIT.PREFLIGHT)
+  if (!opts.evidence) return finish(refusal(["no_evidence_dir"]))
 
   // 3. live run (or --smoke): evidence directory, proxy, adapter, ledger.
   const runId = opts.resume ?? new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")
   const evidenceDir = path.resolve(opts.evidence, runId)
-  fs.mkdirSync(evidenceDir, { recursive: true })
+  ctx.runId = runId
+  try {
+    fs.mkdirSync(evidenceDir, { recursive: true })
+  } catch (e) {
+    return finish(refusal(["evidence_dir_unwritable"], { runId, evidenceDir, detail: String(e.code ?? e.message) }))
+  }
+  ctx.evidenceDir = evidenceDir
   const manifestPath = path.join(evidenceDir, "run.json")
   if (opts.resume) {
     // The recorded manifest must still describe THIS approval (Appendix B "Checkpoint / resume").
@@ -261,10 +340,10 @@ export async function main(argv = process.argv.slice(2)) {
     try {
       recorded = JSON.parse(readText(manifestPath))
     } catch {
-      return finish(refusal(["resume_manifest_missing"], { evidenceDir }), EXIT.PREFLIGHT)
+      return finish(refusal(["resume_manifest_missing"], { evidenceDir }))
     }
     if (recorded.approval?.sha256 !== sha256(approvalText) || recorded.approval?.plannerSha256 !== shas.plannerSha256) {
-      return finish(refusal(["resume_approval_drift"], { evidenceDir }), EXIT.PREFLIGHT)
+      return finish(refusal(["resume_approval_drift"], { evidenceDir }))
     }
     if (!opts.port && Number.isInteger(recorded.proxyPort)) opts.port = recorded.proxyPort
   }
@@ -273,52 +352,56 @@ export async function main(argv = process.argv.slice(2)) {
   const labelFile = path.join(evidenceDir, "label.txt")
   let proxy
   try {
-    proxy = await startProxy({ port: opts.port, logPath, runId, labelFile })
+    proxy = await env.startProxy({ port: opts.port, logPath, runId, labelFile })
   } catch (e) {
-    // EADDRINUSE: another runner may own this port. It is only ours if it answers with our runId.
-    if (e.code !== "EADDRINUSE") throw e
-    const health = await fetch(`http://127.0.0.1:${opts.port}/__health`).then((r) => r.json()).catch(() => null)
-    const code = health?.runId === runId ? EXIT.IN_DOUBT : EXIT.IN_DOUBT
-    return finish({ ...refusal(["proxy_port_in_use"], { evidenceDir, health }), exitCode: code, resumable: true }, code)
+    if (e.code !== "EADDRINUSE") return finish(classified(ctx, ["proxy_start_failed"], { detail: String(e.code ?? e.message) }))
+    // The port answering with OUR runId is a live runner of this same run: a second one must never
+    // start beside it. Any other answer (or none) is a foreign owner. Either way this process issues
+    // nothing, and whether the run is resumable is what the log says - not the port.
+    const health = await env.fetch(`http://127.0.0.1:${opts.port}/__health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
+      .then((r) => r.json())
+      .catch(() => null)
+    const issue = health?.runId === runId ? "proxy_port_held_by_this_run" : "proxy_port_in_use"
+    return finish(classified(ctx, [issue], { health }))
   }
 
-  const ledger = openLedger(evidenceDir)
-  const adapter = createClaudeCliAdapter({ cli: DEFAULT_CLI, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile })
   const controller = new AbortController()
   const onSignal = () => controller.abort()
-  process.on("SIGINT", onSignal)
-  process.on("SIGTERM", onSignal)
-
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest({
-    runId,
-    evidenceDir,
-    startedAt: new Date().toISOString(),
-    approvalPath: path.resolve(opts.approval),
-    approvalSha256: sha256(approvalText),
-    plannerSha256: shas.plannerSha256,
-    proposalSha256: shas.proposalSha256,
-    adapter: adapter.capabilities,
-    cliVersion: process.env.IDLE_LIVE_CLI_VERSION ?? null,
-    model: approval.target.modelId,
-    order: approval.order,
-    proxyPort: proxy.port,
-    resumedFrom: opts.resume ?? null,
-  }), null, 2)}\n`)
-
-  const deps = {
-    clock: realClock,
-    adapter,
-    proxy,
-    proxyLog: proxyLogReader(logPath),
-    ledger,
-    processes: { conflicting: () => conflicting() },
-    random: { uuid: () => crypto.randomUUID(), seed: () => crypto.randomInt(1, 2 ** 31 - 1) },
-    log: (line) => process.stderr.write(`${line}\n`),
-  }
-
   let summary
   try {
-    summary = await runMachine(deps, approval, {
+    const ledger = openLedger(evidenceDir)
+    const adapter = env.createAdapter({ cli: DEFAULT_CLI, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile })
+    process.on("SIGINT", onSignal)
+    process.on("SIGTERM", onSignal)
+
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest({
+      runId,
+      evidenceDir,
+      startedAt: new Date().toISOString(),
+      approvalPath: path.resolve(opts.approval),
+      approvalSha256: sha256(approvalText),
+      plannerSha256: shas.plannerSha256,
+      proposalSha256: shas.proposalSha256,
+      adapter: adapter.capabilities,
+      cliVersion: process.env.IDLE_LIVE_CLI_VERSION ?? null,
+      model: approval.target.modelId,
+      order: approval.order,
+      proxyPort: proxy.port,
+      resumedFrom: opts.resume ?? null,
+    }), null, 2)}\n`)
+
+    // In-doubt reconciliation reads the historical proxy.jsonl through deps.proxy.readLog().
+    const deps = {
+      clock: realClock,
+      adapter,
+      proxy,
+      ledger,
+      processes: { conflicting: () => env.conflicting() },
+      random: { uuid: () => crypto.randomUUID(), seed: () => crypto.randomInt(1, 2 ** 31 - 1) },
+      log: (line) => env.stderr(`${line}\n`),
+    }
+
+    summary = await env.runMachine(deps, approval, {
       runId,
       evidenceDir,
       resume: opts.resume ? runId : null,
@@ -333,12 +416,17 @@ export async function main(argv = process.argv.slice(2)) {
     process.off("SIGTERM", onSignal)
     await proxy.close()
   }
-  return finish(summary, summary.exitCode)
+  return finish(summary)
 }
 
 if (import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}` || process.argv[1]?.endsWith("idle-live-runner.mjs")) {
-  main().catch((e) => {
-    out({ ...refusal(["runner_crashed"], { detail: String(e?.message ?? e) }), exitCode: EXIT.IN_DOUBT, resumable: true })
-    process.exitCode = EXIT.IN_DOUBT
-  })
+  // main() classifies every failure itself; this guard only fires if printing the summary failed,
+  // so nothing about the run can be claimed - in particular not that it is resumable.
+  main().then(
+    (code) => { process.exitCode = code },
+    (e) => {
+      process.stdout.write(`${JSON.stringify({ ...refusal(["runner_crashed_unclassified"], { detail: String(e?.message ?? e), paidRequestsIssued: null }), exitCode: EXIT.ABORTED })}\n`)
+      process.exitCode = EXIT.ABORTED
+    },
+  )
 }

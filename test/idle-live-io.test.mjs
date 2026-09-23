@@ -527,3 +527,62 @@ test("processes.conflicting parses tasklist CSV and ignores the header / no-task
   await assert.rejects(conflicting({ exec: failing }), /boom/)
   assert.ok(!existsSync(path.join(os.tmpdir(), "never-created-marker-idle-live")))
 })
+
+// I3: in-doubt reconciliation on --resume needs the HISTORICAL proxy.jsonl (rows a crashed
+// process wrote), not only the records the current process can drain.
+const jsonUpstream = (req, body, res) => {
+  res.writeHead(200, { "content-type": "application/json", ...RL_HEADERS })
+  res.end(JSON.stringify({ id: "msg_new", type: "message", model: "claude-test", usage: { input_tokens: 3, output_tokens: 1 }, stop_reason: "end_turn" }))
+}
+
+test("proxy: readLog returns every record of the run's proxy.jsonl, including a previous process's, and drops only a torn final line", async () => {
+  const dir = tmpDir()
+  try {
+    const logPath = path.join(dir, "proxy.jsonl")
+    const old = (i) => JSON.stringify({ stepId: `old/${i}`, msg_id: `m${i}`, runId: "run-1" })
+    // The previous process was killed mid-append: two complete rows and a torn tail.
+    writeFileSync(logPath, `${old(1)}\n${old(2)}\n{"stepId":"old/3","msg`)
+    await withUpstream(jsonUpstream, (upstream) =>
+      withProxy(upstream, dir, async (handle) => {
+        assert.deepEqual((await handle.readLog()).map((r) => r.msg_id), ["m1", "m2"], "stale rows are read, the torn tail is not")
+        assert.deepEqual((await handle.drainSince(0)).records, [], "drainSince stays this-process-only")
+        const res = await post(handle.port, JSON.stringify({ model: "claude-test" }), { "x-idle-step": "new/1" })
+        await res.text()
+        const rows = await handle.readLog()
+        assert.deepEqual(rows.map((r) => r.msg_id), ["m1", "m2", "msg_new"], "the new record follows the history and is never glued to the torn tail")
+        assert.equal(rows[2].stepId, "new/1")
+      }),
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("proxy: readLog rejects interior corruption, keeps a complete unterminated last row, and reads an empty log as []", async () => {
+  const dir = tmpDir()
+  try {
+    const logPath = path.join(dir, "proxy.jsonl")
+    const row = (i) => JSON.stringify({ stepId: `s/${i}`, msg_id: `m${i}` })
+    await withUpstream(jsonUpstream, async (upstream) => {
+      await withProxy(upstream, dir, async (handle) => {
+        assert.deepEqual(await handle.readLog(), [], "a fresh log is empty, not corrupt")
+      })
+      writeFileSync(logPath, `${row(1)}\n{"stepId":"s/2","msg\n${row(3)}\n`)
+      await withProxy(upstream, dir, async (handle) => {
+        await assert.rejects(() => handle.readLog(), (e) => {
+          assert.equal(e.code, "proxy_log_corrupt")
+          assert.match(e.message, /line 2/)
+          return true
+        }, "a corrupt interior line would hide a paid call from reconciliation")
+      })
+      writeFileSync(logPath, `${row(1)}\n${row(2)}`) // complete last row, no newline
+      await withProxy(upstream, dir, async (handle) => {
+        const res = await post(handle.port, JSON.stringify({ model: "claude-test" }), { "x-idle-step": "s/3" })
+        await res.text()
+        assert.deepEqual((await handle.readLog()).map((r) => r.msg_id), ["m1", "m2", "msg_new"])
+      })
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
