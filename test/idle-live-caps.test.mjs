@@ -173,7 +173,7 @@ test("predictedTicks tier 3: 1 tick for unpriced small calls, unpredictable othe
   const huge = step({ kind: "probe", dominantField: "cacheWrite5m", prompt: { tokensEst: 20001 } })
   assert.equal(predictedTicks(huge, PRIOR_RANGE_ONLY, 20000).ticks, "unpredictable")
   // no priors at all and above the unpriced bound -> unpredictable
-  assert.equal(predictedTicks(step(), [], {}, 20000).ticks, "unpredictable")
+  assert.equal(predictedTicks(step(), {}, 20000).ticks, "unpredictable")
   // malformed tokensEst -> unpredictable, no throw
   assert.equal(predictedTicks(step({ prompt: { tokensEst: NaN } }), PRIOR_RANGE_ONLY, 20000).ticks, "unpredictable")
   assert.equal(predictedTicks(step({ prompt: undefined }), PRIOR_RANGE_ONLY, 20000).ticks, "unpredictable")
@@ -185,11 +185,6 @@ test("predictedTicks: output-dominated calls use the output target and the outpu
   assert.equal(p.tier, 2)
   assert.equal(p.ticks, 1) // 8000 * 2.5 / 102000 < 1
 })
-
-// Tier 1 (plan todo 7, I2/I8). A call of W tokens that moved the gauge n ticks bounds the price
-// T > W/(n+1). Every valid bound holds at once, so the tightest (max) is the one to use - but only
-// from settled observations of the step's own kind and dominant field, and never below the price
-// the step gets without any observation.
 
 // ------------------------------------------------------------------ scopes
 
@@ -333,6 +328,53 @@ test("gate treats a scope not yet in state as fresh (zero spend) and says so", (
   const idle = r.accounting.caps.find((c) => c.scope === "idle:fable-write-tick/block-1")
   assert.equal(idle.fresh, true)
   near(idle.spentObservedEq, 0)
+})
+
+// I18, user decision A (2026-09-25): the gate projects OBSERVED spend,
+//   projectedEq = spentObservedEq + predictedEq <= cap,
+// so a step that lands exactly on its cap is admitted and a scope can end at most one gauge tick
+// (0.01, the instrument's resolution) above it. Cumulative meter spend counts a CLOSED reset window
+// at its upper bound and the CURRENT window as observed.
+const OUT_STEP = step({ id: "output-quota/block-1/9", experiment: "output-quota", arm: "block-1" })
+function outputBlockAt(latest) {
+  const s = stateFor({ baseline: 0.12, latest: 0.12 })
+  s.scopes["output-quota/block-1"] = { meter: "unified-5h", baseline: reading(0.12), latest: reading(latest), closedWindows: [] }
+  s.scopes["plan:output-quota"] = { meter: "unified-5h", baseline: reading(0.12), latest: reading(latest), closedWindows: [] }
+  return s
+}
+const idleEntry = (r) => r.accounting.caps.find((c) => c.scope === "idle:output-quota/block-1")
+
+test("I18 a projection that lands exactly on the cap is admitted: observed 0.02 + predicted 0.01 vs 0.03", () => {
+  const r = gate(OUT_STEP, outputBlockAt(0.14), APPROVAL, PRIOR_RANGE_ONLY)
+  const e = idleEntry(r)
+  assert.equal(r.ok, true, JSON.stringify(r.reasons))
+  assert.deepEqual([e.capEq, e.spentObservedEq, e.spentUpperEq, e.projectedEq], [0.03, 0.02, 0.03, 0.03])
+})
+
+test("I18 a projection of cap + 0.01 is refused on its scope", () => {
+  const r = gate(OUT_STEP, outputBlockAt(0.15), APPROVAL, PRIOR_RANGE_ONLY)
+  const tripped = r.reasons.filter((x) => x.code === "cap_exceeded")
+  assert.equal(r.ok, false)
+  assert.deepEqual(tripped.map((x) => [x.scope, x.capEq, x.spentObservedEq, x.projectedEq]), [["idle:output-quota/block-1", 0.03, 0.03, 0.04]])
+})
+
+test("I18 cumulative meter spend: closed windows at upper, the current window at observed", () => {
+  // no campaign stop, so the per-meter cap is the only cap on unified-7d
+  const approval = { ...APPROVAL, campaignStop: {} }
+  const at = (latest) => {
+    const s = stateFor({ baseline: 0.12, latest: 0.12 })
+    // closed window: observed 0.02 -> upper 0.03; current window: observed 0.08 (or 0.09)
+    s.meters["unified-7d"] = { baseline: reading(0.1), latest: reading(latest), closedWindows: [{ baseline: reading(0.3, R5 - 18000), latest: reading(0.32, R5 - 18000) }] }
+    return gate(step(), s, approval, PRIOR_RANGE_ONLY)
+  }
+  const meterEntry = (r) => r.accounting.caps.find((c) => c.scope === "meter:unified-7d")
+  const fits = at(0.18)
+  assert.equal(fits.ok, true, JSON.stringify(fits.reasons))
+  const e = meterEntry(fits)
+  assert.deepEqual([e.capEq, e.closedWindowsUpperEq, e.spentObservedEq, e.spentUpperEq, e.projectedEq], [0.12, 0.03, 0.11, 0.12, 0.12])
+  const over = at(0.19)
+  assert.equal(over.ok, false)
+  assert.deepEqual(over.reasons.filter((x) => x.code === "cap_exceeded").map((x) => [x.scope, x.projectedEq]), [["meter:unified-7d", 0.13]])
 })
 
 // ------------------------------------------------------------------- gauge

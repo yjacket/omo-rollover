@@ -456,9 +456,9 @@ export function fold(events) {
         const s = st.steps[e.stepId] ?? { state: "intent", experiment: e.experiment, run: e.run ?? null, intent: null }
         st.steps[e.stepId] = { ...s, state: "result", source: e.source ?? "adapter", event: e }
         st.results.push(e)
-        // a response may have produced more than one request row (an extra request, or a
-        // multi-row reconciliation); the event carries the true multiplicity
-        const n = Number.isInteger(e.accounting?.requestCount) && e.accounting.requestCount > 0 ? e.accounting.requestCount : 1
+        // a response may have been more than one paid call (an extra request, or a multi-row
+        // reconciliation) or none (a call the proxy never logged); the event carries the count
+        const n = paidOf(e)
         x.paidRequests += n
         st.paidRequests += n
         break
@@ -480,10 +480,6 @@ export function fold(events) {
         const x = expOf(e.experiment, e.run)
         x.status = e.status ?? null
         x.reason = e.reason ?? null
-        // The experiment's OWN count of the calls it paid for. `paidRequests` above counts every
-        // step_result, including the one that ended it; the two differ by exactly that step, and
-        // a resumed summary must report the same number the uninterrupted run reported.
-        if (Number.isFinite(e.paidRequests)) x.endedPaid = e.paidRequests
         break
       }
       case "run_ended":
@@ -503,6 +499,12 @@ export function fold(events) {
   }
   return st
 }
+
+// The paid calls one recorded step_result stands for: the proxy records drained for it, which is
+// `accounting.requestCount` - 0 for a call the proxy never logged (the proxy is in the request
+// path, so it was not paid). Only an event without a readable count is charged as one call. The
+// live summary, the fold and a resumed run total all read a step through this one function.
+const paidOf = (e) => (Number.isInteger(e.accounting?.requestCount) && e.accounting.requestCount >= 0 ? e.accounting.requestCount : 1)
 
 // --------------------------------------------------------- meters and scopes
 
@@ -586,12 +588,6 @@ function applyReading(st, headers) {
   return out
 }
 
-/**
- * The clock a resumed run walks on. While there is still a recorded outcome to serve, time is the
- * time the LOG recorded: the machine must not sleep out a wait it already waited, and must not
- * judge a recorded step late because the operator restarted an hour later. The moment the log runs
- * out, both fall back to the real injected clock and the run is live again.
- */
 // Appendix B revision 2: a resumed run does not replay the campaign, so there is exactly ONE
 // clock - the real one. No decision is ever taken against a recorded timestamp.
 const nowOf = (st) => st.deps.clock.now()
@@ -601,7 +597,7 @@ const spendOf = (sc) => (sc ? { observedEq: eq(sc.ticks * RESOLUTION), upperEq: 
 
 /**
  * The cap gate is fed the PRIOR only - caps.mjs `predictedTicks` tier 2 - and never an in-run
- * observation (its tier 1).
+ * observation: caps.mjs has no path that learns a price from one.
  *
  * A response that reports no tick of its own does NOT prove it cost less than a tick: Appendix A
  * delayed accounting lets the gauge post a call's charge several calls later, so an immediate
@@ -755,10 +751,11 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   const adapterFailure = invokeError ?? (isObject(res?.error) ? res.error : null)
   if (adapterFailure && own.length === 0) {
     // The cancel, if any, is already recorded above; this call stays in doubt (exit 4) until
-    // proxy.jsonl settles it.
+    // proxy.jsonl settles it. What ended the EXPERIMENT is the cancel when there was one (I16,
+    // clarification A (ii)) - the call's own uncertainty is its step_void.
     emit(st, { ev: "step_void", ...META_OF(step), reason: "unknown_issue_state", inDoubt: true, error: adapterFailure })
     st.inDoubt.push(step.id)
-    return { fatal: { status: "void", reason: "unknown_issue_state" }, stop: true, inDoubt: true }
+    return { fatal: { status: "void", reason: cancelled ? "cancelled" : "unknown_issue_state" }, stop: true, inDoubt: true }
   }
 
   const p = own[0] ?? null
@@ -861,12 +858,14 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     exitCode: Number.isFinite(res?.exitCode) ? res.exitCode : null,
     anomalies,
   }
-  st.deps.ledger.writeRequestRecord(record)
-  // Every drained response is a call that was paid for. A step that produced more than one - the
-  // `unexpected_request_count` case - keeps each of them as its own requests.jsonl row, the way a
-  // multi-row reconciliation does, so the rows on disk are the calls that happened and the
-  // run-level count can be read off them.
+  // Every drained response is a call that was paid for, and gets exactly ONE requests.jsonl row.
+  // A step that produced more than one - the `unexpected_request_count` case - keeps each of them
+  // as its own row, the way a multi-row reconciliation does. The step's own row is the primary;
+  // when no drained record is the step's own (an unlabelled record) there is no primary, and the
+  // drained records are the rows. Only a call the proxy never logged writes the primary alone, as
+  // the evidence of what the CLI reported - with `requestCount` 0, because it was never paid.
   const extras = records.filter((r) => r !== p)
+  if (p || extras.length === 0) st.deps.ledger.writeRequestRecord(record)
   for (const x of extras) {
     st.deps.ledger.writeRequestRecord({
       ...record,
@@ -879,7 +878,6 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
       accounting: { ...record.accounting, source: "extra_request" },
     })
   }
-  const rows = 1 + extras.length
   const text = typeof res?.stdoutJson?.result === "string" ? res.stdoutJson.result : (typeof res?.stdoutJson?.text === "string" ? res.stdoutJson.text : null)
   // Assistant text is needed to score restore/policy quality; it is synthetic and never a prompt.
   if (step.needsText) {
@@ -911,8 +909,9 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   // The call keeps its own evidence in its step_result anomalies, and a stop rule it carried is
   // still read from there by `campaignStopOf`; what changes is only the reason the experiment
   // reports, so the analyzer does not blame the adapter for a run the operator stopped (I16).
-  if (cancelled) return { result, rows, fatal: { status: "void", reason: "cancelled" }, stop: true }
-  return v ? { result, rows, fatal: { status: v.status, reason: v.reason }, stop: v.stop } : { result, rows }
+  const paid = records.length
+  if (cancelled) return { result, paid, fatal: { status: "void", reason: "cancelled" }, stop: true }
+  return v ? { result, paid, fatal: { status: v.status, reason: v.reason }, stop: v.stop } : { result, paid }
 }
 
 /**
@@ -1012,13 +1011,8 @@ function stopCampaign(st, { meter = null, reason, experiment = null, run = null,
   emit(st, { ev: "campaign_stop", meter, reason, experiment, run, ...(stepId ? { stepId } : {}) })
 }
 
+// `anomalies` is the string array runStep builds for the call it just made (its only caller).
 function verdictOf(anomalies) {
-  // Malformed either way: not an array, or an array carrying something that is not an anomaly
-  // name. `["adapter_error"]` is a verdict; `[{code:"adapter_error"}]` is an unreadable record of
-  // one, and reading it as "no anomalies" would replay a failed call as clean.
-  if (!Array.isArray(anomalies) || anomalies.some((a) => typeof a !== "string")) {
-    return { status: "void", reason: "checkpoint_anomalies_malformed", stop: false }
-  }
   const stopRule = anomalies.find((a) => CAMPAIGN_FATAL.has(a)) ?? null
   if (stopRule) return { status: "aborted", reason: stopRule, stop: true }
   const delivery = anomalies.find((a) => DELIVERY_FAILURE.has(a)) ?? null
@@ -1201,9 +1195,9 @@ function pooledRandom(st, job, pool) {
 const RANK = { valid: 0, upper_bound: 1, skipped: 1, not_run: 2, void: 3, aborted: 4 }
 const CAMPAIGN_FATAL = new Set(["refusal", "model_mismatch", "status_not_allowed", "http_error", "unexpected_request_count"])
 // The call did happen but nothing trustworthy came back: the adapter failed, the CLI did not
-// report itself, the response carried no usage, or the checkpoint of it is malformed. The window
-// is not a measurement, so the experiment is void with that reason - never valid.
-const DELIVERY_FAILURE = new Set(["adapter_error", "cli_is_error", "cli_stdout_not_json", "usage_missing", "response_error", "checkpoint_anomalies_malformed"])
+// report itself, or the response carried no usage or an error. The window is not a measurement,
+// so the experiment is void with that reason - never valid.
+const DELIVERY_FAILURE = new Set(["adapter_error", "cli_is_error", "cli_stdout_not_json", "usage_missing", "response_error"])
 // The ExperimentResult as it goes into the log: per-step rows live in their own events, and the
 // dial prefix is a PROMPT - only its hash may be recorded (Appendix B: never write prompt text).
 const stripSteps = (result) => {
@@ -1235,9 +1229,10 @@ async function runExperiment(st, job) {
   emit(st, {
     ev: "experiment_started", experiment: id,
     // Appendix B: {t0, baselines, seeds, sessionIds} at the TOP LEVEL - that is where the
-    // analyzer reads the ground truth from (seedOf/makeTask). `pool` stays for resume, which
-    // replays the draws from it. The `run` key is OMITTED for a job that is not per-run: the
-    // analyzer indexes a multi-unit experiment by position and skips any event that has one.
+    // analyzer reads the ground truth from (seedOf/makeTask). `pool` records the draws so the
+    // log alone can rebuild them (a resume never continues this experiment). The `run` key is
+    // OMITTED for a job that is not per-run: the analyzer indexes a multi-unit experiment by
+    // position and skips any event that has one.
     ...(job.run == null ? {} : { run: job.run }),
     t0: exp.t0, baselines: exp.baselines, seeds: [...pool.seeds], sessionIds: [...pool.uuids], pool,
     mode: { ...st.mode }, carryPhase: carry, dialPrefix: st.dialPrefix ? { seed: st.dialPrefix.seed, sessionId: st.dialPrefix.sessionId } : null,
@@ -1267,9 +1262,9 @@ async function runExperiment(st, job) {
     const step = next.value
     exp.steps.push({ id: step.id, arm: step.arm, role: step.role, unit: step.unit, index: step.index })
     const r = await runStep(st, exp, step)
-    // What the experiment paid is what it recorded: the request rows this step wrote, counted
-    // before the verdict, because a call that ended the experiment was still a paid call.
-    exp.paid += r.rows ?? 0
+    // What the experiment paid is what the proxy logged for this step (one request row each),
+    // counted before the verdict, because a call that ended the experiment was still a paid call.
+    exp.paid += r.paid ?? 0
     if (r.fatal) {
       result = { experiment: id, status: r.fatal.status, reason: r.fatal.reason }
       stop = r.stop === true
@@ -1437,7 +1432,7 @@ async function resumeFromLog(st) {
     // stays conservative (one tick), but silence would let a truncated evidence dir look clean:
     // the resume says which call it could not read and what it charged for it instead.
     if (!rec) emit(st, { ev: "row_missing", stepId: ev.stepId, experiment: ev.experiment ?? null, run: ev.run ?? null, anomalies: ["request_row_missing"], charged, source: "resume" })
-    st.paidRequests += Number.isInteger(ev.accounting?.requestCount) && ev.accounting.requestCount > 0 ? ev.accounting.requestCount : 1
+    st.paidRequests += paidOf(ev)
   }
 
   // (3) an issuance the log never resolved: reconcile from proxy.jsonl (its spend is attributed
@@ -1461,7 +1456,7 @@ async function resumeFromLog(st) {
   const done = new Map()
   const interrupted = new Set()
   for (const [key, x] of Object.entries(settled.experiments)) {
-    if (x.status && x.status !== "started") done.set(key, { status: x.status, reason: x.reason, paidRequests: x.endedPaid ?? x.paidRequests })
+    if (x.status && x.status !== "started") done.set(key, { status: x.status, reason: x.reason })
     else if (x.status === "started") interrupted.add(key)
   }
   // (iii) every id THIS process issues is absent from the log. The fresh preflight and any reset
@@ -1663,7 +1658,9 @@ export async function runMachine(deps, approval, opts = {}) {
       reported.add(job.key)
       st.experiments[job.experiment] ??= { status: null, reason: null, paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, runs: [] }
       const agg = st.experiments[job.experiment]
-      agg.paidRequests += prior?.paidRequests ?? st.resume.paidByJob[job.key] ?? 0
+      // this JOB's own paid calls, read from the settled log (reconciled rows included)
+      const jobPaid = st.resume.paidByJob[job.key] ?? 0
+      agg.paidRequests += jobPaid
       agg.runs.push({ run: job.run ?? null, status, reason })
       if (agg.status === null || (RANK[status] ?? 0) > (RANK[agg.status] ?? 0)) {
         agg.status = status
@@ -1674,7 +1671,10 @@ export async function runMachine(deps, approval, opts = {}) {
       const reportedSpend = spendOf(st.scopes[`plan:${job.experiment}`])
       agg.spentObservedEq = reportedSpend.observedEq
       agg.spentUpperEq = reportedSpend.upperEq
-      emit(st, { ev: "experiment_ended", experiment: job.experiment, ...(job.run == null ? {} : { run: job.run }), status, reason, paidRequests: agg.paidRequests, source: "resume" })
+      // Only the job this resume CLOSES gets a verdict event. A job whose experiment_ended is
+      // already in the log keeps that verdict (revision 2 (1)); stating it again on every resume
+      // only grows the log.
+      if (!prior) emit(st, { ev: "experiment_ended", experiment: job.experiment, ...(job.run == null ? {} : { run: job.run }), status, reason, paidRequests: jobPaid, source: "resume" })
     }
   }
   const fresh = pre.jobs.filter((job) => !reported.has(job.key))

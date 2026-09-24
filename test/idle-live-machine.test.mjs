@@ -926,7 +926,8 @@ test("M3 an aborted in-flight invoke leaves the step in doubt, thrown or structu
     assert.equal(h.ev("step_result").filter((e) => e.stepId === stepId).length, 0, `${mode}: no result is synthesized`)
     assert.equal(h.ids().filter((i) => i === stepId).length, 1, `${mode}: invoked once, never retried`)
     assert.equal(s.experiments[TTL].status, "void", mode)
-    assert.equal(s.experiments[TTL].reason, "unknown_issue_state", mode)
+    // the operator cancel ended the experiment (I16); the call itself stays in doubt, above
+    assert.equal(s.experiments[TTL].reason, "cancelled", mode)
   }
 })
 
@@ -2723,12 +2724,21 @@ test("I4 the ttl per-idle cap is enforced on the interleaved frame, not on one r
 
 test("I4 the frame cap still refuses a frame that would exceed 0.06", async () => {
   const tick = { bump: { meter: "unified-5h", eq: 0.01 } }
-  const script = {}
-  for (const n of [0, 1, 2, 3, 4, 5]) script[n % 2 ? ttlId("control", n) : ttlId("treatment", n)] = tick
+  // the frame's first six calls in issue order (T0 C1 T2 C3 T4 T5), each carrying one extra tick
+  const bumped = [ttlId("treatment", 0), ttlId("control", 1), ttlId("treatment", 2), ttlId("control", 3), ttlId("treatment", 4), ttlId("treatment", 5)]
+  const script = Object.fromEntries(bumped.map((id) => [id, tick]))
   const h = harness({ script })
   const s = await h.run({ only: ONLY_TTL })
   const refused = h.ev("gate_refused")
-  const observed = JSON.stringify({ refused: refused.map((e) => `${e.stepId}:${(e.reasons ?? []).map((r) => `${r.code}@${r.scope}`).join(",")}`), exp: s.experiments[TTL] })
+  const observed = JSON.stringify({ refused: refused.map((e) => `${e.stepId}:${(e.reasons ?? []).map((r) => `${r.code}@${r.scope}`).join(",")}`), exp: s.experiments[TTL], issued: h.ids() })
+  // every scripted tick targets a real call of the frame, and every call the frame admitted carried
+  // its tick up to the refusal (the refused call is never invoked, so its tick cannot land)
+  const clean = harness()
+  await clean.run({ only: ONLY_TTL })
+  assert.deepEqual(bumped.filter((id) => !clean.ids().includes(id)), [], `a scripted id is not a call of the frame: ${observed}`)
+  const admitted = h.ids().filter((id) => id.startsWith(`${TTL}/`))
+  assert.deepEqual(admitted, bumped.slice(0, admitted.length), `every admitted call carried its tick: ${observed}`)
+  assert.equal(refused[0]?.stepId, bumped[admitted.length], `the frame stops at the next ticked call: ${observed}`)
   assert.ok(refused.length > 0, `a frame over 0.06 is refused: ${observed}`)
   assert.ok(refused.some((e) => (e.reasons ?? []).some((r) => r.code === "cap_exceeded" && r.scope === `idle:${TTL}/frame`)), observed)
   assert.equal(s.experiments[TTL].status, "aborted", observed)
@@ -2795,46 +2805,206 @@ test("I11 a recorded response with no requests.jsonl row records request_row_mis
   assert.equal(flagged[0].charged, 1, `and the conservative tick charge is kept: ${observed}`)
 })
 
-// Adversarial for this lane: repeated_interruptions + misleading_success_output. Across a chain of
-// processes the summary must keep saying what the evidence on disk says - every per-experiment
-// count equals that experiment's request rows, the run total equals the file, and no id is issued
-// twice - including when a two-row reconciliation and a cancelled call are in the chain.
-test("I8 adversarial: summary counts equal requests.jsonl across a three-process chain", async () => {
-  const check = (tag, h, s) => {
-    const rows = h.ledger.requests
-    assert.equal(s.paidRequestsIssued, rows.length, `${tag}: run total ${s.paidRequestsIssued} vs ${rows.length} rows`)
-    for (const [id, v] of Object.entries(s.experiments)) {
-      const own = rows.filter((r) => r.experiment === id).length
-      if (v.paidRequests === 0 && own === 0) continue
-      assert.equal(v.paidRequests, own, `${tag}: ${id} says ${v.paidRequests}, the file has ${own}`)
-    }
-    assert.deepEqual([...new Set(h.ids())], h.ids(), `${tag}: a call was issued twice`)
+// What one process leaves on disk, as the next process finds it (proxy.jsonl includes the lines
+// earlier processes wrote).
+const processLog = (h) => ({ events: h.ledger.events, requests: h.ledger.requests, cli: h.ledger.cli, proxyRecords: [...h.proxy.history, ...h.proxy.records], crashedAt: Date.parse(h.ledger.events.at(-1).ts) })
+
+// The summary says what the evidence on disk says: every per-experiment count equals that
+// experiment's request rows, the run total equals the file, and no id is issued twice.
+function assertCountsMatchRows(tag, h, s) {
+  const rows = h.ledger.requests
+  assert.equal(s.paidRequestsIssued, rows.length, `${tag}: run total ${s.paidRequestsIssued} vs ${rows.length} rows`)
+  for (const [id, v] of Object.entries(s.experiments)) {
+    const own = rows.filter((r) => r.experiment === id).length
+    if (v.paidRequests === 0 && own === 0) continue
+    assert.equal(v.paidRequests, own, `${tag}: ${id} says ${v.paidRequests}, the file has ${own}`)
   }
-  // P1: a cancel while a call is in flight, its row present
+  assert.deepEqual([...new Set(h.ids())], h.ids(), `${tag}: a call was issued twice`)
+}
+
+// B1 (lane M group B gate). restore-decomposition is TWO jobs (run 1, run 2). A resume used to
+// re-state each ended job with the EXPERIMENT's aggregate count, the fold stored that as the JOB's
+// count, and the next resume summed it again: +1 job per process. Crashed processes P1 are cut
+// from one uninterrupted run; P2..Pn each resume the log the previous process left.
+const REST = "restore-decomposition"
+const REST_TTL = { only: [REST, ...ONLY_TTL], dialPrefix: DIAL }
+async function restoreChain({ at, processes }) {
+  const { fixture, world } = await exactWorldCut({ runOpts: REST_TTL, at })
+  const out = []
+  let fx = fixture
+  let wd = world
+  for (let i = 2; i <= processes; i++) {
+    const h = resumeHarness(fx, { world: wd, clockStart: fx.crashedAt })
+    const s = await h.run({ resume: "fake-run", ...REST_TTL })
+    out.push({ tag: `P${i}`, h, s })
+    fx = processLog(h)
+    wd = undefined
+  }
+  return out
+}
+
+// the Nth step_intent of restore run 2 (a cut predicate for findIndex, which walks the log once)
+const nthRestoreRun2Intent = (nth) => {
+  let seen = -1
+  return (e) => {
+    if (e.ev === "experiment_started" && e.experiment === REST && e.run === 2) seen = 0
+    if (seen < 0 || e.ev !== "step_intent") return false
+    seen += 1
+    return seen === nth
+  }
+}
+const RESTORE_CHAINS = [
+  // an in-doubt TTL call (no proxy row): exit 4 -> exit 4 -> exit 4
+  { name: "a ttl call in doubt", processes: 4, exits: [EXIT.IN_DOUBT, EXIT.IN_DOUBT, EXIT.IN_DOUBT], at: (e) => e.ev === "step_intent" && e.stepId === ttlId("treatment", 2) },
+  // an in-doubt call inside restore run 2 itself
+  { name: "a restore run-2 call in doubt", processes: 4, exits: [EXIT.IN_DOUBT, EXIT.IN_DOUBT, EXIT.IN_DOUBT], at: nthRestoreRun2Intent(3) },
+  // a crash after restore run 2 ended: P2 runs ttl fresh and ends, P3 resumes the ended log
+  { name: "a crash after restore run 2 ended", processes: 3, exits: null, at: (e) => e.ev === "experiment_ended" && e.experiment === REST && e.run === 2 },
+]
+for (const shape of RESTORE_CHAINS) {
+  test(`I8 a two-job experiment's count equals its rows in every process of a resume chain: ${shape.name}`, async () => {
+    const chain = await restoreChain(shape)
+    const observed = JSON.stringify(chain.map(({ tag, h, s }) => ({ tag, exit: s.exitCode, paid: s.experiments[REST]?.paidRequests, rows: rowsOf(h, REST), runTotal: s.paidRequestsIssued, file: h.ledger.requests.length })))
+    if (shape.exits) assert.deepEqual(chain.map(({ s }) => s.exitCode), shape.exits, `the chain has the intended shape: ${observed}`)
+    for (const { tag, h, s } of chain) assertCountsMatchRows(tag, h, s)
+    assert.ok(chain.every(({ h }) => rowsOf(h, REST) > 0), observed)
+  })
+}
+
+// N10. A resume states a verdict only for the job it CLOSES (the one interrupted by the crash). A job
+// whose experiment_ended is already in the log keeps that verdict (revision 2 (1)); stating it again
+// on every resume only grew the log, and was the carrier of B1.
+const endedJobs = (h) => h.ledger.events.filter((e) => e.ev === "experiment_ended").map((e) => `${e.experiment}#${e.run ?? ""}:${e.source ?? "live"}`).toSorted()
+test("I8 a resume chain states each job's verdict exactly once", async () => {
+  // the ttl job is closed by the first resume; both restore jobs ended live
+  const ttlChain = (await restoreChain(RESTORE_CHAINS[0])).at(-1).h
+  assert.deepEqual(endedJobs(ttlChain), [`${REST}#1:live`, `${REST}#2:live`, `${TTL}#:resume`].toSorted())
+  const ttlClosed = ttlChain.ledger.events.find((e) => e.ev === "experiment_ended" && e.experiment === TTL)
+  assert.equal(ttlClosed.reason, "interrupted_by_crash")
+  assert.equal(ttlClosed.paidRequests, rowsOf(ttlChain, TTL), "the closing verdict carries its own job's count")
+  // restore run 2 is closed by the first resume: its verdict carries run 2's rows, not the experiment's
+  const restChain = (await restoreChain(RESTORE_CHAINS[1])).at(-1).h
+  assert.deepEqual(endedJobs(restChain), [`${REST}#1:live`, `${REST}#2:resume`].toSorted())
+  const run2Closed = restChain.ledger.events.find((e) => e.ev === "experiment_ended" && e.experiment === REST && e.run === 2)
+  const run2Rows = restChain.ledger.requests.filter((r) => r.experiment === REST && r.run === 2).length
+  assert.ok(run2Rows > 0 && run2Rows < rowsOf(restChain, REST), `run 2 is one of two jobs: ${run2Rows} of ${rowsOf(restChain, REST)}`)
+  assert.equal(run2Closed.paidRequests, run2Rows, "the closing verdict carries run 2's own count")
+})
+
+// B2 (lane M group B gate). A step whose one drained proxy record carries no step label has no
+// response of its own - but that record WAS a paid call. It gets exactly one row, not a primary
+// row plus the record again as an extra.
+test("I8 an unlabelled drained record is written once: rows equal the paid counts, live and resumed", async () => {
+  const target = ttlId("treatment", 2)
+  const h = harness()
+  const push = h.proxy.push
+  h.proxy.push = (r) => push(r?.stepId === target ? { ...r, stepId: null, label: "" } : r)
+  const s = await h.run({ only: ONLY_TTL })
+  const targetRows = h.ledger.requests.filter((r) => r.stepId === target)
+  const observed = JSON.stringify({ targetRows: targetRows.map((r) => r.accounting?.source ?? "adapter"), exp: s.experiments[TTL], rows: rowsOf(h, TTL), runTotal: s.paidRequestsIssued, file: h.ledger.requests.length })
+  assert.ok(h.ev("step_result").find((e) => e.stepId === target).anomalies.includes("unexpected_request_count"), observed)
+  assert.equal(targetRows.length, 1, `one drained record, one row: ${observed}`)
+  assertCountsMatchRows("live", h, s)
+  const r = resumeHarness(processLog(h))
+  assertCountsMatchRows("resumed", r, await r.run({ resume: "fake-run", only: ONLY_TTL }))
+})
+
+// N5 (lane M group B gate). The proxy is in the request path, so a call it never logged was never
+// paid. Its row stays as evidence of what the CLI said, but every count reads the same number:
+// the calls the proxy logged.
+test("I8 a call the proxy never saw is counted the same way live, on resume and in the run total", async () => {
+  const target = ttlId("treatment", 2)
+  const h = harness()
+  const push = h.proxy.push
+  h.proxy.push = (r) => (r?.stepId === target ? undefined : push(r))
+  const s = await h.run({ only: ONLY_TTL })
+  const logged = h.proxy.records
+  const ttlLogged = logged.filter((r) => r.stepId.startsWith(`${TTL}/`)).length
+  const r = resumeHarness(processLog(h))
+  const s2 = await r.run({ resume: "fake-run", only: ONLY_TTL })
+  const observed = JSON.stringify({ logged: logged.length, ttlLogged, live: [s.paidRequestsIssued, s.experiments[TTL].paidRequests], resumed: [s2.paidRequestsIssued, s2.experiments[TTL].paidRequests] })
+  assert.equal(h.ledger.requests.filter((x) => x.stepId === target).length, 1, `the unseen call keeps its row: ${observed}`)
+  assert.equal(s.paidRequestsIssued, logged.length, `live run total: ${observed}`)
+  assert.equal(s.experiments[TTL].paidRequests, ttlLogged, `live experiment count: ${observed}`)
+  assert.equal(s2.paidRequestsIssued, logged.length, `resumed run total: ${observed}`)
+  assert.equal(s2.experiments[TTL].paidRequests, ttlLogged, `resumed experiment count: ${observed}`)
+})
+
+// N2 / GM5. The tick charged for a result whose row is missing is not just reported, it is SPENT:
+// it reaches the frame and the plan before anything else is gated. With C1's row gone its reading
+// is unknown, so the next row's delta absorbs whatever C1 moved and C1 itself is charged one tick:
+// exactly +0.01 over the same resume with every row present.
+test("I11 the tick charged for a missing row reaches the frame and the plan spend", async () => {
+  const fx = await crashFixture({ stepId: ttlId("treatment", 4), withProxyRecord: true })
+  const gone = ttlId("control", 1)
+  const control = resumeHarness(fx)
+  const sc = await control.run({ resume: "fake-run", only: ONLY_TTL })
+  const h = resumeHarness({ ...fx, requests: fx.requests.filter((r) => r.stepId !== gone) })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+  const frameOf = (x) => x.ledger.requests.find((r) => r.stepId === fx.stepId && r.accounting?.source === "proxy_reconciled").accounting
+  const observed = JSON.stringify({ control: [frameOf(control), sc.experiments[TTL]], dropped: [frameOf(h), s.experiments[TTL]] })
+  assert.deepEqual(h.ev("row_missing").map((e) => [e.stepId, e.charged]), [[gone, 1]], observed)
+  assert.equal(frameOf(h).scope, `${TTL}/frame`, observed)
+  assert.equal(frameOf(h).spentObservedEq, q(frameOf(control).spentObservedEq + 0.01), `frame: ${observed}`)
+  assert.equal(frameOf(h).spentUpperEq, q(frameOf(control).spentUpperEq + 0.01), `frame: ${observed}`)
+  assert.equal(s.experiments[TTL].spentObservedEq, q(sc.experiments[TTL].spentObservedEq + 0.01), `plan: ${observed}`)
+  assert.equal(s.experiments[TTL].spentUpperEq, q(sc.experiments[TTL].spentUpperEq + 0.01), `plan: ${observed}`)
+})
+
+// N1 (I4-d). A reconciled ttl row reports its FRAME's spend, and the resume attributes every
+// recorded result to the frame before it reconciles - not to the protocol's run scope. Values are
+// the gate's GATE-P7 measurement (the frame spend up to and including the reconciled call).
+test("I4 a reconciled ttl row reports the frame spend recorded before the crash", async () => {
+  const ORDER = ["treatment/0", "control/1", "treatment/2", "control/3", "treatment/4", "treatment/5", "treatment/6", "control/7", "treatment/8", "control/9"]
+  for (const [n, obs, up] of [[4, 0.02, 0.03], [9, 0.04, 0.05]]) {
+    const fx = await crashFixture({ stepId: `${TTL}/${ORDER[n]}`, withProxyRecord: true })
+    const h = resumeHarness(fx)
+    await h.run({ resume: "fake-run", only: ONLY_TTL })
+    const row = h.ledger.requests.find((r) => r.stepId === fx.stepId).accounting
+    const ev = h.ev("step_result").find((e) => e.stepId === fx.stepId).accounting
+    const observed = JSON.stringify({ n, row, ev })
+    assert.deepEqual([row.scope, row.spentObservedEq, row.spentUpperEq], [`${TTL}/frame`, obs, up], observed)
+    assert.deepEqual([ev.scope, ev.spentObservedEq, ev.spentUpperEq], [`${TTL}/frame`, obs, up], observed)
+  }
+})
+
+// Adversarial for this lane: cancel_resume + repeated_interruptions + misleading_success_output.
+// Across a chain of processes the summary keeps saying what the evidence on disk says, including
+// when a cancelled call and a two-row reconciliation are in the chain: P1 is cancelled with a call
+// in flight that left no row, P2 recovers TWO rows for it from proxy.jsonl, and P3 counts the
+// whole run again from the log alone.
+test("I8 adversarial: summary counts equal requests.jsonl across a three-process chain", async () => {
   const target = ttlId("treatment", 2)
   const controller = new AbortController()
-  const p1 = harness({ script: { [target]: { hangAfterRow: true } }, opts: { signal: controller.signal } })
+  const p1 = harness({ script: { [target]: { hang: true } }, opts: { signal: controller.signal } })
   const run = p1.run({ only: ONLY_TTL })
   assert.equal(await within(p1.adapter.entered), target)
   controller.abort()
   const s1 = await within(run)
-  check("P1", p1, s1)
-  assert.equal(s1.exitCode, EXIT.ABORTED)
+  assertCountsMatchRows("P1", p1, s1)
+  assert.equal(s1.exitCode, EXIT.IN_DOUBT)
 
-  // P2 and P3: resume the cancelled log; the recorded cancel is final and nothing is issued
-  let prev = p1
+  // the call DID reach the API, twice: proxy.jsonl holds two responses for it (the reading of the
+  // last call before it, so the reconciliation moves no gauge)
+  const before = p1.proxy.records.find((r) => r.stepId === ttlId("control", 1))
+  const twin = (i) => ({ ...clone(before), stepId: target, label: target, msg_id: `${before.msg_id}_late${i}` })
+  let prev = { ...processLog(p1), proxyRecords: [...p1.proxy.records, twin(1), twin(2)] }
   const intents = []
+  let p3 = null
   for (const tag of ["P2", "P3"]) {
-    const h = resumeHarness({ events: prev.ledger.events, requests: prev.ledger.requests, cli: prev.ledger.cli, proxyRecords: prev.proxy.records, crashedAt: Date.parse(prev.ledger.events.at(-1).ts) })
+    const h = resumeHarness(prev)
     const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
-    check(tag, h, s)
+    assertCountsMatchRows(tag, h, s)
+    assert.equal(h.ledger.requests.filter((r) => r.stepId === target).length, 2, `${tag}: both recovered rows are on disk`)
     assert.deepEqual(h.ids(), [], `${tag} issues nothing after a recorded cancel`)
     assert.equal(s.exitCode, EXIT.ABORTED, `${tag}: ${JSON.stringify(s)}`)
     intents.push(...h.ledger.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId))
-    prev = h
+    prev = processLog(h)
+    p3 = h
   }
+  assert.equal(p3.ev("step_result").length, 0, "P3 counted the run from the log, not from its own calls")
   // the cumulative log of the last process holds each id once
-  const last = prev.ledger.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId)
+  const last = prev.events.filter((e) => e.ev === "step_intent").map((e) => e.stepId)
   assert.deepEqual([...new Set(last)], last, `an id appears twice in the chain: ${JSON.stringify(last)}`)
 })
 
@@ -2890,6 +3060,15 @@ test("I16 a cancel with no proxy row still keeps the call in doubt (clarificatio
   assert.deepEqual(s.inDoubt, [target], "a call with no row is unresolved, whatever the cancel said")
   assert.equal(s.exitCode, EXIT.IN_DOUBT, JSON.stringify(s))
   assert.deepEqual(h.ev("campaign_stop").map((e) => e.reason), ["cancelled"])
+  assert.equal(`${s.experiments[TTL].status}:${s.experiments[TTL].reason}`, "void:cancelled", "the operator ended the experiment, not the call")
+  // a later resume recovers the call from proxy.jsonl: the call is settled, the verdict stays the cancel's
+  const before = h.proxy.records.find((r) => r.stepId === ttlId("control", 1))
+  const late = { ...clone(before), stepId: target, label: target, msg_id: `${before.msg_id}_late` }
+  const r = resumeHarness({ ...processLog(h), proxyRecords: [...h.proxy.records, late] })
+  const s2 = await r.run({ resume: "fake-run", only: ONLY_TTL })
+  assert.deepEqual(s2.inDoubt, [], JSON.stringify(s2))
+  assert.equal(`${s2.experiments[TTL].status}:${s2.experiments[TTL].reason}`, "void:cancelled", JSON.stringify(s2.experiments[TTL]))
+  assert.equal(s2.exitCode, EXIT.ABORTED, JSON.stringify(s2))
 })
 
 // ------------------------------------------------------- lane M group C, item I14

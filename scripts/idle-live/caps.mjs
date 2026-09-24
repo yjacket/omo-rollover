@@ -107,8 +107,8 @@ function tokensOf(step) {
   return Number.isFinite(t) && t >= 0 ? t : null
 }
 
-// The price of a call without in-run evidence: tier 2, else tier 3, else unpredictable.
-function priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens) {
+// The price of a call: tier 2 (the prior range), else tier 3 (the unpriced bound), else unpredictable.
+function priceOf(tokens, field, priors, unpricedCallMaxTokens) {
   const prior = lowTokensPerTickFromPrior(field, priors)
   if (prior !== null && prior > 0) return { ticks: Math.max(1, Math.ceil(tokens / prior)), tier: 2, lowTokensPerTick: prior }
 
@@ -134,10 +134,7 @@ export function predictedTicks(step, priors, unpricedCallMaxTokens = 20000) {
   const base = { tokens, field, kind: step?.kind ?? null }
   if (tokens === null) return { ...base, ticks: "unpredictable", tier: null, lowTokensPerTick: null, reason: "tokens_unknown" }
 
-  const floor = priceWithoutObservations(tokens, field, priors, unpricedCallMaxTokens)
-  if (floor.ticks === "unpredictable") return { ...base, ...floor }
-
-  return { ...base, ...floor }
+  return { ...base, ...priceOf(tokens, field, priors, unpricedCallMaxTokens) }
 }
 
 // ------------------------------------------------------------------ scopes
@@ -175,8 +172,7 @@ const FRESH = Object.freeze({ spentObservedEq: 0, spentUpperEq: RESOLUTION, curr
 
 /**
  * gate(step, state, approval, priors) -> { ok, reasons, accounting }
- * state: { status, inDoubt, meters: { [meter]: scope | { absent:true } }, scopes: { [scopeKey|plan:<id>]: scope },
- *          runObservations: [{ kind, dominantField, tokens, ticks, settled }] }
+ * state: { status, inDoubt, meters: { [meter]: scope | { absent:true } }, scopes: { [scopeKey|plan:<id>]: scope } }
  * Refuses (each with a machine-readable reason { code, scope?, meter? }) when: an applicable cap would
  * be exceeded, the call is unpredictable, status !== "allowed", a reset epoch changed since a baseline,
  * a step is in doubt, or a reading/meter/experiment is missing or malformed.
