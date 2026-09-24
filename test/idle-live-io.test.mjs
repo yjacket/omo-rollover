@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import http from "node:http"
+import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { PassThrough, Writable } from "node:stream"
@@ -628,6 +629,52 @@ test("proxy: a start refused with EADDRINUSE leaves proxy.jsonl byte-for-byte un
     assert.equal(readFileSync(logPath, "utf8"), before, "the torn-looking tail of a live owner is left alone")
   } finally {
     await new Promise((resolve) => holder.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// Gate I19 N1 (C2): nothing is opened before the bind, so a refused start creates no log either.
+test("proxy: a start refused with EADDRINUSE creates no proxy.jsonl when none existed", async () => {
+  const dir = tmpDir()
+  const holder = http.createServer((req, res) => res.end())
+  try {
+    await new Promise((resolve) => holder.listen(0, "127.0.0.1", resolve))
+    const logPath = path.join(dir, "proxy.jsonl")
+    await assert.rejects(
+      startProxy({ port: holder.address().port, logPath, runId: "run-1", labelFile: null, upstream: { host: "127.0.0.1", port: 9, protocol: "http" } }),
+      (e) => e.code === "EADDRINUSE",
+    )
+    assert.equal(existsSync(logPath), false)
+  } finally {
+    await new Promise((resolve) => holder.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// Gate I19 N1 (C3): if the log cannot be settled once the port is bound, the start rejects AND
+// releases the port. A handle that resolves anyway, or a leaked listener, would keep this test
+// process alive, so either is closed here and reported as a failed assertion instead of a hang.
+test("proxy: a start whose log cannot be settled after the bind rejects and frees its port", async () => {
+  const dir = tmpDir()
+  try {
+    const logPath = path.join(dir, "proxy.jsonl")
+    mkdirSync(logPath) // a directory: settling the tail throws after the bind succeeded
+    const probe = net.createServer()
+    await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve))
+    const port = probe.address().port
+    await new Promise((resolve) => probe.close(resolve))
+    const outcome = await startProxy({ port, logPath, runId: "run-1", labelFile: null, upstream: { host: "127.0.0.1", port: 9, protocol: "http" } })
+      .then(async (handle) => { await handle.close(); return "resolved" }, () => "rejected")
+    assert.equal(outcome, "rejected")
+    const again = net.createServer()
+    const rebind = await new Promise((resolve) => {
+      again.once("error", (e) => resolve(e.code))
+      again.listen(port, "127.0.0.1", () => resolve("bound"))
+    })
+    if (rebind === "bound") await new Promise((resolve) => again.close(resolve))
+    else for (const h of process._getActiveHandles()) if (h instanceof net.Server && h.address()?.port === port) h.close()
+    assert.equal(rebind, "bound", "the port is free again after the rejected start")
+  } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })

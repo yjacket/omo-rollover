@@ -9,10 +9,32 @@ import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
+import { createRequire, syncBuiltinESMExports } from "node:module"
 
-import { main } from "../scripts/idle-live-runner.mjs"
-import { EXIT, manifest } from "../scripts/idle-live/machine.mjs"
+import { EXIT, manifest, runMachine } from "../scripts/idle-live/machine.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
+
+// Process-level tripwires (I19 b), installed BEFORE the runner is imported: processes.mjs binds its
+// exec at load time. Any real spawn, process scan, bind, connect or fetch a test slips through to is
+// recorded and throws, so no test in this file can reach a live effect, and the last test fails if
+// one tried.
+const tripped = []
+const trip = (name) => function tripwire() {
+  tripped.push(name)
+  throw Object.assign(new Error(`runner test tripwire: ${name}`), { code: "TEST_TRIPWIRE" })
+}
+{
+  const require = createRequire(import.meta.url)
+  const cp = require("node:child_process")
+  for (const k of ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]) cp[k] = trip(`child_process.${k}`)
+  const net = require("node:net")
+  net.Server.prototype.listen = trip("net.Server.listen")
+  net.connect = trip("net.connect")
+  net.createConnection = trip("net.createConnection")
+  globalThis.fetch = async () => trip("fetch")()
+  syncBuiltinESMExports()
+}
+const { main } = await import("../scripts/idle-live-runner.mjs")
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..")
 const APPROVAL = JSON.parse(readFileSync(join(repo, "docs/idle-experiments-approval-2026-09-23.json"), "utf8"))
@@ -402,6 +424,124 @@ for (const missing of LIVE_DEPS) {
   })
 }
 
-test("an empty test seam throws; only the CLI (no seam at all) may use the real dependencies", async () => {
+test("an empty test seam throws; only the CLI entry, which passes the real dependencies, may use them", async () => {
   await assert.rejects(main(["--dry-run"], {}), (e) => e.code === "live_dep_not_injected")
+})
+
+// Gate I19 N1 (G4): a dep that is present but not a function is as missing as an absent one.
+for (const bad of [true, {}, "fn"]) {
+  test(`a test seam whose deps are ${JSON.stringify(bad)} (not functions) throws, naming every one`, async (t) => {
+    const fx = fixture(t)
+    const io = { stdout: () => {}, stderr: () => {}, ...Object.fromEntries(LIVE_DEPS.map((k) => [k, bad])) }
+    await assert.rejects(main(["--approval", fx.approval, "--evidence", fx.evidence], io), (e) => {
+      assert.equal(e.code, "live_dep_not_injected")
+      assert.deepEqual(e.missing, LIVE_DEPS)
+      return true
+    })
+    assert.equal(existsSync(fx.evidence), false)
+  })
+}
+
+// Gate I19 B2 (and G6): the live deps are opt-in. A test that passes no seam, undefined or null must
+// throw before any bind, scan or spawn - never fall through to the real ones.
+const ARGV = {
+  live: (fx) => ["--approval", fx.approval, "--evidence", fx.evidence],
+  dry: (fx) => ["--dry-run", "--approval", fx.approval, "--evidence", fx.evidence],
+}
+for (const [name, call] of [
+  ["main(argv)", (argv) => main(argv)],
+  ["main(argv, undefined)", (argv) => main(argv, undefined)],
+  ["main(argv, null)", (argv) => main(argv, null)],
+]) {
+  for (const [mode, argv] of Object.entries(ARGV)) {
+    test(`${name} (${mode}) throws live_dep_not_injected before any bind, scan or spawn`, async (t) => {
+      const fx = fixture(t)
+      const before = tripped.length
+      await assert.rejects(call(argv(fx)), (e) => {
+        assert.equal(e.code, "live_dep_not_injected")
+        assert.deepEqual(e.missing, LIVE_DEPS)
+        return true
+      })
+      assert.deepEqual(tripped.slice(before), [], "no real effect was attempted")
+      assert.equal(existsSync(fx.evidence), false)
+    })
+  }
+}
+
+// Gate I19 B1: main must use exactly the deps the guard validated. A seam whose deps are inherited
+// or non-enumerable passes a typeof check but is dropped by an object spread; its fakes must still
+// be the ones called, with no real effect.
+const SEAM_SHAPES = {
+  "a class instance (deps on its prototype)": (deps) => {
+    class Seam {}
+    for (const [k, v] of Object.entries(deps)) Seam.prototype[k] = v
+    return new Seam()
+  },
+  "Object.create(deps)": (deps) => Object.create(deps),
+  "an object with non-enumerable deps": (deps) => Object.defineProperties({}, Object.fromEntries(Object.entries(deps).map(([k, v]) => [k, { value: v, enumerable: false }]))),
+}
+const DRY_OK = { v: "idle-live-summary/1", runId: "dry-run", exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: null, paidRequestsIssued: 0, schedule: [] }
+for (const [name, shape] of Object.entries(SEAM_SHAPES)) {
+  test(`a seam built as ${name} is used as given on the live path: its startProxy runs, nothing real`, async (t) => {
+    const fx = fixture(t)
+    const before = tripped.length
+    const h = harness({ startProxy: async () => { h.calls.startProxy += 1; throw Object.assign(new Error("listen EACCES"), { code: "EACCES" }) } })
+    const code = await main(ARGV.live(fx), shape(h.io))
+    assert.equal(h.calls.startProxy, 1, "the seam's startProxy is the one called")
+    assert.equal(code, EXIT.PREFLIGHT)
+    assert.equal(h.summary().detail, "EACCES")
+    assert.deepEqual(tripped.slice(before), [], "no real effect was attempted")
+  })
+  test(`a seam built as ${name} is used as given on the dry run: its runMachine and stdout run`, async (t) => {
+    const fx = fixture(t)
+    const before = tripped.length
+    const h = harness({ runMachine: async () => { h.calls.runMachine += 1; return DRY_OK } })
+    const code = await main(ARGV.dry(fx), shape(h.io))
+    assert.equal(h.calls.runMachine, 1, "the seam's runMachine is the one called")
+    assert.equal(code, EXIT.OK)
+    assert.equal(h.summary().evidenceDirCreated, false, "the summary went to the seam's stdout")
+    assert.deepEqual(tripped.slice(before), [], "no real effect was attempted")
+  })
+}
+
+// Gate I19 N3: pin the health-probe bound itself. The signal factory is injected, so the value is
+// observed without any timer running.
+test("the port-owner health probe is bounded at 2000 ms by the signal main passes to fetch", async (t) => {
+  const fx = fixture(t)
+  const bounds = []
+  const bound = new AbortController().signal
+  let used = null
+  const h = harness({
+    startProxy: async () => { throw inUse() },
+    timeoutSignal: (ms) => { bounds.push(ms); return bound },
+    fetch: async (url, init) => { used = init?.signal; throw Object.assign(new Error("timed out"), { name: "TimeoutError" }) },
+  })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--port", "18999"], h.io)
+  assert.deepEqual(bounds, [2000])
+  assert.equal(used, bound, "the probe carries the bounded signal")
+  assert.equal(code, EXIT.PREFLIGHT)
+})
+
+// ------------------------------------------------------------- I21: dry-run table scope
+
+// The human table labels the per-idle cap with the scope the machine enforces (the JSON row's
+// perIdleScope): ttl is gated per frame, restore-decomposition per run. Driven with the real,
+// pure runMachine; the dry run uses fake deps only.
+test("the dry-run table labels each per-idle cap with its enforced scope (ttl frame, restore run)", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ runMachine })
+  const code = await main(ARGV.dry(fx), h.io)
+  assert.equal(code, EXIT.OK)
+  const table = h.stdout.join("").split("\n").filter((l) => l.startsWith("# ")).map((l) => l.slice(2).split(/\s{2,}/))
+  const col = table.find((cells) => cells[0] === "ord").findIndex((c) => c.startsWith("perIdle"))
+  const cell = (label) => table.find((cells) => cells[1] === label)[col]
+  const rows = h.summary().schedule
+  const cap = (id) => rows.find((r) => `${r.experiment}${r.run ? `#${r.run}` : ""}` === id).perIdleCapEq.toFixed(2)
+  assert.equal(cell("ttl-1h-unique-prefix"), `${cap("ttl-1h-unique-prefix")}/frame`)
+  assert.equal(cell("restore-decomposition#1"), `${cap("restore-decomposition#1")}/run`)
+})
+
+// Must stay LAST: no test above reached a real spawn, scan, bind, connect or fetch.
+test("no test in this file tripped a real effect", () => {
+  assert.deepEqual(tripped, [])
 })

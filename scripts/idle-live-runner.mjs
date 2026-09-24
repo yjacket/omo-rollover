@@ -213,7 +213,7 @@ function printSchedule(write, schedule, skippedArms) {
   const ms = (v) => (v >= 3600_000 ? `${(v / 3600_000).toFixed(1)}h` : `${Math.round(v / 60_000)}m`)
   const line = (c) => write(`# ${c.join("  ")}\n`)
   write("# idle-live dry run: preflight only, paidRequestsIssued=0\n")
-  line(["ord", "experiment".padEnd(22), "unit ", "n", "calls(exp/max)", "wall  ", "perIdle", "perPlan", "largest call"])
+  line(["ord", "experiment".padEnd(22), "unit ", "n", "calls(exp/max)", "wall  ", "perIdle/scope", "perPlan", "largest call"])
   for (const r of schedule) {
     line([
       String(r.order).padEnd(3),
@@ -222,7 +222,8 @@ function printSchedule(write, schedule, skippedArms) {
       String(r.units),
       `${r.paidCallsExpected}/${r.paidCallsMax}`.padEnd(14),
       ms(r.expectedWallClockMs).padEnd(6),
-      r.perIdleCapEq.toFixed(2).padEnd(7),
+      // the scope the cap is enforced on (the JSON row's perIdleScope): ttl's 0.06 is per frame
+      `${r.perIdleCapEq.toFixed(2)}/${r.perIdleScope}`.padEnd(13),
       r.perPlanCapEq.toFixed(2).padEnd(7),
       `${r.largestCall.label} ~${r.largestCall.predictedEq.toFixed(2)} eq (tier ${r.largestCall.tier})`,
     ])
@@ -236,33 +237,45 @@ function printSchedule(write, schedule, skippedArms) {
 
 /**
  * main(argv, io) -> exit code. Prints exactly one JSON summary line; never throws for a failure
- * it can classify. `io` is a TEST SEAM: tests replace the process/network effects (stdout,
- * stderr, startProxy, runMachine, createAdapter, conflicting, fetch) so main can be driven
- * without spawning, binding a real upstream, or paying. The CLI passes nothing.
+ * it can classify. `io` carries the process/network effects: the CLI entry passes the real ones
+ * (REAL_IO); tests pass fakes, so main can be driven without spawning, binding a real upstream, or
+ * paying.
  *
- * The seam FAILS CLOSED: once an `io` object is given, every live dependency (LIVE_DEPS) must be in
- * it, or main throws `live_dep_not_injected` before any effect - a test that forgets one must
- * never fall through to a real process scan, port bind, spawn or network call. Only the CLI's
- * seamless call (`io` undefined) uses the real dependencies; its behaviour is unchanged.
+ * The live deps are OPT-IN and the seam FAILS CLOSED: every live dependency (LIVE_DEPS) must be a
+ * function in `io`, or main throws `live_dep_not_injected` before any effect. That includes no `io`
+ * at all - a test that forgets the seam, or one dep, never falls through to a real process scan,
+ * port bind, spawn or network call. Each dep is read once and the value checked is the value used,
+ * so inherited or non-enumerable deps are honoured, never silently replaced by the real ones.
+ * stdout, stderr and timeoutSignal (the health-probe bound) are optional: they cause no live
+ * effect, and a seam without them gets the real ones.
  */
 const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch"]
+const OPTIONAL_DEPS = ["stdout", "stderr", "timeoutSignal"]
+const REAL_IO = Object.freeze({
+  stdout: (s) => process.stdout.write(s),
+  stderr: (s) => process.stderr.write(s),
+  startProxy,
+  runMachine,
+  createAdapter: createClaudeCliAdapter,
+  conflicting,
+  fetch: (...args) => globalThis.fetch(...args),
+  timeoutSignal: (ms) => AbortSignal.timeout(ms),
+})
 
 export async function main(argv = process.argv.slice(2), io = undefined) {
-  if (io !== undefined) {
-    const missing = LIVE_DEPS.filter((k) => typeof io?.[k] !== "function")
-    if (missing.length) {
-      throw Object.assign(new Error(`main(argv, io): test seam lacks ${missing.join(", ")}; refusing to fall through to the live path`), { code: "live_dep_not_injected", missing })
-    }
+  const env = {}
+  const missing = []
+  for (const k of LIVE_DEPS) {
+    const dep = io?.[k]
+    if (typeof dep === "function") env[k] = dep
+    else missing.push(k)
   }
-  const env = {
-    stdout: (s) => process.stdout.write(s),
-    stderr: (s) => process.stderr.write(s),
-    startProxy,
-    runMachine,
-    createAdapter: createClaudeCliAdapter,
-    conflicting,
-    fetch: (...args) => globalThis.fetch(...args),
-    ...io,
+  if (missing.length) {
+    throw Object.assign(new Error(`main(argv, io): live deps not injected: ${missing.join(", ")}; refusing to fall through to the live path`), { code: "live_dep_not_injected", missing })
+  }
+  for (const k of OPTIONAL_DEPS) {
+    const dep = io[k]
+    env[k] = typeof dep === "function" ? dep : REAL_IO[k]
   }
   const ctx = { runId: null, evidenceDir: null }
   const finish = (summary) => {
@@ -371,7 +384,7 @@ async function run(argv, env, ctx, finish) {
     // The port answering with OUR runId is a live runner of this same run: a second one must never
     // start beside it. Any other answer (or none) is a foreign owner. Either way this process issues
     // nothing, and whether the run is resumable is what the log says - not the port.
-    const health = await env.fetch(`http://127.0.0.1:${opts.port}/__health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
+    const health = await env.fetch(`http://127.0.0.1:${opts.port}/__health`, { signal: env.timeoutSignal(HEALTH_TIMEOUT_MS) })
       .then((r) => r.json())
       .catch(() => null)
     const issue = health?.runId === runId ? "proxy_port_held_by_this_run" : "proxy_port_in_use"
@@ -435,7 +448,7 @@ async function run(argv, env, ctx, finish) {
 if (import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}` || process.argv[1]?.endsWith("idle-live-runner.mjs")) {
   // main() classifies every failure itself; this guard only fires if printing the summary failed,
   // so nothing about the run can be claimed - in particular not that it is resumable.
-  main().then(
+  main(process.argv.slice(2), REAL_IO).then(
     (code) => { process.exitCode = code },
     (e) => {
       process.stdout.write(`${JSON.stringify({ ...refusal(["runner_crashed_unclassified"], { detail: String(e?.message ?? e), paidRequestsIssued: null }), exitCode: EXIT.ABORTED })}\n`)
