@@ -1492,33 +1492,77 @@ test("I24/N3 every gate-refusal code the machine can record has its own Korean e
   assert.deepEqual(undescribed, [])
 })
 
+/**
+ * fake-run cut right after `stepId`'s step_result, rewritten to what the landed machine writes when
+ * the CLI answered but the proxy logged no call (the fake adapter's `records: 0`): the row keeps
+ * the CLI's usage but has no response fields and requestCount 0, the step is flagged
+ * unexpected_request_count, and the machine stops the campaign and closes the experiment aborted.
+ */
+function unloggedCallCopy(t, stepId) {
+  return fixtureCopy(t, "fake-run", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    const idx = evs.findIndex((e) => e.ev === "step_result" && e.stepId === stepId)
+    assert.ok(idx > 0, "the step is in the fake-run")
+    const ticks = { "unified-5h": 0, "unified-7d": 0, "unified-7d_oi": 0 }
+    const noResponse = { model: null, stop_reason: null, status: null, anomalies: ["unexpected_request_count"] }
+    const result = { ...evs[idx], ...noResponse, clean: false, ticks, accounting: { ...evs[idx].accounting, requestCount: 0 } }
+    const at = { ts: result.ts_req, runId: result.runId }
+    const tail = [
+      { ...at, ev: "campaign_stop", meter: null, reason: "unexpected_request_count", experiment: result.experiment, run: null },
+      { ...at, ev: "experiment_ended", experiment: result.experiment, run: null, status: "aborted", reason: "unexpected_request_count" },
+      { ...at, ev: "run_ended", exitCode: 3, reason: "campaign_stop" },
+    ]
+    const cut = [...evs.slice(0, idx), result]
+    writeJsonl(path.join(d, "events.jsonl"), [...cut, ...tail.map((e, i) => ({ seq: result.seq + 1 + i, ...e }))])
+    const done = new Set(cut.filter((e) => e.ev === "step_result").map((e) => e.stepId))
+    const absent = { absent: true }
+    writeJsonl(path.join(d, "requests.jsonl"), readJsonl(path.join(d, "requests.jsonl")).filter((q) => done.has(q.stepId)).map((q) => (q.stepId !== stepId ? q : {
+      ...q,
+      ...noResponse,
+      requestId: null,
+      msgId: null,
+      headers: {},
+      meters: { "unified-5h": absent, "unified-7d": absent, "unified-7d_oi": absent },
+      accounting: { ...q.accounting, requestCount: 0, ticks },
+    })))
+    rmSync(path.join(d, "summary.json"), { force: true })
+  })
+}
+
 test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not a paid request", async (t) => {
   const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
   const rows = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
   const unpaid = rows[rows.length - 1]
   const id = unpaid.experiment
-  const lastPaid = rows[rows.length - 2]
-  const dir = fixtureCopy(t, "fake-run", (d) => {
-    // Appendix B: the row stays as the record of what the CLI reported, with requestCount 0. Its
-    // 5h reading is raised only so the test sees whether the analyzer reads it at all.
-    const file = path.join(d, "requests.jsonl")
-    writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== unpaid.stepId ? q : {
-      ...q,
-      accounting: { ...q.accounting, requestCount: 0 },
-      headers: { ...q.headers, "anthropic-ratelimit-unified-5h-utilization": (util5h(q) + 0.05).toFixed(2) },
-    })))
-  })
+  const dir = unloggedCallCopy(t, unpaid.stepId)
+  const paid = readJsonl(path.join(dir, "requests.jsonl")).filter((q) => q.stepId !== unpaid.stepId)
   const r = analyzeCli(t, dir)
   assert.equal(r.code, 0, r.stderr)
-  assert.equal(r.analysis.generatedFrom.requests.records, rows.length - 1, "not a paid request")
-  assert.equal(r.analysis.spend["unified-5h"].endUtil, util5h(lastPaid), "not meter spend")
+  assert.equal(r.analysis.generatedFrom.requests.records, paid.length, "not a paid request")
+  assert.equal(r.analysis.campaign.requests, paid.length, "the campaign counts paid rows only")
   const x = r.analysis.experiments[id]
-  assert.equal(x.window.requests, rows.filter((q) => q.experiment === id).length - 1)
-  assert.notEqual(x.status, "valid", "not measured")
+  assert.deepEqual([x.status, x.reason, x.findings], ["aborted", "unexpected_request_count", null], "the machine's verdict, never measured")
+  assert.equal(x.window.requests, paid.filter((q) => q.experiment === id).length)
   assert.equal(x.window.sourceKind, "unknown")
-  assert.ok(x.window.reasons.includes("unpaid_request_row"), x.window.reasons.join(","))
+  assert.deepEqual(x.window.reasons, ["unpaid_request_row"], "nothing is read from the unpaid row's headers, model or anomalies")
+  assert.deepEqual(x.window.unpaidRequestRows, [unpaid.stepId])
   assert.deepEqual([x.window.stepParity.missingRequest, x.window.stepParity.unannounced], [[], []], "the row still joins its step")
   for (const other of EXPERIMENTS.filter((e) => e !== id)) assert.deepEqual(r.analysis.experiments[other], reference.analysis.experiments[other], other)
+
+  await t.test("a reading on an unpaid row is not meter spend", (tt) => {
+    const lastPaid = rows[rows.length - 2]
+    const read = fixtureCopy(tt, "fake-run", (d) => {
+      const file = path.join(d, "requests.jsonl")
+      writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== unpaid.stepId ? q : {
+        ...q,
+        accounting: { ...q.accounting, requestCount: 0 },
+        headers: { ...q.headers, "anthropic-ratelimit-unified-5h-utilization": (util5h(q) + 0.05).toFixed(2) },
+      })))
+    })
+    const s = analyzeCli(tt, read)
+    assert.equal(s.code, 0, s.stderr)
+    assert.equal(s.analysis.spend["unified-5h"].endUtil, util5h(lastPaid))
+  })
 
   await t.test("a row without accounting.requestCount keeps today's counting", (tt) => {
     const bare = fixtureCopy(tt, "fake-run", (d) => {
@@ -1530,4 +1574,46 @@ test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not 
     assert.equal(b.analysis.generatedFrom.requests.records, rows.length)
     assert.deepEqual(b.analysis.spend, reference.analysis.spend)
   })
+})
+
+// ------------------------------------------------------------------------------------------
+// Todo 7 I27 (I24 gate notes N4, N7).
+// ------------------------------------------------------------------------------------------
+
+test("I27/N7 paid means requestCount >= 1: a malformed count is an anomaly, never a paid request", async (t) => {
+  const rows = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
+  const bad = rows[rows.length - 1]
+  const id = bad.experiment
+  for (const requestCount of [-1, null, "0", "1", 0.5, 1.5]) {
+    await t.test(`requestCount ${JSON.stringify(requestCount)}`, (tt) => {
+      const dir = fixtureCopy(tt, "fake-run", (d) => {
+        const file = path.join(d, "requests.jsonl")
+        writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== bad.stepId ? q : { ...q, accounting: { ...q.accounting, requestCount } })))
+      })
+      const r = analyzeCli(tt, dir)
+      assert.equal(r.code, 0, r.stderr)
+      assert.equal(r.analysis.generatedFrom.requests.records, rows.length - 1, "not a paid request")
+      const x = r.analysis.experiments[id]
+      assert.equal(x.window.requests, rows.filter((q) => q.experiment === id).length - 1)
+      assert.ok(x.window.reasons.includes("malformed_request_count"), x.window.reasons.join(","))
+      assert.deepEqual(x.window.malformedRequestCountRows, [bad.stepId])
+      assert.equal(x.window.unpaidRequestRows, undefined, "a malformed count is not a call the proxy never logged")
+      assert.notEqual(x.status, "valid", "not measured")
+    })
+  }
+})
+
+test("I27/N4 without a cost model the notes name exactly the phase costs that are missing", async (t) => {
+  const MODEL_PARTS = ["warm", "ctxCreate", "parkParent", "restoreChild", "resumeRaw"]
+  const named = (a) => MODEL_PARTS.filter((k) => a.policyAnswer.notes.some((n) => new RegExp(`\\b${k}\\b`).test(n)))
+  const voidPolicy = { ev: "experiment_ended", experiment: "policy-effect", run: null, status: "void", reason: "interrupted_by_crash" }
+  const dirtyRestore = () => {
+    const dirty = clone()
+    dirty.find((r) => r.experiment === "restore-decomposition").model = "claude-opus-5"
+    return dirty
+  }
+  await t.test("a valid feed names none", () => assert.deepEqual(named(run()), []))
+  await t.test("a void policy-effect: only warm", () => assert.deepEqual(named(run(records, [...cloneEvents(), voidPolicy])), ["warm"]))
+  await t.test("a contaminated restore: only the restore phases", () => assert.deepEqual(named(run(dirtyRestore())), ["ctxCreate", "parkParent", "restoreChild", "resumeRaw"]))
+  await t.test("both invalid: every part", () => assert.deepEqual(named(run(dirtyRestore(), [...cloneEvents(), voidPolicy])), MODEL_PARTS))
 })

@@ -166,10 +166,19 @@ const meterReading = (record, meter) => {
   return m && m !== "absent" ? m : null
 }
 
-// Appendix B "Paid-request counting": a row with accounting.requestCount 0 records a call the
-// proxy never logged. It is not a paid request, not meter spend and never measured; a row
-// without the field (older evidence) counts as before.
-const isPaid = (record) => record?.accounting?.requestCount !== 0
+// Appendix B "Paid-request counting": a row is paid when accounting.requestCount >= 1. A row with
+// requestCount 0 records a call the proxy never logged: not a paid request, not meter spend, never
+// measured. Any other value is malformed evidence and is not counted either; a row without the
+// field (older evidence) counts as before.
+const requestCountOf = (record) => record?.accounting?.requestCount
+const isPaid = (record) => {
+  const n = requestCountOf(record)
+  return n === undefined || (Number.isInteger(n) && n >= 1)
+}
+const hasMalformedCount = (record) => {
+  const n = requestCountOf(record)
+  return n !== undefined && !(Number.isInteger(n) && n >= 0)
+}
 
 const msOf = (v) => (typeof v === "number" ? num(v) : typeof v === "string" ? num(Date.parse(v)) : null)
 const byIndex = (a, b) => (a.index ?? 0) - (b.index ?? 0)
@@ -928,7 +937,8 @@ export function analyzePolicy(recs, opts = {}) {
 export function windowStatus(records, events, experiment, opts = {}) {
   const rows = records.filter((r) => r.experiment === experiment)
   const recs = rows.filter(isPaid)
-  const unpaid = rows.filter((r) => !isPaid(r)).map((r) => r.stepId)
+  const unpaid = rows.filter((r) => requestCountOf(r) === 0).map((r) => r.stepId)
+  const malformedCount = rows.filter(hasMalformedCount).map((r) => r.stepId)
   if (!rows.length) return { experiment, clean: false, sourceKind: "unknown", reasons: ["not_run"], requests: 0, resetEpochs: [] }
   const reasons = new Set()
   if (opts.malformedRows) reasons.add("malformed_evidence_row")
@@ -961,6 +971,7 @@ export function windowStatus(records, events, experiment, opts = {}) {
     if (r.error) reasons.add("request_error")
   }
   if (unpaid.length) reasons.add("unpaid_request_row")
+  if (malformedCount.length) reasons.add("malformed_request_count")
   if (resets.size > 1) reasons.add("reset_in_window")
   for (const [, n] of counts) if (n !== 1) reasons.add("unexpected_request_count")
   const intents = new Set()
@@ -991,6 +1002,7 @@ export function windowStatus(records, events, experiment, opts = {}) {
     baselineResets,
     unknownUsageFields: [...unknownUsage].sort(),
     ...(unpaid.length ? { unpaidRequestRows: unpaid.sort() } : {}),
+    ...(malformedCount.length ? { malformedRequestCountRows: malformedCount.sort() } : {}),
     stepParity: { requests: requestIds.size, intents: intents.size, results: results.size, missingRequest: missingRequest.sort(), unannounced: unannounced.sort() },
   }
 }
@@ -1333,13 +1345,14 @@ const CLOSED_STATUS_RANK = { void: 1, aborted: 2 }
 
 /**
  * The verdict one experiment is closed with, or null. Per unit (the `run` of a per-run job, null
- * otherwise): the LAST experiment_ended is the machine's latest statement (a resume re-states the
- * verdicts it keeps, with source "resume"); a unit whose experiment_started has NO later
- * experiment_ended is still open at the end of the log - a crashed run nobody resumed - and is
- * closed here as void:interrupted_by_crash (source "open_at_end_of_log"), exactly as a resume
- * would close it (Appendix B revision 2 (4)). Of the closed units the worst wins (void < aborted,
- * the machine's own ranking). A closed experiment is reported with that status and reason,
- * whatever its partial rows would have measured: its rows are not a complete protocol.
+ * otherwise): the LAST experiment_ended is the machine's latest statement (a resume writes one,
+ * with source "resume", only for the job it closes, never for a job that already ended); a unit
+ * whose experiment_started has NO later experiment_ended is still open at the end of the log - a
+ * crashed run nobody resumed - and is closed here as void:interrupted_by_crash (source
+ * "open_at_end_of_log"), exactly as a resume would close it (Appendix B revision 2 (4)). Of the
+ * closed units the worst wins (void < aborted, the machine's own ranking). A closed experiment is
+ * reported with that status and reason, whatever its partial rows would have measured: its rows
+ * are not a complete protocol.
  */
 function recordedVerdictOf(events, experiment) {
   const lastByUnit = new Map()
@@ -1554,7 +1567,9 @@ export function analyzeRun(rows, events, opts = {}) {
     notes: [
       "V = 0 baseline: no future-work differential is claimed",
       "quality is reported as states and scores, never monetised into parkQualityEq",
-      hasModel ? "cost model built from restore run 1 phase sums" : "no cost model: the restore phases are missing",
+      hasModel
+        ? "cost model built from restore run 1 phase sums"
+        : `no cost model: phase costs missing for ${["warm", "ctxCreate", "parkParent", "restoreChild", "resumeRaw"].filter((k) => parts[k].lo === null).join(", ")}`,
       T ? "write coefficient measured by this run" : "coefficients are the reported prior RANGE only: this evidence did not measure T",
       kOut ? "output coefficient measured by this run" : `output coefficient is an upper bound only (${outputReason ?? "unidentified"})`,
     ],
