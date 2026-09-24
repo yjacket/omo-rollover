@@ -1085,11 +1085,12 @@ test("the runner refuses to do anything without an approved artifact", () => {
   assert.deepEqual(unknownExperiment.json.issues, ["unknown_experiment"])
 })
 
-test("--dry-run prints the schedule and issues nothing (approval timestamps normalised to now)", () => {
+test("--dry-run prints the schedule and issues nothing (approval timestamps normalised to now)", (t) => {
   // The signed artifact carries approvedAt 2026-09-23T15:50:00Z; on a host whose UTC clock has
   // not reached it the runner correctly refuses (approval_in_future), so this check uses a copy
   // with the same bytes and an approvedAt that is already past.
   const dir = tmp("cli")
+  t.after(() => rmSync(dir, { recursive: true, force: true })) // no temp dir survives a failure
   const file = join(dir, "approval-now.json")
   const json = clone(APPROVAL)
   json.approvedAt = new Date(Date.now() - 3600_000).toISOString().replace(/\.\d+Z$/, "Z")
@@ -1103,7 +1104,6 @@ test("--dry-run prints the schedule and issues nothing (approval timestamps norm
   const order = dry.json.schedule.map((r) => `${r.experiment}${r.run ? `#${r.run}` : ""}`)
   assert.ok(order.indexOf("restore-decomposition#1") < order.indexOf("fable-write-tick"))
   assert.deepEqual(order[order.length - 1], "ttl-1h-unique-prefix")
-  rmSync(dir, { recursive: true, force: true })
 })
 
 // ==================================================================== group M
@@ -1444,8 +1444,8 @@ test("R2-B3 a stop rule on the re-baseline PING stops before the waiting step is
 // several calls after it happened. An immediate same-epoch zero delta is therefore NOT proof that
 // the call cost less than a tick - it is silence that has not settled yet. The machine learned a
 // bound from it anyway, and the tick that arrived later came too late: the run-2 context write
-// was then admitted at tier 1 / 1 tick, where the prior prices it at 2 and the 0.02 plan cap
-// refuses it.
+// was then admitted at a learned 1-tick price (an in-run learning tier caps.mjs no longer has),
+// where the prior prices it at 2 and the 0.02 plan cap refuses it.
 test("R2-B4 an unsettled zero-delta reading never tightens a price bound", async () => {
   const tight = clone(APPROVAL)
   tight.plans["restore-decomposition"].limits.maxTotalExperimentalSpend.value = 0.02
@@ -2931,6 +2931,27 @@ for (const n of [1, 2]) {
     assertCountsMatchRows("resumed", r, s2)
   })
 }
+
+// I25 (lane M group D gate note N5): the fold adds a step_void's `accounting.requestCount` to the
+// paid counts. A value that is not a non-negative integer is not a count - a negative one would
+// subtract paid calls - so the fold rejects the log the way it rejects a corrupt line.
+test("I25 the fold rejects a step_void whose requestCount is not a non-negative integer", async () => {
+  // Given: a real in-doubt log whose step_void carries the count of its one drained record
+  const target = ttlId("treatment", 2)
+  const h = harness({ script: { [target]: { error_result: { code: "boom" }, records: 1 } } })
+  const push = h.proxy.push
+  h.proxy.push = (r) => push(r?.stepId === target ? { ...r, stepId: null, label: "" } : r)
+  await h.run({ only: ONLY_TTL })
+  const victim = h.ledger.events.find((e) => e.ev === "step_void" && e.stepId === target)
+  assert.equal(victim.accounting.requestCount, 1, "the source log is well formed")
+  assert.doesNotThrow(() => fold(h.ledger.events), "the intact log folds")
+  for (const bad of [-1, 1.5, "1", null]) {
+    // When: the fold reads that count corrupted
+    const events = h.ledger.events.map((e) => (e === victim ? { ...e, accounting: { requestCount: bad } } : e))
+    // Then: it refuses the log instead of subtracting or skipping paid calls
+    assert.throws(() => fold(events), /corrupt step_void/, JSON.stringify(bad))
+  }
+})
 
 // N5 (lane M group B gate). The proxy is in the request path, so a call it never logged was never
 // paid. Its row stays as evidence of what the CLI said, but every count reads the same number:

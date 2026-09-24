@@ -465,10 +465,14 @@ export function fold(events) {
       }
       case "step_void": {
         st.steps[e.stepId] = { ...(st.steps[e.stepId] ?? {}), state: "void", reason: e.reason ?? null, event: e }
-        // an in-doubt call that drained unlabelled records: each was paid and has its own row
-        if (Number.isInteger(e.accounting?.requestCount)) {
-          ownerOf(e).paidRequests += e.accounting.requestCount
-          st.paidRequests += e.accounting.requestCount
+        // an in-doubt call that drained unlabelled records: each was paid and has its own row. A
+        // count that is not a non-negative integer would subtract or hide paid calls, so the log
+        // is refused like a corrupt line.
+        const n = e.accounting?.requestCount
+        if (n !== undefined) {
+          if (!Number.isInteger(n) || n < 0) throw new Error(`corrupt step_void ${e.stepId}: accounting.requestCount ${JSON.stringify(n)} is not a non-negative integer`)
+          ownerOf(e).paidRequests += n
+          st.paidRequests += n
         }
         break
       }
@@ -509,7 +513,8 @@ export function fold(events) {
 // The paid calls one recorded step_result stands for: the proxy records drained for it, which is
 // `accounting.requestCount` - 0 for a call the proxy never logged (the proxy is in the request
 // path, so it was not paid). Only an event without a readable count is charged as one call. The
-// live summary, the fold and a resumed run total all read a step through this one function.
+// fold is its only reader: the live path counts the drained records directly, and a resumed run
+// total is the fold's `paidRequests`.
 const paidOf = (e) => (Number.isInteger(e.accounting?.requestCount) && e.accounting.requestCount >= 0 ? e.accounting.requestCount : 1)
 
 // --------------------------------------------------------- meters and scopes
@@ -936,17 +941,6 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
 }
 
 /**
- * The machine's own verdict on a completed step, independent of the protocol. A global stop rule
- * (Appendix A section 0) aborts the experiment AND the campaign; a delivery failure - the adapter,
- * the CLI or the response itself did not report a trustworthy result - voids the experiment with
- * that reason. `null` means the protocol decides.
- *
- * It is applied wherever a step completes: a live call, and a response recovered from proxy.jsonl
- * during a resume. The landed protocol does not classify `adapter_error` as fatal, so without this
- * verdict a crash between the step_result and the experiment_ended left a failed call inside a
- * `valid` experiment at exit 0.
- */
-/**
  * Stops the campaign once. The same stop can be reached twice - baselineBlock() sees the PING's
  * verdict, and the experiment that was waiting for it ends `aborted` with the same reason - and a
  * campaign stops exactly once, so the second call is a no-op.
@@ -1032,7 +1026,16 @@ function stopCampaign(st, { meter = null, reason, experiment = null, run = null,
   emit(st, { ev: "campaign_stop", meter, reason, experiment, run, ...(stepId ? { stepId } : {}) })
 }
 
-// `anomalies` is the string array runStep builds for the call it just made (its only caller).
+/**
+ * The machine's own verdict on a step runStep just completed, independent of the protocol. A
+ * global stop rule (Appendix A section 0) aborts the experiment AND the campaign; a delivery
+ * failure - the adapter, the CLI or the response itself did not report a trustworthy result -
+ * voids the experiment with that reason. `null` means the protocol decides.
+ *
+ * runStep is its only caller, and `anomalies` is the string array it built for that live call.
+ * reconcileStep, which records a response recovered from proxy.jsonl during a resume, does not
+ * call it.
+ */
 function verdictOf(anomalies) {
   const stopRule = anomalies.find((a) => CAMPAIGN_FATAL.has(a)) ?? null
   if (stopRule) return { status: "aborted", reason: stopRule, stop: true }

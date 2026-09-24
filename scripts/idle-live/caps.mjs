@@ -5,8 +5,8 @@
 // is { baseline, latest } inside one reset epoch; a scope (per-idle block/run/pair, plan
 // total, meter, campaign stop) is { meter, baseline, latest, closedWindows:[window] }.
 //
-// Semantics adopted (documented because Appendix B's prose and Appendix A's block
-// arithmetic differ at the boundary):
+// Semantics (Appendix B "Gate tolerance" states the same rule and why a scope may end its
+// current window up to one gauge tick above its cap):
 //   - inside the CURRENT reset window the gate projects the observed gauge reading:
 //       spentObservedEq + predictedTicks * resolution <= cap
 //     (predictedTicks is already a ceil, i.e. an upper bound on the ticks a call can add;
