@@ -2909,6 +2909,29 @@ test("I8 an unlabelled drained record is written once: rows equal the paid count
   assertCountsMatchRows("resumed", r, await r.run({ resume: "fake-run", only: ONLY_TTL }))
 })
 
+// Follow-up item 11: the same shape on the IN-DOUBT path. The adapter failed and none of the drained
+// records is the step's own, so the call stays in doubt (exit 4) - but every drained record was a
+// paid call and gets exactly one row, live and after a resume that still cannot settle the step.
+for (const n of [1, 2]) {
+  test(`I8 an adapter failure with ${n} unlabelled drained record(s) writes one row per record, live and resumed`, async () => {
+    const target = ttlId("treatment", 2)
+    const h = harness({ script: { [target]: { error_result: { code: "boom" }, records: n } } })
+    const push = h.proxy.push
+    h.proxy.push = (r) => push(r?.stepId === target ? { ...r, stepId: null, label: "" } : r)
+    const s = await h.run({ only: ONLY_TTL })
+    const targetRows = h.ledger.requests.filter((r) => r.stepId === target)
+    const observed = JSON.stringify({ exit: s.exitCode, inDoubt: s.inDoubt, targetRows: targetRows.map((r) => [r.accounting?.source, r.accounting?.requestCount]), exp: s.experiments[TTL], runTotal: s.paidRequestsIssued, file: h.ledger.requests.length })
+    assert.deepEqual([s.exitCode, s.inDoubt], [EXIT.IN_DOUBT, [target]], `the call stays in doubt: ${observed}`)
+    assert.equal(targetRows.length, n, `one row per drained record: ${observed}`)
+    assert.ok(targetRows.every((r) => r.accounting?.requestCount === n), `each row is a paid request: ${observed}`)
+    assertCountsMatchRows("live", h, s)
+    const r = resumeHarness(processLog(h))
+    const s2 = await r.run({ resume: "fake-run", only: ONLY_TTL })
+    assert.deepEqual([s2.exitCode, s2.inDoubt], [EXIT.IN_DOUBT, [target]], JSON.stringify(s2))
+    assertCountsMatchRows("resumed", r, s2)
+  })
+}
+
 // N5 (lane M group B gate). The proxy is in the request path, so a call it never logged was never
 // paid. Its row stays as evidence of what the CLI said, but every count reads the same number:
 // the calls the proxy logged.
@@ -2928,6 +2951,9 @@ test("I8 a call the proxy never saw is counted the same way live, on resume and 
   assert.equal(s.experiments[TTL].paidRequests, ttlLogged, `live experiment count: ${observed}`)
   assert.equal(s2.paidRequestsIssued, logged.length, `resumed run total: ${observed}`)
   assert.equal(s2.experiments[TTL].paidRequests, ttlLogged, `resumed experiment count: ${observed}`)
+  // the marker a consumer reads: the unpaid row says requestCount 0, every paid row at least 1
+  const counts = h.ledger.requests.map((x) => [x.stepId, x.accounting?.requestCount])
+  assert.deepEqual(counts.filter(([, n]) => !(n >= 1)), [[target, 0]], `only the unseen call's row is unpaid: ${JSON.stringify(counts)}`)
 })
 
 // N2 / GM5. The tick charged for a result whose row is missing is not just reported, it is SPENT:

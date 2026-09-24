@@ -463,9 +463,15 @@ export function fold(events) {
         st.paidRequests += n
         break
       }
-      case "step_void":
+      case "step_void": {
         st.steps[e.stepId] = { ...(st.steps[e.stepId] ?? {}), state: "void", reason: e.reason ?? null, event: e }
+        // an in-doubt call that drained unlabelled records: each was paid and has its own row
+        if (Number.isInteger(e.accounting?.requestCount)) {
+          ownerOf(e).paidRequests += e.accounting.requestCount
+          st.paidRequests += e.accounting.requestCount
+        }
         break
+      }
       case "gate_refused":
         st.steps[e.stepId] = { ...(st.steps[e.stepId] ?? {}), state: "gate_refused", reason: e.reasons?.[0]?.code ?? null }
         break
@@ -637,6 +643,19 @@ const compactCaps = (accounting) => (Array.isArray(accounting?.caps) ? accountin
 
 const emptyResult = (anomalies, late) => ({ record: null, anomalies, ticks: {}, late, meters: {} })
 
+// The requests.jsonl row of a drained proxy record that is not the step's own response: the step's
+// row fields, with the record's own evidence, marked `extra_request`.
+const drainedRow = (base, x) => ({
+  ...base,
+  label: x?.label ?? "",
+  ts_req: x?.ts_req ?? base.ts_req, ts: x?.ts ?? base.ts,
+  status: Number.isFinite(x?.status) ? x.status : null,
+  requestId: x?.headers?.["request-id"] ?? null, msgId: x?.msg_id ?? null,
+  model: x?.model ?? null, stop_reason: x?.stop_reason ?? null, error: x?.error ?? null,
+  usage: x?.usage ?? null, headers: x?.headers ?? {},
+  accounting: { ...base.accounting, source: "extra_request" },
+})
+
 // ------------------------------------------------------------------- one step
 
 /**
@@ -753,9 +772,22 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     // The cancel, if any, is already recorded above; this call stays in doubt (exit 4) until
     // proxy.jsonl settles it. What ended the EXPERIMENT is the cancel when there was one (I16,
     // clarification A (ii)) - the call's own uncertainty is its step_void.
-    emit(st, { ev: "step_void", ...META_OF(step), reason: "unknown_issue_state", inDoubt: true, error: adapterFailure })
+    // Records drained here are none of them the step's own (no label), but each WAS a paid call:
+    // one requests.jsonl row per record, and the step_void carries their count for the fold.
+    const base = {
+      v: REQUEST_VERSION, runId: st.runId, ...META_OF(step), label: "",
+      ts_req: iso(res?.startedMs ?? clock.now()), ts: iso(res?.endedMs ?? clock.now()),
+      sessionId: step.session?.id ?? null, sessionMode: step.session?.mode ?? null,
+      promptSha256: step.prompt.sha256, promptChars: step.prompt.chars, promptTokensEst: step.prompt.tokensEst,
+      method: "POST", path: "/v1/messages", meters: {},
+      accounting: { meter: METER_5H, scope: idleKey, gated: !ungated, predictedTicksForThisCall: accounting.predictedTicks, requestCount: records.length },
+      phase_ledger: null, adapterError: adapterFailure, exitCode: Number.isFinite(res?.exitCode) ? res.exitCode : null,
+      anomalies: ["unexpected_request_count"],
+    }
+    for (const x of records) st.deps.ledger.writeRequestRecord(drainedRow(base, x))
+    emit(st, { ev: "step_void", ...META_OF(step), reason: "unknown_issue_state", inDoubt: true, error: adapterFailure, ...(records.length ? { accounting: { requestCount: records.length } } : {}) })
     st.inDoubt.push(step.id)
-    return { fatal: { status: "void", reason: cancelled ? "cancelled" : "unknown_issue_state" }, stop: true, inDoubt: true }
+    return { paid: records.length, fatal: { status: "void", reason: cancelled ? "cancelled" : "unknown_issue_state" }, stop: true, inDoubt: true }
   }
 
   const p = own[0] ?? null
@@ -866,18 +898,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   // the evidence of what the CLI reported - with `requestCount` 0, because it was never paid.
   const extras = records.filter((r) => r !== p)
   if (p || extras.length === 0) st.deps.ledger.writeRequestRecord(record)
-  for (const x of extras) {
-    st.deps.ledger.writeRequestRecord({
-      ...record,
-      label: x?.label ?? "",
-      ts_req: x?.ts_req ?? record.ts_req, ts: x?.ts ?? record.ts,
-      status: Number.isFinite(x?.status) ? x.status : null,
-      requestId: x?.headers?.["request-id"] ?? null, msgId: x?.msg_id ?? null,
-      model: x?.model ?? null, stop_reason: x?.stop_reason ?? null, error: x?.error ?? null,
-      usage: x?.usage ?? null, headers: x?.headers ?? {},
-      accounting: { ...record.accounting, source: "extra_request" },
-    })
-  }
+  for (const x of extras) st.deps.ledger.writeRequestRecord(drainedRow(record, x))
   const text = typeof res?.stdoutJson?.result === "string" ? res.stdoutJson.result : (typeof res?.stdoutJson?.text === "string" ? res.stdoutJson.text : null)
   // Assistant text is needed to score restore/policy quality; it is synthetic and never a prompt.
   if (step.needsText) {
@@ -1432,8 +1453,10 @@ async function resumeFromLog(st) {
     // stays conservative (one tick), but silence would let a truncated evidence dir look clean:
     // the resume says which call it could not read and what it charged for it instead.
     if (!rec) emit(st, { ev: "row_missing", stepId: ev.stepId, experiment: ev.experiment ?? null, run: ev.run ?? null, anomalies: ["request_row_missing"], charged, source: "resume" })
-    st.paidRequests += paidOf(ev)
   }
+  // every paid call the log records, as the fold counts it: each result, and each in-doubt call's
+  // unlabelled records
+  st.paidRequests += folded.paidRequests
 
   // (3) an issuance the log never resolved: reconcile from proxy.jsonl (its spend is attributed
   // by reconcileStep) or keep the run in doubt. Never re-invoked either way.
