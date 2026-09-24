@@ -450,7 +450,6 @@ const ARGV = {
 }
 for (const [name, call] of [
   ["main(argv)", (argv) => main(argv)],
-  ["main(argv, undefined)", (argv) => main(argv, undefined)],
   ["main(argv, null)", (argv) => main(argv, null)],
 ]) {
   for (const [mode, argv] of Object.entries(ARGV)) {
@@ -504,6 +503,29 @@ for (const [name, shape] of Object.entries(SEAM_SHAPES)) {
   })
 }
 
+// Gate r2 N1: each dep is read from the seam exactly once, and the value checked is the value used.
+// These getters hand out the fake on the first read and a different function on any later one.
+test("main reads each seam dep exactly once and uses the value it checked", async (t) => {
+  const fx = fixture(t)
+  const before = tripped.length
+  const h = harness({
+    startProxy: async () => { h.calls.startProxy += 1; throw Object.assign(new Error("listen EACCES"), { code: "EACCES" }) },
+    timeoutSignal: () => new AbortController().signal,
+  })
+  const reads = {}
+  const later = () => { throw new Error("a dep read a second time was used") }
+  const io = Object.defineProperties({}, Object.fromEntries(Object.entries(h.io).map(([k, v]) => [k, {
+    enumerable: true,
+    get: () => { reads[k] = (reads[k] ?? 0) + 1; return reads[k] === 1 ? v : later },
+  }])))
+  const code = await main(ARGV.live(fx), io)
+  assert.deepEqual(reads, Object.fromEntries(Object.keys(h.io).map((k) => [k, 1])))
+  assert.equal(h.calls.startProxy, 1, "the value read first is the one called")
+  assert.equal(code, EXIT.PREFLIGHT)
+  assert.equal(h.summary().detail, "EACCES")
+  assert.deepEqual(tripped.slice(before), [], "no real effect was attempted")
+})
+
 // Gate I19 N3: pin the health-probe bound itself. The signal factory is injected, so the value is
 // observed without any timer running.
 test("the port-owner health probe is bounded at 2000 ms by the signal main passes to fetch", async (t) => {
@@ -519,6 +541,25 @@ test("the port-owner health probe is bounded at 2000 ms by the signal main passe
   const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--port", "18999"], h.io)
   assert.deepEqual(bounds, [2000])
   assert.equal(used, bound, "the probe carries the bounded signal")
+  assert.equal(code, EXIT.PREFLIGHT)
+})
+
+// Gate r2 N2: a seam without timeoutSignal gets the CLI's own factory, which must bound the probe
+// with AbortSignal.timeout(2000). AbortSignal.timeout is replaced for this test only, so the bound is
+// observed without a timer: a factory that never aborts, or ignores its ms, fails here.
+test("the real health-probe signal factory is AbortSignal.timeout(2000), and fetch gets its signal", async (t) => {
+  const fx = fixture(t)
+  const timeouts = []
+  const bound = new AbortController().signal
+  t.mock.method(AbortSignal, "timeout", (ms) => { timeouts.push(ms); return bound })
+  let used = null
+  const h = harness({
+    startProxy: async () => { throw inUse() },
+    fetch: async (url, init) => { used = init?.signal; throw Object.assign(new Error("timed out"), { name: "TimeoutError" }) },
+  })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--port", "18999"], h.io)
+  assert.deepEqual(timeouts, [2000])
+  assert.equal(used, bound, "the probe carries the signal AbortSignal.timeout returned")
   assert.equal(code, EXIT.PREFLIGHT)
 })
 

@@ -6,14 +6,22 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { PassThrough, Writable } from "node:stream"
-import { test } from "node:test"
+import { after, test } from "node:test"
 
 import { createClaudeCliAdapter } from "../scripts/idle-live/adapters/claude-cli.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
 import { conflicting } from "../scripts/idle-live/processes.mjs"
 import { startProxy } from "../scripts/idle-live/proxy.mjs"
 
-const tmpDir = () => mkdtempSync(path.join(os.tmpdir(), "idle-live-io-"))
+// I23: each test removes its dir in `finally`; a test cut off before its `finally` runs (a hang
+// ended by --test-timeout) is covered here, once the whole file is done.
+const tmpDirs = []
+after(() => { for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true }) })
+const tmpDir = () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "idle-live-io-"))
+  tmpDirs.push(dir)
+  return dir
+}
 const readJsonl = (file) => readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
 
 const RL_HEADERS = {
