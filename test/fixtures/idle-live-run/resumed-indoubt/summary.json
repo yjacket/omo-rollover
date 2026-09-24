@@ -7,8 +7,8 @@
       "status": "valid",
       "reason": null,
       "paidRequests": 31,
-      "spentObservedEq": 0,
-      "spentUpperEq": 0,
+      "spentObservedEq": 0.02,
+      "spentUpperEq": 0.03,
       "skippedArms": {
         "fable-write-5m": "adapter_capability"
       }
@@ -16,9 +16,9 @@
     "output-quota": {
       "status": "void",
       "reason": "interrupted_by_crash",
-      "paidRequests": 2,
+      "paidRequests": 3,
       "spentObservedEq": 0,
-      "spentUpperEq": 0,
+      "spentUpperEq": 0.01,
       "skippedArms": {}
     },
     "ttl-1h-unique-prefix": {

@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/102",
+  "experiment": "restore-decomposition",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-7015\nrecord id 3028\nsite Inverness\ndate 2021-05-11\nthreshold 15",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-7015\nrecord id 3028\nsite Inverness\ndate 2021-05-11\nthreshold 15",
+    "session_id": "C1r1",
+    "usage": {
+      "input_tokens": 156,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

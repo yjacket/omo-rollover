@@ -8,7 +8,7 @@
       "reason": "interrupted_by_crash",
       "paidRequests": 2,
       "spentObservedEq": 0,
-      "spentUpperEq": 0,
+      "spentUpperEq": 0.01,
       "skippedArms": {
         "fable-write-5m": "adapter_capability"
       }
@@ -17,8 +17,8 @@
       "status": "aborted",
       "reason": "cap_exceeded",
       "paidRequests": 17,
-      "spentObservedEq": 0,
-      "spentUpperEq": 0,
+      "spentObservedEq": 0.03,
+      "spentUpperEq": 0.04,
       "skippedArms": {}
     },
     "ttl-1h-unique-prefix": {
@@ -41,8 +41,8 @@
       "status": "void",
       "reason": "interrupted_by_crash",
       "paidRequests": 6,
-      "spentObservedEq": 0,
-      "spentUpperEq": 0,
+      "spentObservedEq": 0.01,
+      "spentUpperEq": 0.02,
       "skippedArms": {}
     }
   },

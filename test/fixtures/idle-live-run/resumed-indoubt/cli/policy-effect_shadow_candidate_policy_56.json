@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/shadow_candidate_policy/56",
+  "experiment": "policy-effect",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-5057\nrecord id 972\nsite York\ndate 2021-11-21\nthreshold 13",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-5057\nrecord id 972\nsite York\ndate 2021-11-21\nthreshold 13",
+    "session_id": "C3r1",
+    "usage": {
+      "input_tokens": 152,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

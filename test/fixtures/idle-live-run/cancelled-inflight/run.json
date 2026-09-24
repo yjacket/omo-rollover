@@ -13,7 +13,7 @@
   ],
   "approval": {
     "path": "docs/idle-experiments-approval-2026-09-23.json",
-    "sha256": "9faedb6ff7e155e9a27bfbf01a19b3445d140d45547af60ec61c55b0dbbc7719",
+    "sha256": "43c8ded9590e5898a7fd5f33cc027713b573ec426df7ae5122bf4ba7fa861812",
     "plannerSha256": "f40e2ebec8977b3cb2195421b16e074ebcb5eb8bf54171564b6238fc030ed28f",
     "proposalSha256": "7bb94e667aea613dde34674c376233f4f1d44623a20878a1c4f0ee0547714e91"
   },

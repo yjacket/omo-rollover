@@ -16,7 +16,7 @@
     "output-quota": {
       "status": "void",
       "reason": "cancelled",
-      "paidRequests": 2,
+      "paidRequests": 3,
       "spentObservedEq": 0,
       "spentUpperEq": 0.01,
       "skippedArms": {}

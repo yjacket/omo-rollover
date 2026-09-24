@@ -1,0 +1,26 @@
+{
+  "stepId": "restore-decomposition/park_path/3",
+  "experiment": "restore-decomposition",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-4617\nrecord id 2375\nsite Glasgow\ndate 2025-04-17\nthreshold 14",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-4617\nrecord id 2375\nsite Glasgow\ndate 2025-04-17\nthreshold 14",
+    "session_id": "C1",
+    "usage": {
+      "input_tokens": 155,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}

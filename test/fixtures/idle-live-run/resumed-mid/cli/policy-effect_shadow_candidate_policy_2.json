@@ -1,0 +1,26 @@
+{
+  "stepId": "policy-effect/shadow_candidate_policy/2",
+  "experiment": "policy-effect",
+  "role": "r1",
+  "exitCode": 0,
+  "result": "ticket WX-6440\nrecord id 2227\nsite Kendal\ndate 2024-06-19\nthreshold 18",
+  "stdoutJson": {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ticket WX-6440\nrecord id 2227\nsite Kendal\ndate 2024-06-19\nthreshold 18",
+    "session_id": "C2",
+    "usage": {
+      "input_tokens": 154,
+      "cache_creation_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "output_tokens": 200,
+      "service_tier": "standard"
+    }
+  },
+  "stderrHead": ""
+}
