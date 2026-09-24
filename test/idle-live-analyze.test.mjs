@@ -1384,3 +1384,150 @@ test("I17/5 a row_missing step keeps its experiment out of measurement; a row_mi
     for (const id of EXPERIMENTS) assert.deepEqual(r.analysis.experiments[id], reference.analysis.experiments[id], id)
   })
 })
+
+// ------------------------------------------------------------------------------------------
+// Todo 7 I24 (I17 gate notes N1-N3; Appendix B "Paid-request counting"): what todo 9 reads
+// from analysis.json and the Korean doc never comes from an invalid feed or an unpaid row, and
+// every reason the machine can record is explained in words.
+// ------------------------------------------------------------------------------------------
+
+/** The "- 판정:" line of one experiment's section in the Korean doc. */
+function verdictLine(md, id) {
+  const lines = md.split(/\r?\n/)
+  const at = lines.findIndex((l) => l.startsWith("## ") && l.includes(id))
+  return lines.slice(at + 1).find((l) => l.startsWith("- 판정:")) ?? null
+}
+/** The explanation the doc prints after `(<code>: `, or null when the line carries none. */
+function explanationOf(line, code) {
+  const head = `(${code}: `
+  const i = line === null ? -1 : line.indexOf(head)
+  return i < 0 ? null : line.slice(i + head.length, line.lastIndexOf(")"))
+}
+/** The explanation the doc gives output-quota when the machine closed it aborted with `code`. */
+function explainRecorded(code) {
+  const ended = { ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: code }
+  return explanationOf(verdictLine(renderMarkdown(run(records, [...cloneEvents(), ended])), "output-quota"), code)
+}
+// What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
+const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
+
+test("I24/N1 a void policy-effect puts no warm cost under the NO_DECISION answer", (t) => {
+  // The gate's cut-torn shape: policy-effect's experiment_ended line torn in half, all its rows present.
+  const dir = crashedCopy(t, (e) => e.ev === "experiment_ended" && e.experiment === "policy-effect", 1, (d) => {
+    const file = path.join(d, "events.jsonl")
+    const evs = readJsonl(file)
+    const ended = JSON.stringify(evs.pop())
+    writeJsonl(file, evs)
+    writeFileSync(file, `${readFileSync(file, "utf8")}${ended.slice(0, Math.floor(ended.length / 2))}`)
+  })
+  const warm = readJsonl(path.join(dir, "requests.jsonl")).filter((r) => r.phase === "warm")
+  assert.equal(warm.length, 12, "the open experiment's warm rows are all on disk")
+  assert.ok(warm.every((r) => r.experiment === "policy-effect"))
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const p = r.analysis.experiments["policy-effect"]
+  assert.deepEqual([p.status, p.reason], ["void", "interrupted_by_crash"])
+  const pa = r.analysis.policyAnswer
+  assert.deepEqual([pa.action, pa.evaluatedAt], ["NO_DECISION", null])
+  assert.deepEqual([pa.phaseCostsEq.warm.lo, pa.phaseCostsEq.warm.hi], [null, null], "no cost is read from the void experiment's rows")
+  // restore run 1 ended valid before the cut: the parts it feeds still come from a valid feed
+  assert.equal(r.analysis.experiments["restore-decomposition"].status, "valid")
+  assert.equal(typeof pa.phaseCostsEq.parkParent.lo, "number")
+})
+
+test("I24/N1 a contaminated restore window feeds none of its phase costs; the valid policy keeps warm", () => {
+  const RESTORE_PARTS = ["ctxCreate", "parkParent", "restoreChild", "resumeRaw", "usefulWorkPark", "usefulWorkRaw"]
+  const full = run().policyAnswer.phaseCostsEq
+  for (const k of ["warm", ...RESTORE_PARTS]) assert.equal(typeof full[k].lo, "number", `${k} is priced from a valid feed`)
+  const dirty = clone()
+  dirty.find((r) => r.experiment === "restore-decomposition").model = "claude-opus-5"
+  const a = run(dirty)
+  assert.equal(a.experiments["restore-decomposition"].status, "contaminated")
+  assert.notEqual(a.experiments["restore-decomposition"].findings, null, "a contaminated window still has findings")
+  for (const k of RESTORE_PARTS) assert.deepEqual([a.policyAnswer.phaseCostsEq[k].lo, a.policyAnswer.phaseCostsEq[k].hi], [null, null], k)
+  assert.deepEqual(a.policyAnswer.phaseCostsEq.warm, full.warm, "warm comes from the valid policy-effect")
+})
+
+test("I24/N2 the Korean doc explains a void derived from a row_missing event", (t) => {
+  const TTL_STEP = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl")).find((r) => r.experiment === "ttl-1h-unique-prefix" && r.kind === "check").stepId
+  const dir = fixtureCopy(t, "fake-run", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    const last = evs[evs.length - 1]
+    const at = { ts: last.ts, runId: last.runId }
+    const tail = [
+      { ...at, ev: "run_resumed", lastSeq: last.seq, inDoubt: [], paidRequests: 211, mode: { resumeHit: true } },
+      { ...at, ev: "row_missing", stepId: TTL_STEP, experiment: "ttl-1h-unique-prefix", run: null, anomalies: ["request_row_missing"], charged: 1, source: "resume" },
+    ]
+    writeJsonl(path.join(d, "events.jsonl"), [...evs, ...tail.map((e, i) => ({ seq: last.seq + 1 + i, ...e }))])
+    writeJsonl(path.join(d, "requests.jsonl"), readJsonl(path.join(d, "requests.jsonl")).filter((r) => r.stepId !== TTL_STEP))
+  })
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const ttl = r.analysis.experiments["ttl-1h-unique-prefix"]
+  assert.deepEqual([ttl.status, ttl.reason], ["void", "request_row_missing"])
+  const line = verdictLine(r.md, "ttl-1h-unique-prefix")
+  const text = explanationOf(line, "request_row_missing")
+  assert.ok(text, line)
+  assert.notEqual(text, UNDESCRIBED)
+})
+
+test("I24/N3 every gate-refusal code the machine can record has its own Korean explanation", () => {
+  assert.ok(UNDESCRIBED, "the fallback is rendered, so a code without a text is detectable")
+  const caps = readFileSync("scripts/idle-live/caps.mjs", "utf8")
+  const machine = readFileSync("scripts/idle-live/machine.mjs", "utf8")
+  // caps.mjs gate reasons (and warnings), the machine's fallback for a refusal without a code,
+  // and the stop reasons it records when a refusal is campaign-level (campaignStopOf).
+  const codes = new Set([...caps.matchAll(/\bcode: "([a-z_]+)"/g)].map((m) => m[1]))
+  const fallback = machine.match(/g\.reasons\[0\]\?\.code \?\? "([a-z_]+)"/)
+  assert.ok(fallback, "the machine's gate-refusal fallback is where this test reads it")
+  codes.add(fallback[1])
+  const from = machine.indexOf('case "gate_refused": {')
+  assert.ok(from > 0, "campaignStopOf's gate_refused branch is where this test reads it")
+  for (const m of machine.slice(from, machine.indexOf("case ", from + 1)).matchAll(/reason: "([a-z_]+)"/g)) codes.add(m[1])
+  assert.ok(codes.size >= 15, [...codes].join(","))
+  const undescribed = [...codes].filter((code) => {
+    const text = explainRecorded(code)
+    return !text || text === UNDESCRIBED
+  })
+  assert.deepEqual(undescribed, [])
+})
+
+test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not a paid request", async (t) => {
+  const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
+  const rows = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
+  const unpaid = rows[rows.length - 1]
+  const id = unpaid.experiment
+  const lastPaid = rows[rows.length - 2]
+  const dir = fixtureCopy(t, "fake-run", (d) => {
+    // Appendix B: the row stays as the record of what the CLI reported, with requestCount 0. Its
+    // 5h reading is raised only so the test sees whether the analyzer reads it at all.
+    const file = path.join(d, "requests.jsonl")
+    writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== unpaid.stepId ? q : {
+      ...q,
+      accounting: { ...q.accounting, requestCount: 0 },
+      headers: { ...q.headers, "anthropic-ratelimit-unified-5h-utilization": (util5h(q) + 0.05).toFixed(2) },
+    })))
+  })
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  assert.equal(r.analysis.generatedFrom.requests.records, rows.length - 1, "not a paid request")
+  assert.equal(r.analysis.spend["unified-5h"].endUtil, util5h(lastPaid), "not meter spend")
+  const x = r.analysis.experiments[id]
+  assert.equal(x.window.requests, rows.filter((q) => q.experiment === id).length - 1)
+  assert.notEqual(x.status, "valid", "not measured")
+  assert.equal(x.window.sourceKind, "unknown")
+  assert.ok(x.window.reasons.includes("unpaid_request_row"), x.window.reasons.join(","))
+  assert.deepEqual([x.window.stepParity.missingRequest, x.window.stepParity.unannounced], [[], []], "the row still joins its step")
+  for (const other of EXPERIMENTS.filter((e) => e !== id)) assert.deepEqual(r.analysis.experiments[other], reference.analysis.experiments[other], other)
+
+  await t.test("a row without accounting.requestCount keeps today's counting", (tt) => {
+    const bare = fixtureCopy(tt, "fake-run", (d) => {
+      const file = path.join(d, "requests.jsonl")
+      writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== unpaid.stepId ? q : { ...q, accounting: undefined })))
+    })
+    const b = analyzeCli(tt, bare)
+    assert.equal(b.code, 0, b.stderr)
+    assert.equal(b.analysis.generatedFrom.requests.records, rows.length)
+    assert.deepEqual(b.analysis.spend, reference.analysis.spend)
+  })
+})

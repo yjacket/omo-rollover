@@ -166,6 +166,11 @@ const meterReading = (record, meter) => {
   return m && m !== "absent" ? m : null
 }
 
+// Appendix B "Paid-request counting": a row with accounting.requestCount 0 records a call the
+// proxy never logged. It is not a paid request, not meter spend and never measured; a row
+// without the field (older evidence) counts as before.
+const isPaid = (record) => record?.accounting?.requestCount !== 0
+
 const msOf = (v) => (typeof v === "number" ? num(v) : typeof v === "string" ? num(Date.parse(v)) : null)
 const byIndex = (a, b) => (a.index ?? 0) - (b.index ?? 0)
 
@@ -921,8 +926,10 @@ export function analyzePolicy(recs, opts = {}) {
  * boundary even when all requests agree with each other (the stale-baseline case).
  */
 export function windowStatus(records, events, experiment, opts = {}) {
-  const recs = records.filter((r) => r.experiment === experiment)
-  if (!recs.length) return { experiment, clean: false, sourceKind: "unknown", reasons: ["not_run"], requests: 0, resetEpochs: [] }
+  const rows = records.filter((r) => r.experiment === experiment)
+  const recs = rows.filter(isPaid)
+  const unpaid = rows.filter((r) => !isPaid(r)).map((r) => r.stepId)
+  if (!rows.length) return { experiment, clean: false, sourceKind: "unknown", reasons: ["not_run"], requests: 0, resetEpochs: [] }
   const reasons = new Set()
   if (opts.malformedRows) reasons.add("malformed_evidence_row")
   const baselineResets = Array.isArray(opts.baselineResets) ? opts.baselineResets.filter((x) => Number.isFinite(x)) : []
@@ -953,6 +960,7 @@ export function windowStatus(records, events, experiment, opts = {}) {
     if (Array.isArray(r.anomalies) && r.anomalies.length) reasons.add("anomalies_present")
     if (r.error) reasons.add("request_error")
   }
+  if (unpaid.length) reasons.add("unpaid_request_row")
   if (resets.size > 1) reasons.add("reset_in_window")
   for (const [, n] of counts) if (n !== 1) reasons.add("unexpected_request_count")
   const intents = new Set()
@@ -966,8 +974,9 @@ export function windowStatus(records, events, experiment, opts = {}) {
   // A resume that found a recorded result without its requests.jsonl row says so (row_missing):
   // that call's usage and reading are gone, so the experiment cannot be measured.
   if ((events ?? []).some((e) => e?.ev === "row_missing" && e.experiment === experiment)) reasons.add("request_row_missing")
-  // Request rows and the checkpoint must describe the same set of paid calls, 1:1.
-  const requestIds = new Set(recs.map((r) => r.stepId))
+  // Request rows and the checkpoint must describe the same set of calls, 1:1 (an unpaid row
+  // still records its step).
+  const requestIds = new Set(rows.map((r) => r.stepId))
   const missingRequest = [...results].filter((id) => !requestIds.has(id))
   const unannounced = [...requestIds].filter((id) => intents.size > 0 && !intents.has(id))
   if (missingRequest.length || unannounced.length) reasons.add("request_step_mismatch")
@@ -981,6 +990,7 @@ export function windowStatus(records, events, experiment, opts = {}) {
     resetEpochs: [...resets].sort(),
     baselineResets,
     unknownUsageFields: [...unknownUsage].sort(),
+    ...(unpaid.length ? { unpaidRequestRows: unpaid.sort() } : {}),
     stepParity: { requests: requestIds.size, intents: intents.size, results: results.size, missingRequest: missingRequest.sort(), unannounced: unannounced.sort() },
   }
 }
@@ -1269,7 +1279,8 @@ const startedEvents = (events, experiment) => (events ?? []).filter((e) => e?.ev
 
 // Reason codes the MACHINE records on experiment_ended and campaign_stop (Appendix B "Resume
 // verdict contract, revision 2", clarification A, and the machine's gate, delivery and stop-rule
-// verdicts), with the words the Korean results doc uses for them. The analyzer reports each one
+// verdicts - a gate refusal records the first caps.mjs reason code, else gate_refused), plus the
+// event-derived voids below, with the words the Korean results doc uses for them. The analyzer reports each one
 // explicitly; it never re-derives a verdict for an experiment the machine closed.
 const REASON_TEXT = Object.freeze({
   interrupted_by_crash: "크래시 시점에 진행 중이던 실험: 재개가 남은 단계를 발행하지 않고 무효로 닫았다",
@@ -1297,6 +1308,18 @@ const REASON_TEXT = Object.freeze({
   unpredictable_call: "호출 비용을 예측할 수 없어 게이트가 거부했다",
   meter_missing: "한도 계기 값이 없어 게이트가 거부했다",
   reset_changed: "기준선 이후 한도 창이 바뀌어 게이트가 거부했다",
+  gate_refused: "게이트가 사유 코드 없이 호출을 거부했다",
+  campaign_stop: "캠페인 중단 한도에 닿아 게이트가 거부하고 캠페인을 멈췄다",
+  invalid_step: "단계 기술이 올바르지 않아 게이트가 거부했다",
+  invalid_state: "게이트 상태를 읽을 수 없어 게이트가 거부했다",
+  invalid_approval: "승인 파일의 한도 정의를 읽을 수 없어 게이트가 거부했다",
+  unknown_experiment: "승인 파일에 없는 실험이라 게이트가 거부했다",
+  invalid_cap: "승인된 한도 값이 숫자가 아니어서 게이트가 거부했다",
+  invalid_scope: "이 단계의 유휴 한도 범위를 정할 수 없어 게이트가 거부했다",
+  invalid_window: "닫힌 한도 창 기록이 올바르지 않아 게이트가 거부했다",
+  invalid_windows: "닫힌 한도 창 목록을 읽을 수 없어 게이트가 거부했다",
+  invalid_reading: "계기 판독값(사용률 또는 reset 시각)이 올바르지 않아 게이트가 거부했다",
+  meter_absent: "응답 헤더에 이 한도 계기가 없었다(게이트는 경고로만 기록한다)",
   request_row_missing: "기록된 응답의 requests.jsonl 행이 없어(row_missing) 사용량을 읽을 수 없다",
 })
 // A code the machine recorded that has no entry above is still printed, and marked as recorded.
@@ -1304,6 +1327,8 @@ const UNDESCRIBED_REASON_TEXT = "기계가 기록한 사유 코드(추가 설명
 // Appendix B revision 2 (4), mirrored for a log no process ever resumed (todo 7 I17).
 const OPEN_AT_END_OF_LOG = "open_at_end_of_log"
 const OPEN_AT_END_TEXT = "로그가 이 실험 도중에 끝났다(experiment_ended도 재개 기록도 없다): 크래시로 중단된 실험으로 보고 무효로 닫았다"
+// Voids the analyzer derives from an event rather than from a machine-recorded verdict.
+const EVENT_DERIVED_REASONS = new Set(["cancelled_before_start", "request_row_missing"])
 const CLOSED_STATUS_RANK = { void: 1, aborted: 2 }
 
 /**
@@ -1425,7 +1450,8 @@ function warmSumsFrom(records) {
   return scaleSums(s, 1 / warm.length)
 }
 
-export function analyzeRun(records, events, opts = {}) {
+export function analyzeRun(rows, events, opts = {}) {
+  const records = rows.filter(isPaid)
   const requestsText = opts.requestsText ?? null
   const eventsText = opts.eventsText ?? null
   const cli = opts.cli ?? null
@@ -1437,7 +1463,7 @@ export function analyzeRun(records, events, opts = {}) {
   // evidence file: nothing here may stay measured while part of the input is unreadable.
   const malformedRows = skippedRequests > 0
   const windows = Object.fromEntries(
-    EXPERIMENT_IDS.map((id) => [id, windowStatus(records, events, id, { malformedRows, baselineResets: baselineResetsOf(events, id) })]),
+    EXPERIMENT_IDS.map((id) => [id, windowStatus(rows, events, id, { malformedRows, baselineResets: baselineResetsOf(events, id) })]),
   )
 
   const campaign = campaignOf(events, records)
@@ -1497,10 +1523,13 @@ export function analyzeRun(records, events, opts = {}) {
   })
 
   // Engine feed: the phase sums converted at both ends of every range. A restore or policy
-  // window that is not valid takes the whole feed out: the answer is NO_DECISION, never an action.
+  // window that is not valid takes the whole feed out: the answer is NO_DECISION, never an action,
+  // and no phase cost is priced from that experiment's rows (todo 9 reads phaseCostsEq).
   const endsLowHigh = conversionEnds({ T, kOut, meter: METER_5H })
-  const warmPer = warmSumsFrom(records)
-  const restoreRun = restore.findings?.runs?.[0] ?? null
+  const feedExperiments = ["restore-decomposition", "policy-effect"]
+  const invalidFeed = feedExperiments.filter((id) => experiments[id].status !== "valid")
+  const warmPer = warmSumsFrom(records.filter((r) => !invalidFeed.includes(r.experiment)))
+  const restoreRun = invalidFeed.includes("restore-decomposition") ? null : (restore.findings?.runs?.[0] ?? null)
   const pick = (sums) => (sums ? convertSums(sums, endsLowHigh) : { lo: null, hi: null })
   const parts = {
     warm: pick(warmPer),
@@ -1511,8 +1540,6 @@ export function analyzeRun(records, events, opts = {}) {
     usefulWorkPark: pick(restoreRun?.byArmPhase?.park_path?.useful_work ?? null),
     usefulWorkRaw: pick(restoreRun?.byArmPhase?.raw_path?.useful_work ?? null),
   }
-  const feedExperiments = ["restore-decomposition", "policy-effect"]
-  const invalidFeed = feedExperiments.filter((id) => experiments[id].status !== "valid")
   const hasModel = parts.warm.lo !== null && parts.parkParent.lo !== null && parts.restoreChild.lo !== null && parts.resumeRaw.lo !== null && parts.ctxCreate.lo !== null
   const modelLow = hasModel ? buildIdleCostModel({ warm: parts.warm.lo, ctxCreate: parts.ctxCreate.lo, parkParent: parts.parkParent.lo, restoreChild: parts.restoreChild.lo, resumeRaw: parts.resumeRaw.lo }) : null
   const modelHigh = hasModel ? buildIdleCostModel({ warm: parts.warm.hi, ctxCreate: parts.ctxCreate.hi, parkParent: parts.parkParent.hi, restoreChild: parts.restoreChild.hi, resumeRaw: parts.resumeRaw.hi }) : null
@@ -1565,7 +1592,7 @@ export function analyzeRun(records, events, opts = {}) {
     v: SCHEMA_VERSION,
     runId,
     generatedFrom: {
-      requests: { sha256: requestsText ? sha256(requestsText) : null, records: records.length, skipped: skippedRequests },
+      requests: { sha256: requestsText ? sha256(requestsText) : null, records: records.length, skipped: skippedRequests, ...(rows.length > records.length ? { unpaid: rows.length - records.length } : {}) },
       events: { sha256: eventsText ? sha256(eventsText) : null, records: (events ?? []).length, skipped: skippedEvents },
       cli: { artifacts: cli ? Object.keys(cli).length : 0, source: "cli/<stepId>.json (assistant text is untrusted data, compared only against ground truth)" },
       summary: opts.summary ? { exitCode: opts.summary.exitCode ?? null, v: opts.summary.v ?? null } : null,
@@ -1595,7 +1622,7 @@ const qval = (field) => (field && field.value !== null && field.value !== undefi
 const reasonText = (x) => {
   if (x.recordedVerdict?.source === OPEN_AT_END_OF_LOG) return OPEN_AT_END_TEXT
   if (x.recordedVerdict) return REASON_TEXT[x.reason] ?? UNDESCRIBED_REASON_TEXT
-  return x.reason === "cancelled_before_start" ? REASON_TEXT.cancelled_before_start : null
+  return EVENT_DERIVED_REASONS.has(x.reason) ? REASON_TEXT[x.reason] : null
 }
 const verdict = (x) => `- 판정: ${x.status}${x.reason ? ` (${x.reason}${reasonText(x) ? `: ${reasonText(x)}` : ""})` : ""}`
 
