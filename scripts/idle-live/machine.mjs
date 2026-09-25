@@ -660,6 +660,7 @@ const drainedRow = (base, x) => ({
   ...base,
   label: x?.label ?? "",
   ts_req: x?.ts_req ?? base.ts_req, ts: x?.ts ?? base.ts,
+  method: x?.method ?? null, path: x?.path ?? null,
   status: Number.isFinite(x?.status) ? x.status : null,
   requestId: x?.headers?.["request-id"] ?? null, msgId: x?.msg_id ?? null,
   model: x?.model ?? null, stop_reason: x?.stop_reason ?? null, error: x?.error ?? null,

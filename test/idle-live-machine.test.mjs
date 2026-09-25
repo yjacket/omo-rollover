@@ -991,6 +991,65 @@ test("I29 fail closed: any other second record, or a second POST, still stops th
   assert.equal((await q.run({ only: ONLY_TTL })).exitCode, EXIT.OK)
 })
 
+// I30: a drained proxy record that is not the step's own response must keep ITS OWN method/path
+// in the extra_request row - never inherit the step's base method/path (defect: drainedRow spread
+// `...base` and never overrode method/path).
+test("I30 a live extra record keeps its own method and path in the requests.jsonl row, not the step's", async () => {
+  const target = ttlId("treatment", 4)
+  const h = harness()
+  const push = h.proxy.push
+  h.proxy.push = (r) => {
+    push(r)
+    if (r.method === "POST" && r.stepId === target) push({ ...r, stepId: null, label: "", method: "GET", path: "/api/hello?x", msg_id: `${r.msg_id}_extra` })
+  }
+  const s = await h.run({ only: ONLY_TTL })
+  assert.equal(s.experiments[TTL].reason, "unexpected_request_count")
+  const extraRow = h.ledger.requests.find((r) => r.accounting?.source === "extra_request")
+  assert.ok(extraRow, "expected an extra_request row")
+  assert.equal(extraRow.method, "GET")
+  assert.equal(extraRow.path, "/api/hello?x")
+})
+
+test("I30 a live extra record without method/path writes null, never the step's inherited values", async () => {
+  const target = ttlId("treatment", 4)
+  const h = harness()
+  const push = h.proxy.push
+  h.proxy.push = (r) => {
+    push(r)
+    if (r.method === "POST" && r.stepId === target) {
+      const extra = { ...r, stepId: null, label: "", msg_id: `${r.msg_id}_extra` }
+      delete extra.method
+      delete extra.path
+      push(extra)
+    }
+  }
+  const s = await h.run({ only: ONLY_TTL })
+  assert.equal(s.experiments[TTL].reason, "unexpected_request_count")
+  const extraRow = h.ledger.requests.find((r) => r.accounting?.source === "extra_request")
+  assert.ok(extraRow, "expected an extra_request row")
+  assert.equal(extraRow.method, null)
+  assert.equal(extraRow.path, null)
+})
+
+test("I30 the adapter-failure path writes the drained record's own method and path, not the hardcoded POST /v1/messages", async () => {
+  const target = ttlId("treatment", 4)
+  const failed = { error_result: { code: "nonzero_exit", message: "exit code 1" }, exitCode: 1 }
+  const h = harness({ script: { [target]: { ...failed, records: 0 } } })
+  const invoke = h.adapter.invoke
+  h.adapter.invoke = (step, env, signal) => {
+    if (step.id === target) {
+      const ts = new Date(h.clock.now()).toISOString()
+      h.proxy.push({ ts, ts_req: ts, label: "", stepId: null, runId: h.proxy.runId, method: "GET", path: "/api/hello?x", status: 200, model: null, usage: null, stop_reason: null, error: null, msg_id: "extra_0001", body_bytes: 0, headers: {} })
+    }
+    return invoke(step, env, signal)
+  }
+  const s = await h.run({ only: ONLY_TTL })
+  assert.equal(s.exitCode, EXIT.IN_DOUBT)
+  const rows = h.ledger.requests.filter((r) => r.stepId === target)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].method, "GET")
+  assert.equal(rows[0].path, "/api/hello?x")
+})
 
 test("fold is deterministic and ignores a torn final line", async () => {
   const h = harness()
