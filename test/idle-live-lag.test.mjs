@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url"
 
 import { EXIT, runMachine, fold } from "../scripts/idle-live/machine.mjs"
 import { analyzeRun } from "../scripts/idle-live-analyze.mjs"
-import { RULES, makeTask } from "../scripts/idle-live/protocols.mjs"
+import { RULES, makeTask, EXPERIMENT_IDS } from "../scripts/idle-live/protocols.mjs"
 import { METERS } from "../scripts/idle-live/gauge.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -441,13 +441,13 @@ test("a big_context_rewrite in real --resume mode does not close later experimen
  * event, and returns a resume for a cut right after event `at` (a predicate). `withRow`: the
  * cut's call reached the API and its proxy row exists (cut at step_intent only).
  */
-async function liveAndCut(at, { withRow = false, lag = { kind: "call" } } = {}) {
+async function liveAndCut(at, { withRow = false, lag = { kind: "call" }, script = LIVE_SHAPE, runOpts = {} } = {}) {
   const worlds = []
   const live = harness({
-    lag, script: LIVE_SHAPE,
+    lag, script,
     tap: (e, w) => worlds.push({ seq: e.seq, clock: w.clock.now(), gauge: w.gauge.snapshot(), proxy: w.proxy.records.length }),
   })
-  const summary = await live.run()
+  const summary = await live.run(runOpts)
   const i = live.ledger.events.findIndex(at)
   assert.ok(i >= 0, "the cut event exists in the live run")
   const cutEvents = live.ledger.events.slice(0, i + 1)
@@ -459,12 +459,12 @@ async function liveAndCut(at, { withRow = false, lag = { kind: "call" } } = {}) 
   const requests = live.ledger.requests.filter((r) => resultIds.has(r.stepId))
   const records = live.proxy.records.slice(0, world.proxy)
   const r = harness({
-    lag, script: LIVE_SHAPE,
+    lag, script,
     ledger: memoryLedger({ events: cutEvents, requests }),
     proxy: memoryProxy({ history: records }),
     gaugeState: world.gauge, clockStart: world.clock + 60_000,
   })
-  const resumed = await r.run({ resume: true })
+  const resumed = await r.run({ resume: true, ...runOpts })
   return { live, summary, r, resumed, cutIds: new Set(cutEvents.filter((e) => e.stepId).map((e) => e.stepId)) }
 }
 
@@ -716,4 +716,84 @@ test("run end after a live in-doubt last call: no settle PING, exit 4, tail flag
   assert.deepEqual(s.inDoubt, [TTL_LAST])
   assert.equal(s.unsettledTail, true)
   assert.equal(s.unsettledTailReason, "in_doubt_step")
+})
+
+// ================================================================= todo 16: RN1/RN4 test pins
+
+// RN1 (gate st_01a0da1b re-review 1): the B1 fix must be status-agnostic. output-quota/out-8k/0
+// is the block's gate call (n=1); a short output closes the block, and so the whole experiment,
+// `aborted:short_output` with exactly one call issued. It is made to owe one extra tick its own
+// header (under lag) cannot show; only the run-end settle that follows reads it, charged to
+// output-quota's plan scope AFTER the experiment already ended. Mutant R2 ("apply the summary fix
+// to `valid` experiments only") would leave this void/aborted experiment's summary at the stale
+// end-of-experiment snapshot (0 of the settled tick) instead of the plan-scope charge.
+for (const { name, lag } of LAGS) {
+  test(`RN1: a void/aborted experiment's late tick, settled after it ended, is in its summary spend (${name})`, async () => {
+    const runOpts = { only: ["output-quota"], dialPrefix: { seed: 77, sessionId: "P-dial" } }
+    // deterministic: learn output-quota's gate call (the dial preWalk length varies with the
+    // cache-hit walk), then make that same call short and owe one more tick than its own header
+    // (under lag) can show
+    const probe = harness({ lag })
+    await probe.run(runOpts)
+    const OQ = probe.ledger.requests.find((x) => x.experiment === "output-quota" && x.role === "gate")?.stepId
+    assert.ok(OQ, "the gate call was issued")
+    const script = { [OQ]: { usage: usage({ rd: 3800, out: 1 }), foreignTicks: 1 } }
+    const lastSettleResult = (e, i, arr) => e.ev === "step_result" && isSettle(e) && !arr.slice(i + 1).some((x) => x.ev === "step_result")
+    const { live, summary, r, resumed } = await liveAndCut(lastSettleResult, { lag, script, runOpts })
+    // no output-quota work call after the gate: the short gate closes the block (and experiment)
+    const workAfterGate = live.ledger.requests.filter((x) => x.experiment === "output-quota" && x.kind === "work" && x.stepId !== OQ)
+    assert.deepEqual(workAfterGate, [], "the short gate call closes output-quota")
+    assert.equal(summary.experiments["output-quota"].status, "aborted")
+    assert.equal(summary.experiments["output-quota"].reason, "short_output")
+    const settle = live.ledger.requests.find((x) => isSettle(x))
+    assert.ok(settle, "a run-end settle follows the void/aborted close")
+    assert.deepEqual(settle.chargeTo, ["output-quota/block-1", "plan:output-quota"])
+    assert.ok(settle.accounting.ticks["unified-5h"] >= 1, "the settle reads the late tick")
+    const planTicks = live.ledger.requests.filter((x) => PLAN_OF(x) === "plan:output-quota").reduce((a, x) => a + Math.max(0, x.accounting?.ticks?.["unified-5h"] ?? 0), 0)
+    assert.ok(planTicks >= 1)
+    // live summary == the plan-scope charge (not the stale end-of-experiment snapshot)
+    assert.equal(summary.experiments["output-quota"].spentObservedEq, q2(planTicks * 0.01), "summary vs plan-scope charge")
+    assert.equal(summary.experiments["output-quota"].spentUpperEq, q2(planTicks * 0.01 + 0.01))
+    // == the resumed summary of the same (fully settled) log
+    assert.deepEqual(r.adapter.invoked, [])
+    assert.equal(resumed.experiments["output-quota"].spentObservedEq, summary.experiments["output-quota"].spentObservedEq, "resumed vs live")
+    assert.equal(resumed.experiments["output-quota"].spentUpperEq, summary.experiments["output-quota"].spentUpperEq, "resumed vs live upper")
+  })
+}
+
+// RN4 (gate st_01a0da1b re-review 1): experiments that never ran must report the literal 0/0, not
+// a read of their (empty, or preflight-charged) `plan:<id>` scope. A mutant that folds not-run
+// experiments into the same scope-read as ran ones would leak a foreign tick charged to
+// `plan:preflight` (the quiet-check PING) into a not-run experiment's summary; that mutant is not
+// killed by the existing suite (its lag tests only cover experiments that ran).
+test("RN4: experiments that never ran report 0/0 after a cap-driven campaign stop", async () => {
+  const approval = clone(APPROVAL)
+  approval.campaignStop["unified-5h"] = 0.02 // trips before ttl/policy-effect/restore-decomposition even start
+  // a quiet-check tick charged into plan:preflight, so a scope-leaking mutant has something to leak
+  const h = harness({ lag: { kind: "call" }, approval, seeds: FULL.seeds, uuids: FULL.uuids, script: { "preflight/baseline/0": { foreignTicks: 1 } } })
+  const s = await h.run()
+  const preflightTicks0 = h.ledger.requests.filter((x) => PLAN_OF(x) === "plan:preflight").reduce((a, x) => a + Math.max(0, x.accounting?.ticks?.["unified-5h"] ?? 0), 0)
+  assert.ok(preflightTicks0 >= 1, "the quiet-check tick landed on plan:preflight")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  const notRun = EXPERIMENT_IDS.filter((id) => s.experiments[id].status === "not_run")
+  assert.ok(notRun.length > 0, "at least one experiment never started")
+  for (const id of notRun) {
+    assert.equal(s.experiments[id].spentObservedEq, 0, `${id}: not-run spentObservedEq`)
+    assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: not-run spentUpperEq`)
+  }
+  // a quiet-check tick charged to plan:preflight must not leak into any not-run experiment
+  const preflightTicks = h.ledger.requests.filter((x) => PLAN_OF(x) === "plan:preflight").reduce((a, x) => a + Math.max(0, x.accounting?.ticks?.["unified-5h"] ?? 0), 0)
+  assert.ok(preflightTicks >= 0)
+})
+
+test("RN4: experiments that never ran report 0/0 on the dry-run path", async () => {
+  const h = harness({ lag: { kind: "call" } })
+  const s = await h.run({ dryRun: true })
+  assert.equal(s.dryRun, true)
+  assert.equal(h.adapter.invoked.length, 0, "no call is issued on --dry-run")
+  for (const id of EXPERIMENT_IDS) {
+    assert.equal(s.experiments[id].status, "not_run")
+    assert.equal(s.experiments[id].spentObservedEq, 0, `${id}: dry-run spentObservedEq`)
+    assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: dry-run spentUpperEq`)
+  }
 })
