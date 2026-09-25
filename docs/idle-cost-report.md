@@ -17,9 +17,9 @@
 | 작업 | 상태(완료/부분/차단) | 근거 파일·명령·결과 | 남은 조건 |
 |---|---|---|---|
 | 계수·복원 집계 | 부분 | 09-19 캡처: `scripts/quota-analysis.mjs`, [idle-cost-evidence.md](idle-cost-evidence.md)/`.json`. 09-26 실측: `scripts/idle-live-analyze.mjs`, [idle-live-results.md](idle-live-results.md)/`.json`, 독립 재계산 `verify.mjs` 257 MATCH. 세 meter 계수 레코드 3건 추가, 전부 `sourceKind: unknown`, 계수 필드 전부 `null` | 깨끗한 창에서 식별된 계수 없음. Fable 쓰기 tick(H6/H8), `k_out`, 복원 `Rw`/`Rr` 모두 미측정. 아래 "다음에 승인받아야 할 실행" |
-| 비용·시간 모델 보완 | 완료 | `extension/rollover.ts`의 `idle-cost-engine/1.0.0`(`convertUsage`, `cacheStateAtArrival`, `planIdle`, `evaluateIdleCost`), `test/idle-cost.test.mjs`. 수학 fixture(AGENT_TASK 8절) 재현: PARK 27,350 / KEEP_WARM 24,075 / K=126,375 변형 21,712.5 | 실측 계수와 보정된 복귀 예측이 없어 엔진에 넣을 값이 없음 |
+| 비용·시간 모델 보완 | 완료 | `extension/rollover.ts`의 `idle-cost-engine/1.0.0`(`convertUsage`, `cacheStateAtArrival`, `planIdle`, `evaluateIdleCost`), `test/idle-cost.test.mjs`. 수학 fixture(AGENT_TASK 8절) 재현: PARK 27,350 / WARM→EXPIRE 24,075 / K=126,375 변형 21,712.5 | 실측 계수와 보정된 복귀 예측이 없어 엔진에 넣을 값이 없음 |
 | shadow 연동 | 완료(기록 전용) | `idleCostMode: "shadow"`, `idle_cost_shadow`/`idle_shadow_error` 이벤트, `test/idle-shadow.test.mjs`, `scripts/idle-replay.mjs` | 호스트가 `observeTaskEnd`를 자동 호출하지 않음. 검증된 prefix 근거 공급자 없음 |
-| 회귀·독립 검증 | 완료(이 worktree 기준) | `npm test`(`node --test "test/*.mjs"`) exit 0. todo-9 게이트: fresh checkout에서 분석기가 `docs/idle-live-results.json`을 바이트 단위로 재현, `verify.mjs` 257 MATCH / 0 MISMATCH, D1 독립 재도출 일치 | 최종 F1-F4 게이트 미실행. todo 13(러너 귀속 수정)과 todo 14(분석기 라벨) 진행 중 |
+| 회귀·독립 검증 | 완료(이 worktree 기준) | `npm test`(`node --test "test/*.mjs"`) exit 0. todo-9 게이트: fresh checkout에서 분석기가 `docs/idle-live-results.json`을 바이트 단위로 재현, `verify.mjs` 257 MATCH / 0 MISMATCH, D1 독립 재도출 일치. todo 12(smoke resume 전면 거부) `7a3b472`, todo 13(헤더 지연 귀속 + settle point) `192ab77`+`ea90e08`, todo 14(분석기 라벨 정합) `f4f288a`, todo 15(fallback-miss 설명 + settle 창 분리) 이번 커밋으로 모두 이 worktree에 반영 | 최종 F1-F4 게이트 미실행 |
 | 실제 실험·배포 | 실험 실행됨(별도 서명 파일 아래), 배포 안 함 | 승인: `docs/idle-experiments-approval-2026-09-23.json`(제안 JSON과 별개, `scripts/idle-live/approval.mjs`가 검증). 실행: `scripts/idle-live-runner.mjs`, 2026-09-26 01:13-03:14 KST, detached launcher로 무인 실행, exit 3, 유료 22건. 결과: 실험 4개 aborted, 1개 contaminated, 계수 0개 | enforce 조건 미충족(`minimumEvidenceForEnforcement` 어느 실험도 못 채움). 재실행은 아래 승인 항목 |
 
 AGENT_TASK 8절의 구분을 그대로 적용한다. **이번 작업 완료**에 해당하는 것은 raw 분석,
@@ -92,8 +92,10 @@ AGENT_TASK 8절의 구분을 그대로 적용한다. **이번 작업 완료**에
 
 엔진(`evaluateIdleCost`)의 답은 **`NO_DECISION`** (`evidence_incomplete`)이다.
 `KEEP_WARM`, `PARK`, `LET_EXPIRE` 중 어느 것도 고를 수 없었다. restore-decomposition과
-policy-effect가 중단돼 phase 비용 모델이 없고, 계수 구간이 하나도 없어서 분석기는 범위
-하단과 상단 어느 쪽에서도 엔진을 돌리지 않았다. V=0 기준이고 복귀 예측 q는 측정하지도
+policy-effect가 중단돼 phase 비용 모델이 없고, 측정된 계수 구간이 없고(분석기는 이전 실측
+계수 구간의 상한·하한을 그대로 들고 있으나 이번 실측에서 갱신하지 못했다) `evidence_incomplete`로
+평가 자체를 건너뛰어, 분석기는 범위 하단과 상단 어느 쪽에서도 엔진을 돌리지 않았다.
+V=0 기준이고 복귀 예측 q는 측정하지도
 지어내지도 않았다(`no_calibrated_forecast`). 쌍 실행은 0쌍 완료(계획 3쌍)이므로 비교할
 정책 차이가 없다. 복귀 지연과 품질 결과도 측정치가 없다.
 
@@ -142,8 +144,10 @@ output-quota / restore-decomposition / policy-effect는 `protocol_amendment_requ
    PING 추가, 캡처가 적중하는 형태를 보여주면 그 형태로 복원 폴백 교체.
 3. **크레딧 결정:** D1로 fable-write-tick에 잘못 귀속된 0.02를 되돌릴지. 상한 회계가
    바뀌므로 사용자 결정이 필요하다.
-4. **todo 13 러너 수정:** 헤더 지연을 반영한 귀속, 미설명 phase 이월 금지, 폴백 miss 뒤
-   나머지 큰 컨텍스트 실험 무료 종료.
+4. **todo 13 러너 수정 (구현 완료, 실행은 미승인):** 헤더 지연을 반영한 귀속, 미설명 phase
+   이월 금지, 폴백 miss 뒤 나머지 큰 컨텍스트 실험 무료 종료 - 코드는 이 worktree에 이미
+   반영됐다(`192ab77`, `ea90e08`; todo 15가 분석기 쪽 settle 창 분리와 새 사유 코드 설명을
+   추가했다). 다음 유료 실행에 이 수정된 러너를 쓰려면 사용자의 재실행 승인이 필요하다.
 5. **새 5h 창에서 launcher 재실행:** 예상 5h 약 0.21, 최대 0.28; 7d_oi 0.055-0.07.
    잔여 상한은 5h 0.36, 7d 0.09, 7d_oi 0.07이라 7d_oi 캠페인 정지선에 가깝다.
    Appendix A의 drop order를 적용한다.

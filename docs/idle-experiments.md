@@ -129,7 +129,7 @@ unknown. None of them can be issued from this repository; the dry-run reports
 
 ## Approval proposal
 
-The [approval proposal](idle-experiments-approval-proposal.md) (Korean, signable) and its [machine-readable copy](idle-experiments-approval-proposal.json) define the complete experimental limits and order for all five plans. The JSON carries `status: "proposed"` with `approvedAt: null` and is not an approval; it becomes an approval only when explicitly signed and updated. `scripts/idle-experiments.mjs --execute` still exits 2, and no runner exists yet to carry out the experiments.
+The [approval proposal](idle-experiments-approval-proposal.md) (Korean, signable) and its [machine-readable copy](idle-experiments-approval-proposal.json) define the complete experimental limits and order for all five plans. The JSON carries `status: "proposed"` with `approvedAt: null` and is not an approval; it becomes an approval only when explicitly signed and updated. `scripts/idle-experiments.mjs --execute` still exits 2. A separate runner (`scripts/idle-live-runner.mjs`, `scripts/idle-live/*`) now exists to carry out the experiments under a signed approval file, distinct from this proposal (see "Live run" below).
 
 ## Live run
 
