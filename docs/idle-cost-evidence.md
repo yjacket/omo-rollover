@@ -233,3 +233,146 @@ Every claim below was re-checked against the raw capture rather than carried ove
 | `cancel_resume` | false | the aggregator is a single synchronous pass with no resumable or long running state |
 | `hung_commands` | false | no network, no timer, no subprocess and no unbounded loop exists in this path |
 | `repeated_interruptions` | false | the command is idempotent and writes nothing unless --out is given |
+
+## 2026-09-26 live run (runId 20260925-161302)
+
+Hand-appended by plan todo 9. Sections 1-10 above are the unchanged 2026-09-19 output of `scripts/quota-analysis.mjs`. Re-running the reproduce command at the top of this file rewrites both files and would drop this section and the appended records. If you regenerate, merge by hand.
+
+**Source.**
+
+- Run: `.omo/ulw-execute/evidence/idle-live-run/live/20260925-161302`. The directory is gitignored and stays untracked in worktree w2.
+- Time: UTC 2026-09-25 16:13:02-18:14:37, which is KST 2026-09-26 01:13-03:14.
+- Model and CLI: model `claude-fable-5-1`, claude CLI 2.1.278, 1h TTL lane only.
+- Raw files: `requests.jsonl` has 22 rows (sha256 `05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886`) and `events.jsonl` has 62 rows (sha256 `0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84`).
+- Runner: exit 3, 22 paid calls.
+
+**Analysis.** `node scripts/idle-live-analyze.mjs .omo/ulw-execute/evidence/idle-live-run/live/20260925-161302 --md docs/idle-live-results.md` (exit 0). The result is copied byte for byte to `docs/idle-live-results.json`, and the root causes are in `docs/idle-live-results.md`. Every number below was recomputed independently from the raw rows and matched the analyzer output (task-9 `verify.mjs`: 257 MATCH, 0 MISMATCH).
+
+**These figures do not establish any quota saving for any policy.**
+
+### Window status per experiment
+
+`sourceKind` is the analyzer's window verdict. A clean window can produce `measured`; every other window produces `unknown`.
+
+| experiment | status (reason) | window | sourceKind | paid calls | 5h spend as recorded by the runner |
+| --- | --- | --- | --- | --- | --- |
+| `fable-write-tick` | aborted (`cap_exceeded`) | not clean: `gauge_moved_without_own_call` on its only call | unknown | 1 | 0.02 |
+| `output-quota` | aborted (`short_output`) | clean, but the gate call failed | measured window, no coefficient | 1 | 0.00 |
+| `ttl-1h-unique-prefix` | **contaminated** (`anomalies_present`). The machine recorded it `valid`; the analyzer's stricter verdict stands (todo-8 gate ruling Q3). | not clean: `gauge_moved_without_own_call` on `treatment/0` | unknown | 10 | 0.05 |
+| `restore-decomposition` (runs 1 and 2) | aborted (`big_context_rewrite`) | not clean: anomalies on `shared/1` and `park_path/101` | unknown | 5 | 0.07 |
+| `policy-effect` | aborted (`big_context_rewrite`) | clean, 2 calls; aborted on the first pair | measured window, no coefficient | 2 | 0.02 |
+
+The per-experiment 5h spend is gauge-derived and uses the runner's lag-0 attribution, which this run's data rejects (see "Gauge lag" below). Only the meter totals are attribution-free.
+
+### Spend per meter (sourceKind: measured gauge movement; one reset window each)
+
+| meter | start -> end | observed | upper bound | cap |
+| --- | --- | --- | --- | --- |
+| `unified-5h` | 0.00 -> 0.16 | 0.16 | 0.17 (0.18 if the last call's cost is not yet shown, under lag 1) | 0.53 |
+| `unified-7d` | 0.01 -> 0.03 | 0.02 | 0.03 (at most 0.04 under lag 1) | 0.12 |
+| `unified-7d_oi` | 0.00 -> 0.04 | 0.04 | 0.05 (at most 0.06 under lag 1) | 0.12 |
+
+### Raw usage (sourceKind: measured tokens; never modified)
+
+| group (experiment, run, phase) | calls | input | cacheRead | cacheWrite1h | cacheWrite5m | output |
+| --- | --- | --- | --- | --- | --- | --- |
+| preflight pings | 3 | 6 | 8,096 | 4,048 | 0 | 12 |
+| restore run 1 ctx_create | 1 | 2 | 3,035 | 143,362 | 0 | 4 |
+| restore run 1 resume gate (`--resume`) | 1 | 2 | 3,035 | 143,423 | 0 | 4 |
+| restore run 1 park_parent (rf-emulation) | 1 | 2 | 3,035 | 143,444 | 0 | 4,238 |
+| fable DIAL (pre-walk) | 1 | 2 | 146,397 | 0 | 0 | 4 |
+| output-quota OUT-8K gate | 1 | 2 | 3,035 | 1,009 | 0 | 5,106 |
+| policy pair 1 ctx_create | 1 | 2 | 3,035 | 143,342 | 0 | 57 |
+| policy pair 1 park_parent (rf-emulation) | 1 | 2 | 3,035 | 143,424 | 0 | 1,117 |
+| restore run 2 ctx_create | 1 | 2 | 3,035 | 143,404 | 0 | 4 |
+| restore run 2 park_parent (rf-emulation) | 1 | 2 | 3,035 | 143,486 | 0 | 3,812 |
+| ttl writes A, B, C, D | 4 | 8 | 12,140 | 238,655 | 0 | 16 |
+| ttl 55-min pings A, C | 2 | 4 | 125,299 | 0 | 0 | 8 |
+| ttl 110-min checks A, B, C, D | 4 | 8 | 131,369 | 119,426 | 0 | 16 |
+| **total** | 22 | 44 | 447,581 | 1,367,023 | 0 | 14,398 |
+
+### Coefficient records appended
+
+Three records were appended to `coefficientRecords` at indices 21-23, one per meter: `unified-5h`, `unified-7d` and `unified-7d_oi` `-utilization-fraction`. They use the analyzer's engine shape and version `idle-live-analysis/1`. `liveRuns[0]` carries the provenance and the window statuses.
+
+- Every coefficient is `null`: `uncachedInput`, `cacheWrite5m`, `cacheWrite1h`, `cacheRead` and `billedModelOutput`.
+- Every record is `sourceKind: "unknown"`, because no clean window identified a coefficient:
+  - `cacheWrite1h`: `no_clean_fable_window`.
+  - `billedModelOutput`: `output_window_not_clean` on 5h. The analyzer uses this label for an experiment that is not valid; the output window itself was clean but the gate aborted.
+  - `cacheWrite5m`: `adapter_capability` (the CLI writes only 1h).
+  - `cacheRead`: the 5.39M-5.55M prior only (`reported_unverified`).
+  - `uncachedInput`: bounded above by `cacheWrite1h`.
+- The 2026-09-19 records above are unchanged, and no coefficient was invented.
+
+### TTL renewal (listed under status `contaminated`)
+
+The result is read from usage, not from the gauge:
+
+| run | 1h writes | 55-min read of the treatment prefix | 110-min checks | outcome |
+| --- | --- | --- | --- | --- |
+| 1 | A 59,602, B 59,703 | A HIT, read 62,637 | A HIT (read 62,637, write 0); B MISS (rewrote 59,703) | A HIT & B MISS |
+| 2 | C 59,627, D 59,723 | C HIT, read 62,662 | C HIT (read 62,662, write 0); D MISS (rewrote 59,723) | C HIT & D MISS |
+
+- The analyzer's verdict is `renews_at_55min`, with n = 2. Every step fell within ±90 s of its schedule.
+- Because the window is contaminated, this result is **not** a `measured` record. Its status is contaminated, for the reason in the next point.
+- The contamination is a gauge anomaly on the first TTL write. That call's header moved +2 ticks on a 59.6K write that costs about 0.4-0.75 tick depending on T. Under lag 1 that movement belongs to the previous call, restore run 2 `park_path/101`. The usage fields the verdict rests on are not affected by it, but promoting the verdict to `measured` would need an Appendix B amendment.
+
+### Gauge lag (D1): what the data admits
+
+Model (Appendix A section 0): the header shows floor(cumulative / 0.01), and the meter is linear in the five usage fields. Scan range:
+
+- T is the number of 1h-write tokens per tick, scanned from 60K to 200K;
+- read tokens per tick: 5.39M-5.55M;
+- output weight: 0.5-12 times the write weight.
+
+Results:
+
+- **Lag 0** (a call's cost is shown on its own header) is infeasible over the whole scan. Direct case: `restore-decomposition/shared/0` wrote 143,362 1h tokens and its own header stayed at 0.00; that needs T > 147K.
+- **Lag 2** is infeasible over the whole scan.
+- **Lag 1** is feasible only for T = 80.5K-89.5K with an output weight of at least 1.55.
+  - That T range lies inside the 09-19 H8 interval (79.3K-102K) and outside the prior 102K-143K.
+  - At the prior 102K-143K no lag model fits.
+
+So the data rejects "lag 0 at the prior price". It admits lag 1 only at a T below the prior. This depends on the floor-and-linear assumptions and does not separate a per-call lag from time-based settlement. **Consequently T stays `unknown` here and is not recorded as measured.** The fit is model-dependent and comes from contaminated windows.
+
+What changes under lag 1 (task-9 `d1-lag-output.txt`):
+
+| scope | 5h ticks under lag 0 | 5h ticks under lag 1 |
+| --- | --- | --- |
+| restore run 1 | 3 | 5 |
+| fable-write-tick | 2 | 0 |
+| output-quota | 0 | 1 |
+| policy pair 1 | 2 | 3 |
+| restore run 2 | 4 | 4 |
+| ttl frame | 5 | 3 + unseen last-call tail |
+
+- The fable `cap_exceeded` abort does not occur under lag 1. Projected spend would be 0 + 1 tick against the 2-tick cap.
+- The TTL anomaly moves to restore run 2.
+- The meter upper bounds each rise by at most 0.01.
+- No coefficient interval changes, because none was produced.
+
+### AGENT_TASK A3 items after this run
+
+- **Fable write tick 6/8:** not measured (fable-write-tick aborted). The lag-1 fit above falls inside H8, but it is `unknown`, not a measurement. H6/H8 from 2026-09-19 stay unresolved.
+- **Output quota:** not measured. One OUT-8K call produced 5,106 output tokens (104 thinking) with `end_turn`, below the 6,000 gate. k_out stays unknown.
+- **Fable read/write ratio:** not measured by this run. The 2026-09-19 range of 0.0137-0.0576 (H6 only) stands as recorded.
+- **Restore cost Rw/Rr:** not measured. Every big-context request after the context write, whether `--resume` or rf-emulation, was a full rewrite: read 3,035, 1h write 143.4K-143.5K. So no park/restore decomposition exists. The earlier Rw 6K / Rr 125K estimates remain `reported_unverified`.
+- **System/skill overlap:** unresolved. The only separable piece is the 3,035-token system-prompt read, which appears on every cache miss (measured usage).
+- **Park generation:** measured usage, but on a rewritten context, so not representative. Three `park_parent` calls, each with one big-context request that missed (read 3,035):
+
+  | park_parent call | 1h write | output |
+  | --- | --- | --- |
+  | restore run 1 | 143,444 | 4,238 |
+  | policy pair 1 | 143,424 | 1,117 |
+  | restore run 2 | 143,486 | 3,812 |
+
+### Policy answer
+
+**NO_DECISION** (`evidence_incomplete`): restore-decomposition and policy-effect aborted, so no phase cost model exists.
+
+- The engine was not run at either end of the prior range.
+- V = 0 baseline. No return forecast q was measured or invented.
+
+### Unknown after this run
+
+`cacheWrite5m` (skipped by adapter capability), `uncachedInput`, `cacheRead` (prior only), T, k_out, the return forecast q, skillRestoreEq / sharedLossEq / parkQualityEq, the restore and park decomposition, and the exact bytes by which a `--resume` replay differs (no request bodies were captured).

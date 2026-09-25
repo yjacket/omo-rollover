@@ -1,0 +1,902 @@
+{
+  "coefficientProvenance": [
+    {
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "fields": {
+        "billedModelOutput": {
+          "range": null,
+          "reason": "output_window_not_clean",
+          "sourceKind": "unknown",
+          "status": "upper_bound"
+        },
+        "cacheRead": {
+          "range": null,
+          "reason": "not_measured_by_this_run",
+          "sourceKind": "reported_unverified",
+          "status": "prior_only"
+        },
+        "cacheWrite1h": {
+          "range": null,
+          "reason": "no_clean_fable_window",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        },
+        "cacheWrite5m": {
+          "range": null,
+          "reason": "adapter_capability",
+          "sourceKind": "unknown",
+          "status": "skipped"
+        },
+        "uncachedInput": {
+          "range": null,
+          "reason": "bounded_above_by_cacheWrite1h",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        }
+      },
+      "meterMultiplierFromReportedLog": null,
+      "pointRule": "upper_quantization_bound",
+      "priors": {
+        "cacheRead": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            5390000,
+            5550000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "cacheWrite1h": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            102000,
+            143000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "outputRatio": {
+          "range": [
+            0.5,
+            2.5
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "x_write_coefficient"
+        }
+      },
+      "quotaMeterOrCostUnit": "unified-5h-utilization-fraction",
+      "rangeKind": "quantization_bounds",
+      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
+      "runId": "20260925-161302",
+      "statisticalConfidenceInterval": false,
+      "status": "unidentified",
+      "window": {
+        "experiment": "fable-write-tick",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 1,
+        "resetEpochs": [
+          1790370600
+        ]
+      }
+    },
+    {
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "fields": {
+        "billedModelOutput": {
+          "range": null,
+          "reason": "no_output_observation_on_this_meter",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        },
+        "cacheRead": {
+          "range": null,
+          "reason": "not_measured_by_this_run",
+          "sourceKind": "reported_unverified",
+          "status": "prior_only"
+        },
+        "cacheWrite1h": {
+          "range": null,
+          "reason": "no_clean_fable_window",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        },
+        "cacheWrite5m": {
+          "range": null,
+          "reason": "adapter_capability",
+          "sourceKind": "unknown",
+          "status": "skipped"
+        },
+        "uncachedInput": {
+          "range": null,
+          "reason": "bounded_above_by_cacheWrite1h",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        }
+      },
+      "meterMultiplierFromReportedLog": [
+        2.7,
+        8
+      ],
+      "pointRule": "upper_quantization_bound",
+      "priors": {
+        "cacheRead": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            5390000,
+            5550000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "cacheWrite1h": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            102000,
+            143000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "outputRatio": {
+          "range": [
+            0.5,
+            2.5
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "x_write_coefficient"
+        }
+      },
+      "quotaMeterOrCostUnit": "unified-7d-utilization-fraction",
+      "rangeKind": "quantization_bounds",
+      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
+      "runId": "20260925-161302",
+      "statisticalConfidenceInterval": false,
+      "status": "unidentified",
+      "window": {
+        "experiment": "fable-write-tick",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 1,
+        "resetEpochs": [
+          1790370600
+        ]
+      }
+    },
+    {
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "fields": {
+        "billedModelOutput": {
+          "range": null,
+          "reason": "no_output_observation_on_this_meter",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        },
+        "cacheRead": {
+          "range": null,
+          "reason": "not_measured_by_this_run",
+          "sourceKind": "reported_unverified",
+          "status": "prior_only"
+        },
+        "cacheWrite1h": {
+          "range": null,
+          "reason": "no_clean_fable_window",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        },
+        "cacheWrite5m": {
+          "range": null,
+          "reason": "adapter_capability",
+          "sourceKind": "unknown",
+          "status": "skipped"
+        },
+        "uncachedInput": {
+          "range": null,
+          "reason": "bounded_above_by_cacheWrite1h",
+          "sourceKind": "unknown",
+          "status": "unidentified"
+        }
+      },
+      "meterMultiplierFromReportedLog": [
+        1.75,
+        4.5
+      ],
+      "pointRule": "upper_quantization_bound",
+      "priors": {
+        "cacheRead": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            5390000,
+            5550000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "cacheWrite1h": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            102000,
+            143000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "outputRatio": {
+          "range": [
+            0.5,
+            2.5
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "x_write_coefficient"
+        }
+      },
+      "quotaMeterOrCostUnit": "unified-7d_oi-utilization-fraction",
+      "rangeKind": "quantization_bounds",
+      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
+      "runId": "20260925-161302",
+      "statisticalConfidenceInterval": false,
+      "status": "unidentified",
+      "window": {
+        "experiment": "fable-write-tick",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 1,
+        "resetEpochs": [
+          1790370600
+        ]
+      }
+    }
+  ],
+  "coefficientRecords": [
+    {
+      "authLane": "claude-sdk-oauth",
+      "coefficients": {
+        "billedModelOutput": null,
+        "cacheRead": null,
+        "cacheWrite1h": null,
+        "cacheWrite5m": null,
+        "uncachedInput": null
+      },
+      "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "modelId": "claude-fable-5-1",
+      "observedRangeOrUncertainty": {},
+      "provider": "firstParty",
+      "quotaMeterOrCostUnit": "unified-5h-utilization-fraction",
+      "sampleCount": 1,
+      "sourceKind": "unknown",
+      "ttlLane": "1h",
+      "validFrom": "2026-09-25T16:13:02.789Z",
+      "version": "idle-live-analysis/1"
+    },
+    {
+      "authLane": "claude-sdk-oauth",
+      "coefficients": {
+        "billedModelOutput": null,
+        "cacheRead": null,
+        "cacheWrite1h": null,
+        "cacheWrite5m": null,
+        "uncachedInput": null
+      },
+      "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "modelId": "claude-fable-5-1",
+      "observedRangeOrUncertainty": {},
+      "provider": "firstParty",
+      "quotaMeterOrCostUnit": "unified-7d-utilization-fraction",
+      "sampleCount": 1,
+      "sourceKind": "unknown",
+      "ttlLane": "1h",
+      "validFrom": "2026-09-25T16:13:02.789Z",
+      "version": "idle-live-analysis/1"
+    },
+    {
+      "authLane": "claude-sdk-oauth",
+      "coefficients": {
+        "billedModelOutput": null,
+        "cacheRead": null,
+        "cacheWrite1h": null,
+        "cacheWrite5m": null,
+        "uncachedInput": null
+      },
+      "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
+      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "modelId": "claude-fable-5-1",
+      "observedRangeOrUncertainty": {},
+      "provider": "firstParty",
+      "quotaMeterOrCostUnit": "unified-7d_oi-utilization-fraction",
+      "sampleCount": 1,
+      "sourceKind": "unknown",
+      "ttlLane": "1h",
+      "validFrom": "2026-09-25T16:13:02.789Z",
+      "version": "idle-live-analysis/1"
+    }
+  ],
+  "experiments": {
+    "fable-write-tick": {
+      "findings": null,
+      "hypotheses": [],
+      "reason": "cap_exceeded",
+      "recordedVerdict": {
+        "reason": "cap_exceeded",
+        "run": null,
+        "seq": 22,
+        "source": "live",
+        "status": "aborted"
+      },
+      "status": "aborted",
+      "window": {
+        "baselineResets": [
+          1790370600
+        ],
+        "clean": false,
+        "experiment": "fable-write-tick",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 1,
+        "resetEpochs": [
+          1790370600
+        ],
+        "sourceKind": "unknown",
+        "stepParity": {
+          "intents": 1,
+          "missingRequest": [],
+          "requests": 1,
+          "results": 1,
+          "unannounced": []
+        },
+        "unknownUsageFields": []
+      }
+    },
+    "output-quota": {
+      "findings": null,
+      "hypotheses": [],
+      "reason": "short_output",
+      "recordedVerdict": {
+        "reason": "short_output",
+        "run": null,
+        "seq": 26,
+        "source": "live",
+        "status": "aborted"
+      },
+      "status": "aborted",
+      "window": {
+        "baselineResets": [
+          1790370600
+        ],
+        "clean": true,
+        "experiment": "output-quota",
+        "reasons": [],
+        "requests": 1,
+        "resetEpochs": [
+          1790370600
+        ],
+        "sourceKind": "measured",
+        "stepParity": {
+          "intents": 1,
+          "missingRequest": [],
+          "requests": 1,
+          "results": 1,
+          "unannounced": []
+        },
+        "unknownUsageFields": []
+      }
+    },
+    "policy-effect": {
+      "findings": null,
+      "hypotheses": [],
+      "reason": "big_context_rewrite",
+      "recordedVerdict": {
+        "reason": "big_context_rewrite",
+        "run": null,
+        "seq": 32,
+        "source": "live",
+        "status": "aborted"
+      },
+      "status": "aborted",
+      "window": {
+        "baselineResets": [
+          1790370600
+        ],
+        "clean": true,
+        "experiment": "policy-effect",
+        "reasons": [],
+        "requests": 2,
+        "resetEpochs": [
+          1790370600
+        ],
+        "sourceKind": "measured",
+        "stepParity": {
+          "intents": 2,
+          "missingRequest": [],
+          "requests": 2,
+          "results": 2,
+          "unannounced": []
+        },
+        "unknownUsageFields": []
+      }
+    },
+    "restore-decomposition": {
+      "findings": null,
+      "hypotheses": [],
+      "reason": "big_context_rewrite",
+      "recordedVerdict": {
+        "reason": "big_context_rewrite",
+        "run": 1,
+        "seq": 16,
+        "source": "live",
+        "status": "aborted"
+      },
+      "status": "aborted",
+      "window": {
+        "baselineResets": [
+          1790370600,
+          1790370600
+        ],
+        "clean": false,
+        "experiment": "restore-decomposition",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 5,
+        "resetEpochs": [
+          1790370600
+        ],
+        "sourceKind": "unknown",
+        "stepParity": {
+          "intents": 5,
+          "missingRequest": [],
+          "requests": 5,
+          "results": 5,
+          "unannounced": []
+        },
+        "unknownUsageFields": []
+      }
+    },
+    "ttl-1h-unique-prefix": {
+      "findings": {
+        "experiment": "ttl-1h-unique-prefix",
+        "n": 2,
+        "reason": null,
+        "renewsAt55min": "measured",
+        "runs": [
+          {
+            "control": {
+              "check": "MISS",
+              "prefix": "B",
+              "write": {
+                "cacheWrite1h": 59703,
+                "cacheWrite5m": 0,
+                "valid": true
+              }
+            },
+            "reason": null,
+            "run": 1,
+            "status": "valid",
+            "timing": {
+              "ok": true,
+              "steps": [
+                {
+                  "atOffsetMs": 0,
+                  "deltaMs": 418,
+                  "prefix": "A",
+                  "role": "write",
+                  "stepId": "ttl-1h-unique-prefix/treatment/0",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 30000,
+                  "deltaMs": 416,
+                  "prefix": "B",
+                  "role": "write",
+                  "stepId": "ttl-1h-unique-prefix/control/1",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 3300000,
+                  "deltaMs": 482,
+                  "prefix": "A",
+                  "role": "ping",
+                  "stepId": "ttl-1h-unique-prefix/treatment/4",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 6600000,
+                  "deltaMs": 474,
+                  "prefix": "A",
+                  "role": "check",
+                  "stepId": "ttl-1h-unique-prefix/treatment/6",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 6630000,
+                  "deltaMs": 419,
+                  "prefix": "B",
+                  "role": "check",
+                  "stepId": "ttl-1h-unique-prefix/control/7",
+                  "withinTolerance": true
+                }
+              ],
+              "t0": 1790353144484,
+              "toleranceMs": 90000
+            },
+            "treatment": {
+              "check": "HIT",
+              "ping": "HIT",
+              "prefix": "A",
+              "write": {
+                "cacheWrite1h": 59602,
+                "cacheWrite5m": 0,
+                "valid": true
+              }
+            }
+          },
+          {
+            "control": {
+              "check": "MISS",
+              "prefix": "D",
+              "write": {
+                "cacheWrite1h": 59723,
+                "cacheWrite5m": 0,
+                "valid": true
+              }
+            },
+            "reason": null,
+            "run": 2,
+            "status": "valid",
+            "timing": {
+              "ok": true,
+              "steps": [
+                {
+                  "atOffsetMs": 300000,
+                  "deltaMs": 443,
+                  "prefix": "C",
+                  "role": "write",
+                  "stepId": "ttl-1h-unique-prefix/treatment/2",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 330000,
+                  "deltaMs": 424,
+                  "prefix": "D",
+                  "role": "write",
+                  "stepId": "ttl-1h-unique-prefix/control/3",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 3600000,
+                  "deltaMs": 417,
+                  "prefix": "C",
+                  "role": "ping",
+                  "stepId": "ttl-1h-unique-prefix/treatment/5",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 6900000,
+                  "deltaMs": 446,
+                  "prefix": "C",
+                  "role": "check",
+                  "stepId": "ttl-1h-unique-prefix/treatment/8",
+                  "withinTolerance": true
+                },
+                {
+                  "atOffsetMs": 6930000,
+                  "deltaMs": 403,
+                  "prefix": "D",
+                  "role": "check",
+                  "stepId": "ttl-1h-unique-prefix/control/9",
+                  "withinTolerance": true
+                }
+              ],
+              "t0": 1790353144484,
+              "toleranceMs": 90000
+            },
+            "treatment": {
+              "check": "HIT",
+              "ping": "HIT",
+              "prefix": "C",
+              "write": {
+                "cacheWrite1h": 59627,
+                "cacheWrite5m": 0,
+                "valid": true
+              }
+            }
+          }
+        ],
+        "schedule": {
+          "offsetsMs": [
+            {
+              "atOffsetMs": 0,
+              "prefix": "A",
+              "role": "write"
+            },
+            {
+              "atOffsetMs": 30000,
+              "prefix": "B",
+              "role": "write"
+            },
+            {
+              "atOffsetMs": 300000,
+              "prefix": "C",
+              "role": "write"
+            },
+            {
+              "atOffsetMs": 330000,
+              "prefix": "D",
+              "role": "write"
+            },
+            {
+              "atOffsetMs": 3300000,
+              "prefix": "A",
+              "role": "ping"
+            },
+            {
+              "atOffsetMs": 3600000,
+              "prefix": "C",
+              "role": "ping"
+            },
+            {
+              "atOffsetMs": 6600000,
+              "prefix": "A",
+              "role": "check"
+            },
+            {
+              "atOffsetMs": 6630000,
+              "prefix": "B",
+              "role": "check"
+            },
+            {
+              "atOffsetMs": 6900000,
+              "prefix": "C",
+              "role": "check"
+            },
+            {
+              "atOffsetMs": 6930000,
+              "prefix": "D",
+              "role": "check"
+            }
+          ],
+          "toleranceMs": 90000
+        },
+        "status": "valid",
+        "thresholds": {
+          "hitCacheRead": 56160,
+          "hitMaxWrite1h": 2000,
+          "missMinWrite1h": 53460
+        },
+        "ttlAtLeast110Min": null,
+        "verdict": "renews_at_55min"
+      },
+      "hypotheses": [],
+      "reason": "anomalies_present",
+      "status": "contaminated",
+      "window": {
+        "baselineResets": [
+          1790370600
+        ],
+        "clean": false,
+        "experiment": "ttl-1h-unique-prefix",
+        "reasons": [
+          "anomalies_present"
+        ],
+        "requests": 10,
+        "resetEpochs": [
+          1790370600
+        ],
+        "sourceKind": "unknown",
+        "stepParity": {
+          "intents": 10,
+          "missingRequest": [],
+          "requests": 10,
+          "results": 10,
+          "unannounced": []
+        },
+        "unknownUsageFields": []
+      }
+    }
+  },
+  "generatedFrom": {
+    "cli": {
+      "artifacts": 3,
+      "source": "cli/<stepId>.json (assistant text is untrusted data, compared only against ground truth)"
+    },
+    "events": {
+      "records": 62,
+      "sha256": "0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84",
+      "skipped": 0
+    },
+    "requests": {
+      "records": 22,
+      "sha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
+      "skipped": 0
+    },
+    "summary": {
+      "exitCode": 3,
+      "v": "idle-live-summary/1"
+    }
+  },
+  "integrity": {
+    "malformedEventRows": 0,
+    "malformedRequestRows": 0,
+    "ok": true,
+    "rule": "a request row that does not parse voids every experiment: it cannot be attributed"
+  },
+  "policyAnswer": {
+    "action": "NO_DECISION",
+    "actionSource": "evaluateIdleCost",
+    "baseline": {
+      "futureWorkDifferentialEq": 0,
+      "quality": "not_monetised",
+      "vScenario": {
+        "label": "idle-live/V0",
+        "status": "scenario",
+        "vSignedEq": 0
+      }
+    },
+    "coefficientEnds": {
+      "high": {
+        "billedModelOutput": 2.4509803921568627e-7,
+        "cacheRead": 1.8552875695732838e-9,
+        "cacheWrite1h": 9.80392156862745e-8,
+        "cacheWrite5m": null,
+        "uncachedInput": 9.80392156862745e-8
+      },
+      "low": {
+        "billedModelOutput": 3.4965034965034967e-8,
+        "cacheRead": 1.801801801801802e-9,
+        "cacheWrite1h": 6.993006993006993e-8,
+        "cacheWrite5m": null,
+        "uncachedInput": 0
+      },
+      "provenance": {
+        "billedModelOutput": "prior_ratio_0.5_to_2.5_x_write",
+        "cacheRead": "reported_unverified_prior_range_5390000_5550000_tokens_per_tick",
+        "cacheReadPriorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+        "cacheWrite1h": "prior_range_only",
+        "cacheWrite5m": "not_measured_on_this_lane",
+        "meterMultiplier": [
+          1,
+          1
+        ],
+        "uncachedInput": "unknown_bounded_by_cacheWrite1h"
+      }
+    },
+    "engine": "evaluateIdleCost",
+    "evaluatedAt": null,
+    "forecast": null,
+    "forecastReason": "no_calibrated_forecast: q is never invented; the entries below are labelled hypothetical scenarios",
+    "limits": {
+      "allowedQualityDegradation": "unconfigured",
+      "maxProactiveSpendPerIdle": "unconfigured",
+      "maxResumeDelayMs": "unconfigured",
+      "maxTotalExperimentalSpend": "unconfigured",
+      "minimumEvidenceForEnforcement": "unconfigured",
+      "unit": "unconfigured"
+    },
+    "noForecastObjective": "no_speculative_spend",
+    "notes": [
+      "V = 0 baseline: no future-work differential is claimed",
+      "quality is reported as states and scores, never monetised into parkQualityEq",
+      "no cost model: phase costs missing for warm, ctxCreate, parkParent, restoreChild, resumeRaw",
+      "coefficients are the reported prior RANGE only: this evidence did not measure T",
+      "output coefficient is an upper bound only (output_window_not_clean)",
+      "evidence_incomplete: restore-decomposition:aborted,policy-effect:aborted"
+    ],
+    "options": {
+      "intervalMs": 3000000,
+      "remainingTtlMs": 3600000,
+      "requestArrivalDelayMs": 0,
+      "safetyMarginMs": 0,
+      "sharedCachePersists": true,
+      "ttlMs": 3600000
+    },
+    "phaseCostsEq": {
+      "ctxCreate": {
+        "hi": null,
+        "lo": null
+      },
+      "parkParent": {
+        "hi": null,
+        "lo": null
+      },
+      "restoreChild": {
+        "hi": null,
+        "lo": null
+      },
+      "resumeRaw": {
+        "hi": null,
+        "lo": null
+      },
+      "usefulWorkPark": {
+        "hi": null,
+        "lo": null
+      },
+      "usefulWorkRaw": {
+        "hi": null,
+        "lo": null
+      },
+      "warm": {
+        "hi": null,
+        "lo": null
+      }
+    },
+    "reason": "evidence_incomplete",
+    "scenarios": []
+  },
+  "runId": "20260925-161302",
+  "spend": {
+    "unified-5h": {
+      "endUtil": 0.16,
+      "observedEq": 0.16,
+      "perWindow": [
+        {
+          "endUtil": 0.16,
+          "observedEq": 0.16,
+          "resetEpoch": 1790370600,
+          "startUtil": 0
+        }
+      ],
+      "present": true,
+      "startUtil": 0,
+      "upperEq": 0.17,
+      "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+      "windows": 1
+    },
+    "unified-7d": {
+      "endUtil": 0.03,
+      "observedEq": 0.02,
+      "perWindow": [
+        {
+          "endUtil": 0.03,
+          "observedEq": 0.02,
+          "resetEpoch": 1790683200,
+          "startUtil": 0.01
+        }
+      ],
+      "present": true,
+      "startUtil": 0.01,
+      "upperEq": 0.03,
+      "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+      "windows": 1
+    },
+    "unified-7d_oi": {
+      "endUtil": 0.04,
+      "observedEq": 0.04,
+      "perWindow": [
+        {
+          "endUtil": 0.04,
+          "observedEq": 0.04,
+          "resetEpoch": 1790683200,
+          "startUtil": 0
+        }
+      ],
+      "present": true,
+      "startUtil": 0,
+      "upperEq": 0.05,
+      "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+      "windows": 1
+    }
+  },
+  "unknowns": [
+    "cacheWrite5m coefficient: the CLI writes only the 1h lane, so the 5m arm is skipped (adapter_capability) and k_write5 stays unknown - never defaulted from the 1h lane",
+    "uncachedInput coefficient (k_input): unknown, only bounded above by the 1h write coefficient",
+    "cacheRead coefficient: the 5390000-5550000 tokens per tick figure is a reported_unverified prior range from quota-test/2026-09-19/REPORT.md, not measured by this run",
+    "return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts",
+    "skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model",
+    "T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified",
+    "k_out (ticks per output token): not identified by this evidence (output_window_not_clean)",
+    "fable-write-tick: aborted (cap_exceeded)",
+    "output-quota: aborted (short_output)",
+    "ttl-1h-unique-prefix: contaminated (anomalies_present)",
+    "restore-decomposition: aborted (big_context_rewrite)",
+    "policy-effect: aborted (big_context_rewrite)"
+  ],
+  "v": "idle-live-analysis/1"
+}
