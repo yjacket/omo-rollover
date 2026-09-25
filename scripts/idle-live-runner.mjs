@@ -103,10 +103,9 @@ export function parseArgs(argv) {
 
 // -------------------------------------------------------------------- deps
 
-// Real clock. `sleep` honours an AbortSignal and clears its timer, so a cancelled wait neither
-// resolves late nor keeps the process alive.
+// Real sleep for the live clock (its `now` is the injected io.now). It honours an AbortSignal and
+// clears its timer, so a cancelled wait neither resolves late nor keeps the process alive.
 const realClock = {
-  now: () => Date.now(),
   sleep: (ms, signal) =>
     new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(Object.assign(new Error("aborted"), { code: "aborted" }))
@@ -126,16 +125,18 @@ const realClock = {
 }
 
 // Dry-run deps: no network, no spawn, no file system, no timer. Only preflight runs on these.
-function fakeDeps(capabilities) {
+// `now` is the runner's injected clock (io.now), so preflight judges the approval at the same
+// instant loadApproval did.
+function fakeDeps(capabilities, now) {
   const events = []
   const requests = []
   return {
-    clock: { now: () => Date.now(), sleep: async () => { throw Object.assign(new Error("dry run never sleeps"), { code: "dry_run" }) } },
+    clock: { now, sleep: async () => { throw Object.assign(new Error("dry run never sleeps"), { code: "dry_run" }) } },
     adapter: { capabilities, invoke: async () => { throw Object.assign(new Error("dry run never invokes"), { code: "dry_run" }) } },
     proxy: { port: 0, drainSince: async () => ({ records: [], cursor: 0 }), readLog: async () => [], close: async () => {} },
     ledger: {
       dir: null,
-      append(event) { const rec = { seq: events.length, ts: new Date().toISOString(), ...event }; events.push(rec); return rec },
+      append(event) { const rec = { seq: events.length, ts: new Date(now()).toISOString(), ...event }; events.push(rec); return rec },
       fold: () => ({ events: events.slice(), torn: false, lastSeq: events.length - 1 }),
       tail: (n) => events.slice(-n),
       writeRequestRecord: (r) => requests.push(r),
@@ -269,16 +270,18 @@ function printSchedule(write, schedule, skippedArms) {
  * at all - a test that forgets the seam, or one dep, never falls through to a real process scan,
  * port bind, spawn or network call. Each dep is read once and the value checked is the value used,
  * so inherited or non-enumerable deps are honoured, never silently replaced by the real ones.
- * stdout, stderr and timeoutSignal (the health-probe bound) are optional: they cause no live
- * effect, and a seam without them gets the real ones. `env` (an object, read once) is where the CLI
+ * stdout, stderr, timeoutSignal (the health-probe bound) and now (the clock the approval window,
+ * preflight and the run's timestamps are judged by; () -> epoch ms) are optional: they cause no
+ * live effect, and a seam without them gets the real ones. `env` (an object, read once) is where the CLI
  * path is resolved from and what the probe and the adapter pass to the CLI; a seam without it gets
  * process.env. probeCli(cli, env) -> version is the `<cli> --version` preflight (I28).
  */
 const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch", "probeCli"]
-const OPTIONAL_DEPS = ["stdout", "stderr", "timeoutSignal"]
+const OPTIONAL_DEPS = ["stdout", "stderr", "timeoutSignal", "now"]
 const REAL_IO = Object.freeze({
   stdout: (s) => process.stdout.write(s),
   stderr: (s) => process.stderr.write(s),
+  now: () => Date.now(),
   startProxy,
   runMachine,
   createAdapter: createClaudeCliAdapter,
@@ -350,7 +353,7 @@ async function run(argv, env, ctx, finish) {
   }
   const plannerSource = readText(PLANNER)
   const proposalJson = readText(PROPOSAL)
-  const check = loadApproval(approvalJson, { now: Date.now(), plannerSource, proposalJson })
+  const check = loadApproval(approvalJson, { now: env.now(), plannerSource, proposalJson })
   if (!check.ok) return finish(refusal(check.issues, { approvalPath: opts.approval }))
   const approval = check.approval
   const shas = { plannerSha256: sha256(plannerSource), proposalSha256: sha256(proposalJson) }
@@ -363,7 +366,7 @@ async function run(argv, env, ctx, finish) {
       const blocker = evidenceBlocker(opts.evidence)
       if (blocker) return finish(refusal(["evidence_dir_unwritable"], { evidenceDir: path.resolve(opts.evidence), detail: blocker }))
     }
-    const deps = fakeDeps(capabilities)
+    const deps = fakeDeps(capabilities, env.now)
     const summary = await env.runMachine(deps, approval, {
       runId: "dry-run",
       evidenceDir: null,
@@ -390,7 +393,7 @@ async function run(argv, env, ctx, finish) {
   }
 
   // 3. live run (or --smoke): evidence directory, proxy, adapter, ledger.
-  const runId = opts.resume ?? new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")
+  const runId = opts.resume ?? new Date(env.now()).toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")
   const evidenceDir = path.resolve(opts.evidence, runId)
   ctx.runId = runId
   try {
@@ -466,7 +469,7 @@ async function run(argv, env, ctx, finish) {
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest({
       runId,
       evidenceDir,
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(env.now()).toISOString(),
       approvalPath: path.resolve(opts.approval),
       approvalSha256: sha256(approvalText),
       plannerSha256: shas.plannerSha256,
@@ -481,7 +484,7 @@ async function run(argv, env, ctx, finish) {
 
     // In-doubt reconciliation reads the historical proxy.jsonl through deps.proxy.readLog().
     const deps = {
-      clock: realClock,
+      clock: { now: env.now, sleep: realClock.sleep },
       adapter,
       proxy,
       ledger,

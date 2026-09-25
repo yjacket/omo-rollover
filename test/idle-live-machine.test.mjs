@@ -1467,14 +1467,17 @@ test("the runner refuses to do anything without an approved artifact", () => {
 })
 
 test("--dry-run prints the schedule and issues nothing (approval timestamps normalised to now)", (t) => {
-  // The signed artifact carries approvedAt 2026-09-23T15:50:00Z; on a host whose UTC clock has
-  // not reached it the runner correctly refuses (approval_in_future), so this check uses a copy
-  // with the same bytes and an approvedAt that is already past.
+  // The signed artifact carries approvedAt 2026-09-22T17:50:00Z and approvalExpiresAt
+  // 2026-10-22T17:50:00Z. This test drives the real CLI as a child process, whose clock is the
+  // host's (the in-process clock seam is covered in test/idle-live-runner.test.mjs), so it uses a
+  // copy whose window is placed around the host's now: the result does not depend on the date.
   const dir = tmp("cli")
   t.after(() => rmSync(dir, { recursive: true, force: true })) // no temp dir survives a failure
   const file = join(dir, "approval-now.json")
   const json = clone(APPROVAL)
-  json.approvedAt = new Date(Date.now() - 3600_000).toISOString().replace(/\.\d+Z$/, "Z")
+  const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z")
+  json.approvedAt = iso(Date.now() - 3600_000)
+  json.approvalExpiresAt = iso(Date.now() + 30 * 86_400_000)
   writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   const dry = cli(["--dry-run", "--approval", file, "--evidence", join(dir, "evidence")])
   assert.equal(dry.code, EXIT.OK, dry.out + dry.err)

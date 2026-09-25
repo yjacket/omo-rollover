@@ -42,14 +42,18 @@ const APPROVAL = JSON.parse(readFileSync(join(repo, "docs/idle-experiments-appro
 const PLANNER_SHA = createHash("sha256").update(readFileSync(join(repo, "scripts/idle-experiments.mjs"), "utf8"), "utf8").digest("hex")
 const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex")
 
-// A copy of the signed approval with an approvedAt already in the past (same as the machine
-// tests), so the checks do not depend on the host clock having passed the signing time.
+// The runner's clock is injected (io.now), so no test here depends on the host date. NOW_IN_WINDOW
+// lies inside the signed approval's window (approvedAt 2026-09-22T17:50Z, approvalExpiresAt
+// 2026-10-22T17:50Z); the approval-window tests below move it outside.
+const NOW_IN_WINDOW = Date.parse("2026-09-26T00:00:00Z")
+const APPROVED_AT = Date.parse(APPROVAL.approvedAt)
+const EXPIRES_AT = Date.parse(APPROVAL.approvalExpiresAt)
+
+// A copy of the signed approval (same fields), in a temp dir the test owns.
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "idle-live-runner-"))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const json = JSON.parse(JSON.stringify(APPROVAL))
-  json.approvedAt = new Date(Date.now() - 3600_000).toISOString().replace(/\.\d+Z$/, "Z")
-  const approvalText = `${JSON.stringify(json, null, 2)}\n`
+  const approvalText = `${JSON.stringify(APPROVAL, null, 2)}\n`
   const approval = join(dir, "approval.json")
   writeFileSync(approval, approvalText)
   return { dir, approval, approvalText, evidence: join(dir, "evidence") }
@@ -73,6 +77,7 @@ function harness(overrides = {}) {
     stdout: (s) => stdout.push(s),
     stderr: () => {},
     env: { APPDATA: FAKE_APPDATA },
+    now: () => NOW_IN_WINDOW,
     startProxy: async () => { calls.startProxy += 1; return proxy },
     runMachine: async () => { calls.runMachine += 1; throw new Error("runMachine not scripted") },
     createAdapter: (opts) => { calls.createAdapter.push(opts); return { capabilities: { ttlLanes: ["1h"] }, invoke: async () => { throw new Error("never invoked") } } },
@@ -141,6 +146,53 @@ test("bad arguments exit 2, resumable:false, one JSON line", async () => {
   assert.equal(s.resumable, false)
   assert.deepEqual(s.issues, ["unknown_argument"])
   assert.equal(h.calls.startProxy, 0)
+})
+
+// B1 (todo 18): the approval window is judged by the injected clock, not the host date. The
+// product refusal after expiry still happens through the runner, on both the dry run and the live
+// path, before the machine runs or anything is probed, bound or created.
+for (const [name, argv] of [
+  ["--dry-run", (fx) => ["--dry-run", "--approval", fx.approval, "--evidence", fx.evidence]],
+  ["live", (fx) => ["--approval", fx.approval, "--evidence", fx.evidence]],
+]) {
+  test(`B1 ${name}: an injected now after approvalExpiresAt refuses approval_expired, exit 2, nothing run`, async (t) => {
+    const fx = fixture(t)
+    const h = harness({ now: () => EXPIRES_AT + 60_000 })
+    assert.equal(await main(argv(fx), h.io), EXIT.PREFLIGHT)
+    const s = h.summary()
+    assert.ok(s.issues.includes("approval_expired"), JSON.stringify(s.issues))
+    assert.equal(s.resumable, false)
+    assert.equal(s.paidRequestsIssued, 0)
+    assert.equal(h.calls.runMachine, 0)
+    assert.equal(h.calls.probeCli.length, 0)
+    assert.equal(h.calls.startProxy, 0)
+    assert.equal(existsSync(fx.evidence), false)
+  })
+}
+
+test("B1 an injected now before approvedAt refuses approval_in_future, exit 2", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ now: () => APPROVED_AT - 60_000 })
+  assert.equal(await main(["--dry-run", "--approval", fx.approval, "--evidence", fx.evidence], h.io), EXIT.PREFLIGHT)
+  assert.ok(h.summary().issues.includes("approval_in_future"), JSON.stringify(h.summary().issues))
+  assert.equal(h.calls.runMachine, 0)
+})
+
+test("B1 the dry run hands the machine the injected clock, so preflight judges the same instant", async (t) => {
+  const fx = fixture(t)
+  let seenNow = null
+  const h = harness({ runMachine: async (deps) => { seenNow = deps.clock.now(); return { v: SUMMARY_VERSION, runId: "dry-run", exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: null, paidRequestsIssued: 0, schedule: [] } } })
+  assert.equal(await main(["--dry-run", "--approval", fx.approval, "--evidence", fx.evidence], h.io), EXIT.OK)
+  assert.equal(seenNow, NOW_IN_WINDOW)
+})
+
+test("B1 the live path hands the machine the injected clock and names the run from it", async (t) => {
+  const fx = fixture(t)
+  let seen = null
+  const h = harness({ runMachine: async (deps, approval, opts) => { seen = { now: deps.clock.now(), runId: opts.runId }; return { v: SUMMARY_VERSION, runId: opts.runId, exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: opts.evidenceDir, paidRequestsIssued: 0 } } })
+  assert.equal(await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io), EXIT.OK)
+  assert.deepEqual(seen, { now: NOW_IN_WINDOW, runId: "20260926-000000" })
+  assert.equal(JSON.parse(readFileSync(join(fx.evidence, "20260926-000000", "run.json"), "utf8")).startedAt, "2026-09-26T00:00:00.000Z")
 })
 
 test("an evidence path that cannot be created exits 2 with a reason, resumable:false", async (t) => {
