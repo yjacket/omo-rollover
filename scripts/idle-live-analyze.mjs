@@ -1503,7 +1503,13 @@ export function analyzeRun(rows, events, opts = {}) {
   const outputWindowUsable = output.status === "valid" || output.status === "upper_bound"
   const kOut = outputWindowUsable ? (output.findings?.kOut ?? null) : null
   const outputStatus = kOut ? "measured" : "upper_bound"
-  const outputReason = kOut ? null : (output.findings?.reason ?? (outputWindowUsable ? "no_second_tick_within_64" : "output_window_not_clean"))
+  // A window with no findings is either the machine's own recorded verdict (the window stayed
+  // clean; the experiment is not valid for its own reason, e.g. aborted:short_output) or a hard
+  // void from an unclean window (schema/usage/reset defects) - only the latter is unclean.
+  const outputReason = kOut
+    ? null
+    : (output.findings?.reason ??
+      (outputWindowUsable ? "no_second_tick_within_64" : output.window?.clean ? `experiment_not_valid:${output.reason}` : "output_window_not_clean"))
   const ttl = analyzeOne("ttl-1h-unique-prefix", (recs, o) => analyzeTtl(recs, { ...o, t0: experimentT0(events, "ttl-1h-unique-prefix") }))
   const restoreTask = (unitIndex) => taskFor(seedOf(events, "restore-decomposition", unitIndex), RULES.restore.workSteps)
   const policyTask = (unitIndex) => taskFor(seedOf(events, "policy-effect", unitIndex), RULES.policy.workSteps)

@@ -5,7 +5,7 @@
       "fields": {
         "billedModelOutput": {
           "range": null,
-          "reason": "output_window_not_clean",
+          "reason": "experiment_not_valid:short_output",
           "sourceKind": "unknown",
           "status": "upper_bound"
         },
@@ -786,7 +786,7 @@
       "quality is reported as states and scores, never monetised into parkQualityEq",
       "no cost model: phase costs missing for warm, ctxCreate, parkParent, restoreChild, resumeRaw",
       "coefficients are the reported prior RANGE only: this evidence did not measure T",
-      "output coefficient is an upper bound only (output_window_not_clean)",
+      "output coefficient is an upper bound only (experiment_not_valid:short_output)",
       "evidence_incomplete: restore-decomposition:aborted,policy-effect:aborted"
     ],
     "options": {
@@ -891,7 +891,7 @@
     "return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts",
     "skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model",
     "T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified",
-    "k_out (ticks per output token): not identified by this evidence (output_window_not_clean)",
+    "k_out (ticks per output token): not identified by this evidence (experiment_not_valid:short_output)",
     "fable-write-tick: aborted (cap_exceeded)",
     "output-quota: aborted (short_output)",
     "ttl-1h-unique-prefix: contaminated (anomalies_present)",

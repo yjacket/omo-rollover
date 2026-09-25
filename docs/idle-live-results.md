@@ -34,7 +34,7 @@
 
 | meter | sourceKind | cacheWrite1h 구간 | 발표값(상단) | 출력 계수 |
 | --- | --- | --- | --- | --- |
-| `unified-5h-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (upper_bound: output_window_not_clean) |
+| `unified-5h-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (upper_bound: experiment_not_valid:short_output) |
 | `unified-7d-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
 | `unified-7d_oi-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
 
@@ -53,7 +53,7 @@
 - return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts
 - skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model
 - T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified
-- k_out (ticks per output token): not identified by this evidence (output_window_not_clean)
+- k_out (ticks per output token): not identified by this evidence (experiment_not_valid:short_output)
 - fable-write-tick: aborted (cap_exceeded)
 - output-quota: aborted (short_output)
 - ttl-1h-unique-prefix: contaminated (anomalies_present)

@@ -727,6 +727,34 @@ test("B8 output: an evidenced phase identifies k_out with the cache-read PRIOR R
   assert.equal(prov?.fields?.billedModelOutput?.status, "measured")
 })
 
+test("D5 output: an aborted experiment with a clean window names the non-valid verdict, not output_window_not_clean", () => {
+  // The machine closed output-quota aborted:short_output while its window stayed clean (the live
+  // run's actual shape): the coefficient reason must name that verdict, not claim the window was
+  // unclean.
+  const evs = [...cloneEvents(), { ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: "short_output" }]
+  const a = run(records, evs)
+  const o = a.experiments["output-quota"]
+  assert.equal(o.status, "aborted")
+  assert.equal(o.reason, "short_output")
+  assert.equal(o.window.clean, true, "the window itself is clean")
+  const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
+  const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
+  assert.equal(prov?.fields?.billedModelOutput?.reason, "experiment_not_valid:short_output")
+  assert.notEqual(prov?.fields?.billedModelOutput?.reason, "output_window_not_clean")
+})
+
+test("D5 output: a genuinely unclean window keeps output_window_not_clean", () => {
+  const dirty = clone()
+  delete dirty.find((r) => r.experiment === "output-quota" && r.role === "loop").role
+  const a = run(dirty)
+  const o = a.experiments["output-quota"]
+  assert.equal(o.status, "void")
+  assert.equal(o.window.clean, false, "the window itself is dirty")
+  const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
+  const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
+  assert.equal(prov?.fields?.billedModelOutput?.reason, "output_window_not_clean")
+})
+
 // ------------------------------------------------------------------------------------------
 // Todo 7 integration defects I1, I6, I7 (.omo/plans/idle-experiments-live-run.md). Same rule
 // as above: every case mutates an in-memory copy of the committed fixture, never the fixture.
