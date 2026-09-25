@@ -131,6 +131,19 @@ unknown. None of them can be issued from this repository; the dry-run reports
 
 The [approval proposal](idle-experiments-approval-proposal.md) (Korean, signable) and its [machine-readable copy](idle-experiments-approval-proposal.json) define the complete experimental limits and order for all five plans. The JSON carries `status: "proposed"` with `approvedAt: null` and is not an approval; it becomes an approval only when explicitly signed and updated. `scripts/idle-experiments.mjs --execute` still exits 2, and no runner exists yet to carry out the experiments.
 
+## Live run
+
+One live run has since happened under a separate signed approval file
+(`idle-experiments-approval-2026-09-23.json`, distinct from the proposal JSON above): runId
+`20260925-161302`, 2026-09-26 01:13-03:14 KST, 22 paid calls, exit 3, caps respected. Four of the
+five experiments aborted and the TTL experiment is contaminated, so no coefficient was
+identified and the engine's policy answer is `NO_DECISION`. Nothing in this section changes the
+dry-run planner: `scripts/idle-experiments.mjs --execute` still exits 2.
+
+- Per-experiment verdicts, root causes and the gauge-lag analysis: [idle-live-results.md](idle-live-results.md) (`idle-live-results.json` is the machine copy).
+- Coefficient records and raw usage of the run: [idle-cost-evidence.md](idle-cost-evidence.md), section "2026-09-26 live run".
+- Final report in AGENT_TASK section-9 order, incl. what must be approved next: [idle-cost-report.md](idle-cost-report.md).
+
 ## Contamination and stop conditions that apply to all five
 
 - Concurrent requests or a second session on the same account make gauge deltas unattributable;

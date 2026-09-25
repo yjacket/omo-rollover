@@ -4,6 +4,8 @@
 `docs/idle-experiments-approval-proposal.json`은 둘 다 `status: "proposed"`이고, 서명 전까지는
 어떤 실행도 허가하지 않는다.
 
+참고: 이 제안과 별개로 서명된 승인 파일 `docs/idle-experiments-approval-2026-09-23.json`이 존재하며, 그 아래의 실측 결과는 [idle-cost-report.md](idle-cost-report.md)에 있다. 이 문서와 JSON의 상태는 그대로다.
+
 기계가 읽는 값의 원본은 `docs/idle-experiments-approval-proposal.json`이다. 이 문서의 숫자와
 JSON이 어긋나면 JSON이 맞고, 이 문서를 고친다. 거부하고 싶은 값이 있으면 서명 전에 JSON을
 고치면 된다.
