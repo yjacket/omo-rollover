@@ -552,6 +552,30 @@ test("N4 --resume --smoke on a NON-smoke (campaign) evidence dir refuses exit 2,
   assert.equal(h.calls.runMachine, 0)
 })
 
+// Note 14 (todo 18): only a missing events.jsonl means "not a smoke log". Any other read error
+// (here: the path is a directory) refuses the resume with a named issue before any proxy bind,
+// adapter or machine run, and claims no paid count.
+test("N14 --resume on an evidence dir whose events.jsonl cannot be read refuses event_log_unreadable before any side effect", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100400"
+  const evidenceDir = seedRun(fx, runId, IN_DOUBT_STEP)
+  rmSync(join(evidenceDir, "events.jsonl"))
+  mkdirSync(join(evidenceDir, "events.jsonl"))
+  const runJson = readFileSync(join(evidenceDir, "run.json"), "utf8")
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.deepEqual(s.issues, ["event_log_unreadable"])
+  assert.equal(s.resumable, false)
+  assert.equal(s.paidRequestsIssued, null)
+  assert.equal(typeof s.logError, "string")
+  assert.equal(h.calls.startProxy, 0)
+  assert.equal(h.calls.runMachine, 0)
+  assert.deepEqual(h.calls.createAdapter, [])
+  assert.equal(readFileSync(join(evidenceDir, "run.json"), "utf8"), runJson, "run.json was never rewritten")
+})
+
 // RN3 (todo 12 re-review 1): the evidence dir is built entirely from this file's own committed
 // fixtures/generators (SMOKE_BASELINE_IN_DOUBT + representative sibling-file content written
 // in-test) - no untracked or out-of-repo absolute path (the earlier version of this test read

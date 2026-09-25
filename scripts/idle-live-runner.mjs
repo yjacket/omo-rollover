@@ -25,7 +25,7 @@ import fs from "node:fs"
 import path from "node:path"
 import crypto from "node:crypto"
 import { spawn } from "node:child_process"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
@@ -421,11 +421,15 @@ async function run(argv, env, ctx, finish) {
     // (run_started.smoke:true, on every path it can stop on) is never resumable; a non-smoke
     // (campaign) evidence dir resumed with --smoke would run a smoke inside that log, re-using ids
     // it already holds, so that is refused too.
+    // Only a missing log means "no smoke log here"; any other read error means nothing about this
+    // dir can be claimed, so the resume is refused before any side effect (as classified() does).
     let rawEvents = ""
     try {
       rawEvents = readText(path.join(evidenceDir, "events.jsonl"))
-    } catch {
-      rawEvents = ""
+    } catch (e) {
+      if (e.code !== "ENOENT") {
+        return finish(refusal(["event_log_unreadable"], { runId, evidenceDir, exitCode: EXIT.ABORTED, paidRequestsIssued: null, logError: String(e.code ?? e.message) }))
+      }
     }
     const smokeLog = isSmokeLog(rawEvents)
     if (smokeLog || opts.smoke) {
@@ -511,7 +515,10 @@ async function run(argv, env, ctx, finish) {
   return finish(summary)
 }
 
-if (import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}` || process.argv[1]?.endsWith("idle-live-runner.mjs")) {
+// Main-module check: true only when this file is the script node was started with. argv[1] is
+// absent under `node -e` / the REPL, and another script that merely imports the runner (whatever
+// its name) must not start a run.
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   // main() classifies every failure itself; this guard only fires if printing the summary failed,
   // so nothing about the run can be claimed - in particular not that it is resumable.
   main(process.argv.slice(2), REAL_IO).then(
