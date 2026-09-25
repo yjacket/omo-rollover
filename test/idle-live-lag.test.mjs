@@ -195,6 +195,8 @@ function fakeAdapter({ proxy, gauge, clock, script = {} }) {
       invoked.push(step.id)
       if (signal?.aborted) throw Object.assign(new Error("aborted before spawn"), { code: "aborted" })
       const s = script[step.id] ?? {}
+      // the CLI never started: no proxy row, no charge - the call is in doubt
+      if (s.throws) throw Object.assign(new Error("spawn failed"), { code: "spawn_failed" })
       if (step.role === "ctx_create" && Number.isInteger(step.seed)) {
         tasks.set(`${step.experiment}/${step.unit.index}`, makeTask(step.seed, { steps: step.experiment === "policy-effect" ? RULES.policy.workSteps : RULES.restore.workSteps }))
       }
@@ -439,10 +441,10 @@ test("a big_context_rewrite in real --resume mode does not close later experimen
  * event, and returns a resume for a cut right after event `at` (a predicate). `withRow`: the
  * cut's call reached the API and its proxy row exists (cut at step_intent only).
  */
-async function liveAndCut(at, { withRow = false } = {}) {
+async function liveAndCut(at, { withRow = false, lag = { kind: "call" } } = {}) {
   const worlds = []
   const live = harness({
-    lag: { kind: "call" }, script: LIVE_SHAPE,
+    lag, script: LIVE_SHAPE,
     tap: (e, w) => worlds.push({ seq: e.seq, clock: w.clock.now(), gauge: w.gauge.snapshot(), proxy: w.proxy.records.length }),
   })
   const summary = await live.run()
@@ -457,7 +459,7 @@ async function liveAndCut(at, { withRow = false } = {}) {
   const requests = live.ledger.requests.filter((r) => resultIds.has(r.stepId))
   const records = live.proxy.records.slice(0, world.proxy)
   const r = harness({
-    lag: { kind: "call" }, script: LIVE_SHAPE,
+    lag, script: LIVE_SHAPE,
     ledger: memoryLedger({ events: cutEvents, requests }),
     proxy: memoryProxy({ history: records }),
     gaugeState: world.gauge, clockStart: world.clock + 60_000,
@@ -631,4 +633,87 @@ test("crash cut after the last experiment_ended, before the final settle: the re
   assert.deepEqual(rowOf(r, "preflight/settle-r1/0").chargeTo, TTL_KEYS)
   assert.equal(resumed.unsettledTail, false)
   for (const m of METERS) assert.equal(resumed.meters[m].cumulativeUpperEq, summary.meters[m].cumulativeUpperEq, m)
+})
+
+// ================================================================= settle charges in the summary
+
+// Gate B1 (st_01a0da1b): a settle charges the late tick to the settled experiment's plan scope
+// AFTER that experiment ended, so its summary spend must be read from the scope, not from a
+// snapshot taken at its end. Live summary == plan-scope charge == resumed summary.
+const PLAN_OF = (r) => (Array.isArray(r.chargeTo) ? r.chargeTo[1] : `plan:${r.experiment}`)
+function planCharges(h) {
+  const out = {}
+  for (const r of h.ledger.requests) {
+    const t = r.accounting?.ticks?.["unified-5h"]
+    if (!Number.isFinite(t)) continue
+    const key = PLAN_OF(r)
+    out[key] = (out[key] ?? 0) + Math.max(0, t)
+  }
+  return out
+}
+const q2 = (x) => Math.round(x * 100) / 100
+function assertSummaryIsPlanCharge(h, s, label) {
+  const charged = planCharges(h)
+  for (const id of Object.keys(s.experiments)) {
+    const ticks = charged[`plan:${id}`]
+    if (ticks === undefined) continue
+    assert.equal(s.experiments[id].spentObservedEq, q2(ticks * 0.01), `${label} ${id}: summary vs plan-scope charge`)
+    assert.equal(s.experiments[id].spentUpperEq, q2(ticks * 0.01 + 0.01), `${label} ${id}: upper`)
+  }
+}
+
+for (const { name, lag } of [...LAGS, { name: "no lag", lag: { kind: "none" } }]) {
+  for (const [shape, script] of [["the live replay", LIVE_SHAPE], ["the FULL schedule", {}]]) {
+    test(`summary spend per experiment is its plan-scope charge, settles included, under ${name} (${shape})`, async () => {
+      const h = harness({ lag, script, seeds: FULL.seeds, uuids: FULL.uuids })
+      const s = await h.run()
+      assertSummaryIsPlanCharge(h, s, name)
+      if (lag.kind === "call" && script === LIVE_SHAPE) {
+        // the case the gate reproduced: the run-end settle reads the TTL frame's late tick
+        const last = h.ledger.requests.at(-1)
+        assert.ok(last.stepId.startsWith("preflight/settle/") && last.accounting.ticks["unified-5h"] >= 1, JSON.stringify(last.accounting.ticks))
+      }
+    })
+  }
+}
+
+for (const { name, lag } of LAGS) {
+  test(`a middle experiment's late tick read by the boundary settle is in its summary spend (${name})`, async () => {
+    const only = { only: ["fable-write-tick", "output-quota"], dialPrefix: { seed: 77, sessionId: "P-dial" } }
+    // deterministic: learn fable's last call, then make it owe one more tick than it shows
+    const probe = harness({ lag })
+    await probe.run(only)
+    const fableLast = probe.adapter.invoked.filter((id) => id.startsWith("fable-write-tick/")).at(-1)
+    const h = harness({ lag, script: { [fableLast]: { foreignTicks: 1 } } })
+    const s = await h.run(only)
+    const settle = h.ledger.requests.find((r) => r.stepId === "preflight/settle/0")
+    assert.equal(settle.chargeTo[1], "plan:fable-write-tick", "the boundary settle is charged to fable")
+    assert.ok(settle.accounting.ticks["unified-5h"] >= 1, "the boundary settle reads fable's late tick")
+    assertSummaryIsPlanCharge(h, s, name)
+  })
+}
+
+for (const { name, lag } of LAGS) {
+  test(`live replay under ${name}: live summary == plan-scope charge == resumed summary of the settled log`, async () => {
+    const lastSettleResult = (e, i, arr) => e.ev === "step_result" && isSettle(e) && !arr.slice(i + 1).some((x) => x.ev === "step_result")
+    const { live, summary, r, resumed } = await liveAndCut(lastSettleResult, { lag })
+    assert.deepEqual(r.adapter.invoked, [])
+    assertSummaryIsPlanCharge(live, summary, "live")
+    for (const id of Object.keys(summary.experiments)) {
+      assert.equal(resumed.experiments[id].spentObservedEq, summary.experiments[id].spentObservedEq, `${id}: resumed vs live`)
+      assert.equal(resumed.experiments[id].spentUpperEq, summary.experiments[id].spentUpperEq, `${id}: resumed vs live upper`)
+    }
+  })
+}
+
+// Gate N2 / mutant G10: the LIVE path must not settle after its last paid call is left in doubt.
+test("run end after a live in-doubt last call: no settle PING, exit 4, tail flagged in_doubt_step", async () => {
+  const h = harness({ lag: { kind: "call" }, script: { [TTL_LAST]: { throws: true } } })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.equal(h.adapter.invoked.at(-1), TTL_LAST, "nothing is issued after the in-doubt call")
+  assert.ok(!h.adapter.invoked.some((id) => id.startsWith("preflight/settle")))
+  assert.equal(s.exitCode, EXIT.IN_DOUBT)
+  assert.deepEqual(s.inDoubt, [TTL_LAST])
+  assert.equal(s.unsettledTail, true)
+  assert.equal(s.unsettledTailReason, "in_doubt_step")
 })

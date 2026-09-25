@@ -349,8 +349,12 @@ function summaryOf(st, exitCode, extra = {}) {
   const experiments = {}
   for (const id of EXPERIMENT_IDS) {
     const e = st.experiments[id]
+    // Spend is read from the plan scope NOW, not from a snapshot taken when the experiment ended:
+    // a settle PING after it (a scope boundary or the run end) charges its late tick to that scope
+    // (todo 13 gate B1), and a resume re-attributes the same scope from the log.
+    const spend = spendOf(st.scopes[`plan:${id}`])
     experiments[id] = e
-      ? { status: e.status, reason: e.reason, paidRequests: e.paidRequests, spentObservedEq: e.spentObservedEq, spentUpperEq: e.spentUpperEq, skippedArms: st.skipped[id] ?? {} }
+      ? { status: e.status, reason: e.reason, paidRequests: e.paidRequests, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq, skippedArms: st.skipped[id] ?? {} }
       : { status: "not_run", reason: extra.notRunReason ?? null, paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, skippedArms: st.skipped[id] ?? {} }
   }
   return {
