@@ -537,9 +537,10 @@ test("a timed experiment runs end to end: baselines, offsets, one record per ste
     ttlId("treatment", 0), ttlId("control", 1), ttlId("treatment", 2), ttlId("control", 3),
     ttlId("treatment", 4), ttlId("treatment", 5), ttlId("treatment", 6), ttlId("control", 7),
     ttlId("treatment", 8), ttlId("control", 9),
+    "preflight/settle/0", // todo 13: the run-end settle PING reads what the last call may still owe
   ])
   assert.equal(s.experiments[TTL].paidRequests, 10)
-  assert.equal(s.paidRequestsIssued, 13)
+  assert.equal(s.paidRequestsIssued, 14)
   // every invoke carries the step header the proxy labels on
   for (const i of h.adapter.invoked) assert.equal(i.stepHeader, i.id)
   // event order per experiment: started, then intent/result pairs, then ended
@@ -548,8 +549,8 @@ test("a timed experiment runs end to end: baselines, offsets, one record per ste
   assert.equal(seq.indexOf("experiment_started"), 2 + 2 * 3, "3 baseline intent/result pairs, then the experiment")
   assert.equal(seq[seq.length - 1], "run_ended")
   assert.deepEqual(h.ev("experiment_ended").map((e) => [e.experiment, e.status]), [[TTL, "valid"]])
-  assert.equal(h.ev("step_intent").length, 13)
-  assert.equal(h.ev("step_result").length, 13)
+  assert.equal(h.ev("step_intent").length, 14)
+  assert.equal(h.ev("step_result").length, 14)
   assert.equal(h.ev("step_void").length, 0)
   assert.equal(h.ev("gate_refused").length, 0)
   // the TTL table's absolute offsets are honoured from the experiment t0
@@ -564,7 +565,7 @@ test("a timed experiment runs end to end: baselines, offsets, one record per ste
   assert.equal(ended.parity.ok, true, JSON.stringify(ended.parity.issues))
   assert.equal(ended.parity.complete, true)
   // exactly one request record per step, with the run id and label the proxy logged
-  assert.equal(h.ledger.requests.length, 13)
+  assert.equal(h.ledger.requests.length, 14)
   for (const r of h.ledger.requests) {
     assert.equal(r.v, "idle-live-request/1")
     assert.equal(r.runId, "fake-run")
@@ -727,7 +728,7 @@ test("the predictive gate refuses an unpredictable oversized call without invoki
   assert.equal(h.ev("gate_refused")[0].stepId, ttlId("treatment", 4), "the 55-min A ping is read-priced")
   assert.ok(h.ev("gate_refused")[0].reasons.some((r) => r.code === "unpredictable_call" && r.tokens > 20000))
   assert.ok(!h.ids().includes(ttlId("treatment", 4)), "the unpredictable call is never issued")
-  assert.equal(h.ids().length, 3 + 4, "the four writes were predictable, the read was not")
+  assert.equal(h.ids().length, 3 + 4 + 1, "the four writes were predictable, the read was not (+1: the todo-13 run-end settle PING)")
 })
 
 test("a reset epoch change inside a block voids the experiment and never stitches the windows", async () => {
@@ -851,7 +852,8 @@ test("a crashed step with a proxy record is reconciled from the proxy and never 
   // Appendix B revision 2 (4): the experiment in progress at the crash is CLOSED after the
   // reconcile. Its unissued steps are never issued - continuing it across a resume is exactly the
   // behaviour gate rounds 3-6 kept finding new ways to diverge on.
-  assert.deepEqual(h.ids(), [], "and the interrupted experiment is not continued")
+  // todo 13: only the run-end settle PING reads the tail the reconciled call may still owe
+  assert.deepEqual(h.ids(), ["preflight/settle-r1/0"], "and the interrupted experiment is not continued")
   assert.equal(s.experiments[TTL].status, "void")
   assert.equal(s.experiments[TTL].reason, "interrupted_by_crash")
   assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments[TTL]))
@@ -880,7 +882,8 @@ test("a timed experiment interrupted by a crash is never stitched back together"
   const fx = await crashFixture({ withProxyRecord: true })
   const h = resumeHarness(fx, { clockStart: fx.t0 + 3_600_000 + 90_001 })
   const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
-  assert.deepEqual(h.ids(), [], "no step of the interrupted run is issued after the downtime")
+  // todo 13: only the run-end settle PING reads the tail the reconciled call may still owe
+  assert.deepEqual(h.ids(), ["preflight/settle-r1/0"], "no step of the interrupted run is issued after the downtime")
   assert.equal(h.ev("step_void").filter((e) => e.reason === "late_step").length, 0, "and none has to be voided as late")
   assert.equal(s.experiments[TTL].status, "void")
   assert.equal(s.experiments[TTL].reason, "interrupted_by_crash")
@@ -1065,7 +1068,7 @@ test("fold is deterministic and ignores a torn final line", async () => {
   assert.equal(a.runId, "fake-run")
   assert.equal(a.experiments[TTL].status, "valid")
   assert.deepEqual(a.inDoubt, [])
-  assert.equal(a.paidRequests, 13)
+  assert.equal(a.paidRequests, 14) // 3 baseline + 10 TTL + the todo-13 run-end settle PING
   assert.equal(a.ended.exitCode, 0)
 })
 
@@ -1497,12 +1500,15 @@ test("M2 a reconciled proxy response is attributed to its caps before the next g
   const row = fx.proxyRecords.find((r) => r.stepId === stepId)
   row.headers["anthropic-ratelimit-unified-5h-utilization"] = "0.33"
   const h = resumeHarness(fx)
+  // the world the resumed process reads (its run-end settle PING, todo 13) agrees with that response
+  h.gauge.bumpMeter("unified-5h", 0.03)
   const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
   const reconciled = h.ev("step_result").find((e) => e.stepId === stepId)
   assert.equal(reconciled.source, "proxy_reconciled")
   assert.equal(reconciled.ticks["unified-5h"], 3, "the reconciled tick delta is measured")
   assert.equal(reconciled.accounting.spentUpperEq, 0.04, "and attributed to the run scope")
-  assert.deepEqual(h.ids(), [], "and no further paid call is made")
+  // todo 13: only the run-end settle PING reads the tail the reconciled call may still owe
+  assert.deepEqual(h.ids(), ["preflight/settle-r1/0"], "and no further paid call is made")
   // Under revision 2 the interrupted experiment is closed, so the recovered spend is not tested by
   // its next step - it is tested by being IN the run's accounting: the meter carries the recovered
   // ticks, and every cap a later fresh experiment is gated against is computed from them.
@@ -1680,7 +1686,8 @@ test("M8 a checkpoint whose anomalies are not an array is never replayed clean",
     // malformed checkpoint no longer needs its own reason because the run is not continued from
     // it at all. What matters is unchanged: it never reads as clean, and nothing is re-issued.
     assert.equal(s.experiments[TTL].reason, "interrupted_by_crash", label)
-    assert.deepEqual(h.ids(), [], `${label}: a voided experiment is not paid for again`)
+    // todo 13: only the run-end settle PING reads the tail the reconciled call may still owe
+    assert.deepEqual(h.ids(), ["preflight/settle-r1/0"], `${label}: a voided experiment is not paid for again`)
     assert.deepEqual(s.inDoubt, [], `${label}: an unreadable checkpoint is not an uncertain call`)
     assert.equal(s.resumable, false, label)
   }
@@ -2387,9 +2394,11 @@ test("R6-B3 an experiment the log ended issues nothing on resume", async () => {
   })
   const h = resumeHarness(fixture, { gauge, world, clockStart: fixture.crashedAt })
   const s = await h.run({ resume: "fake-run", only: ["fable-write-tick"], dialPrefix: DIAL })
-  assert.deepEqual(h.ids(), [], `an ended experiment is not paid for again: ${JSON.stringify(h.ids())}`)
+  // todo 13: the log ends on fable's last call, so the resume settles the run's tail - one PING
+  // after the 20 s settle wait, and nothing of the experiment itself
+  assert.deepEqual(h.ids(), ["preflight/settle-r1/0"], `an ended experiment is not paid for again: ${JSON.stringify(h.ids())}`)
   assert.equal(h.ev("reset_wait").length, 0, "and its reset wait is not re-decided")
-  assert.equal(h.clock.stats().slept, 0, "nor waited out again")
+  assert.equal(h.clock.stats().slept, RULES.restore.settleMs, "nor waited out again")
   const recorded = fixture.events.findLast((e) => e.ev === "experiment_ended" && e.experiment === "fable-write-tick")
   assert.equal(s.experiments["fable-write-tick"].status, recorded.status, "its recorded verdict stands")
   assert.equal(s.experiments["fable-write-tick"].reason, recorded.reason)
@@ -2498,7 +2507,9 @@ test("R7-B3 every campaign-level stop the log records is honored on resume", asy
   assert.equal(meter.summary.exitCode, EXIT.ABORTED, "the live run stops on the meter cap")
   const mh = resumeHarness(meter.fixture, { approval: capped, world: meter.world, clockStart: meter.fixture.crashedAt })
   const ms = await mh.run({ resume: "fake-run", only: ONLY_TTL })
-  assert.deepEqual(mh.ids(), [], "a recorded meter-cap refusal stops the resume before the preflight")
+  // todo 13: a cap-driven stop after a paid call still settles the run's tail (the live path would
+  // have, before run_ended); no preflight and no experiment call is issued
+  assert.deepEqual(mh.ids(), ["preflight/settle-r1/0"], "a recorded meter-cap refusal stops the resume before the preflight")
   assert.equal(ms.exitCode, EXIT.ABORTED)
   // retained row N3: and it stays final however often the log is resumed again
   const again = resumeHarness({
@@ -2897,10 +2908,11 @@ test("R8-B4 a resume inherits the recorded restore mode, and pays no call to re-
     assert.ok(started.length > 0, `fresh experiments run (${at})`)
     for (const e of started) assert.equal(e.mode?.resumeHit, recorded.resumeHit, `${at}: ${e.experiment} starts with the recorded mode`)
     assert.deepEqual(h.ev("mode_set"), [], `${at}: nothing is re-measured, so no new mode_set`)
-    // 223 = the live run's 220 (its five todo-13 settle PINGs included) plus this resume's own three
-    // fresh preflight PINGs; the resume's first settle PING stands in for the live one before fable.
-    // Without the recorded mode it is 224: policy-effect pays one gated call to re-measure a fact.
-    assert.equal(s.paidRequestsIssued, 223, `${at}: paid calls, ${JSON.stringify(s.experiments)}`)
+    // 224 = the live run's 221 (its six todo-13 settle PINGs included: five scope boundaries and the
+    // run end) plus this resume's own three fresh preflight PINGs; the resume's first settle PING
+    // stands in for the live one before fable. Without the recorded mode it is 225: policy-effect
+    // pays one gated call to re-measure a recorded fact.
+    assert.equal(s.paidRequestsIssued, 224, `${at}: paid calls, ${JSON.stringify(s.experiments)}`)
     assert.equal(s.exitCode, EXIT.OK)
   }
 })
@@ -3449,7 +3461,7 @@ test("I13 a crash between the restore verdict and the mode loses neither, and pa
   const observed = JSON.stringify({ paid: s.paidRequestsIssued, reMeasured: h.ev("mode_set").length, starts: started.map((e) => `${e.experiment}:${e.mode?.resumeHit}`) })
   for (const e of started) assert.equal(e.mode?.resumeHit, recorded.resumeHit, `${e.experiment} inherits the recorded mode: ${observed}`)
   assert.deepEqual(h.ev("mode_set"), [], `nothing is re-measured, so no new mode_set: ${observed}`)
-  assert.equal(s.paidRequestsIssued, 223, `and no extra gated call is paid: ${observed}`) // see R8-B4 for the count
+  assert.equal(s.paidRequestsIssued, 224, `and no extra gated call is paid: ${observed}`) // see R8-B4 for the count
   assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
 })
 

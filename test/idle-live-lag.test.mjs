@@ -217,7 +217,7 @@ function fakeAdapter({ proxy, gauge, clock, script = {} }) {
       proxy.push({
         ts_req: new Date(startedMs).toISOString(), ts: new Date(endedMs).toISOString(),
         label: step.id, stepId: step.id, runId: proxy.runId, method: "POST", path: "/v1/messages", status: 200,
-        model: MODEL, usage: u, stop_reason: "end_turn", error: null, msg_id: `msg_${msg}`, body_bytes: 512,
+        model: MODEL, usage: u, stop_reason: s.stop_reason ?? "end_turn", error: null, msg_id: `msg_${msg}`, body_bytes: 512,
         headers: { ...headers, "request-id": `req_${msg}` },
       })
       return { exitCode: 0, signal: null, stdoutJson: { type: "result", subtype: "success", is_error: false, result: text, session_id: step.session?.id ?? null, usage: u }, stdoutHead: null, stderrHead: "", startedMs, endedMs, error: null }
@@ -225,7 +225,7 @@ function fakeAdapter({ proxy, gauge, clock, script = {} }) {
   }
 }
 
-function harness({ lag = { kind: "call" }, script = {}, acc0 = 0.5, clockStart = EPOCH, ledger = memoryLedger(), proxy = memoryProxy(), gaugeState = null, seeds = [], uuids = [], opts = {}, tap = null } = {}) {
+function harness({ lag = { kind: "call" }, script = {}, acc0 = 0.5, clockStart = EPOCH, ledger = memoryLedger(), proxy = memoryProxy(), gaugeState = null, seeds = [], uuids = [], opts = {}, tap = null, approval = APPROVAL } = {}) {
   const clock = fakeClock(clockStart)
   const gauge = lagGauge({ clock, lag, acc0 })
   if (gaugeState) gauge.restore(gaugeState)
@@ -244,7 +244,7 @@ function harness({ lag = { kind: "call" }, script = {}, acc0 = 0.5, clockStart =
     onEvent: (e) => { events.push(e); tap?.(e, { clock, gauge, proxy, ledger }) },
   }
   const runOpts = { runId: "lag-run", evidenceDir: "<memory>", baseUrl: "http://127.0.0.1:41999", ...SHAS, ...opts }
-  return { deps, clock, gauge, proxy, adapter, ledger, events, run: (over = {}) => runMachine(deps, clone(APPROVAL), { ...runOpts, ...over }) }
+  return { deps, clock, gauge, proxy, adapter, ledger, events, run: (over = {}) => runMachine(deps, clone(approval), { ...runOpts, ...over }) }
 }
 
 // The live call shape of restore run 1 (requests.jsonl #4-#6 of 20260925-161302): the context
@@ -526,4 +526,109 @@ test("crash cut after policy-effect's fallback verdict: restore run 2 is closed 
   const c = await liveAndCut((e) => e.ev === "experiment_ended" && e.experiment === "policy-effect")
   assert.equal(verdicts(c.r.ledger.events)["restore-decomposition#2"], "aborted:fallback_mode_misses")
   assertResumedLikeLive(c)
+})
+
+// ================================================================= run-end settle
+
+// The campaign's last paid call may still owe its charge when the run ends: the summary's meter
+// totals are an UPPER bound, so the machine settles the meter once more before `run_ended`.
+const TTL_LAST = "ttl-1h-unique-prefix/control/9"
+const TTL_KEYS = ["ttl-1h-unique-prefix/frame", "plan:ttl-1h-unique-prefix"]
+const lastIntentIs = (pred) => (e, i, arr) => pred(e) && !arr.slice(i + 1).some((x) => x.ev === "step_intent")
+const trueTicks = (h, acc0 = 0.5) => Math.floor(h.gauge.acc()) - Math.floor(acc0)
+
+for (const { name, lag } of LAGS) {
+  test(`run end under a ${name}: the last call's owed ticks are in the summary's 5h upper bound`, async () => {
+    // the last call owes at least two ticks its own header cannot show
+    const h = harness({ lag, script: { [TTL_LAST]: { foreignTicks: 2 } } })
+    const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+    assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
+    const upper = s.meters["unified-5h"].cumulativeUpperEq
+    assert.ok(upper * 100 + 1e-9 >= trueTicks(h), `5h upper ${upper} understates the true ${trueTicks(h)} ticks`)
+    const ids = h.adapter.invoked
+    assert.ok(ids.at(-1).startsWith("preflight/settle/"), `the run ends on a settle PING: ${ids.slice(-2).join(",")}`)
+    const settle = rowOf(h, ids.at(-1))
+    assert.deepEqual(settle.chargeTo, TTL_KEYS)
+    assert.ok(settle.accounting.ticks["unified-5h"] >= 2, "the settle reading carries the owed ticks")
+    assert.equal(s.unsettledTail, false)
+    // the settle precedes run_ended
+    const ended = h.ledger.events.findIndex((e) => e.ev === "run_ended")
+    assert.ok(h.ledger.events.findIndex((e) => e.ev === "step_result" && e.stepId === ids.at(-1)) < ended)
+  })
+}
+
+test("run end after a cap-driven campaign stop that followed a paid call: the meter is still settled", async () => {
+  const approval = clone(APPROVAL)
+  approval.campaignStop["unified-5h"] = 0.1
+  const h = harness({ lag: { kind: "call" }, approval, seeds: FULL.seeds, uuids: FULL.uuids })
+  const s = await h.run()
+  const refused = h.events.find((e) => e.ev === "gate_refused" && e.reasons.some((r) => String(r.scope).startsWith("campaign-stop:")))
+  assert.ok(refused, "the campaign-stop cap tripped")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  const ids = h.adapter.invoked
+  assert.ok(ids.at(-1).startsWith("preflight/settle/"), ids.slice(-2).join(","))
+  assert.ok(!ids.at(-2).startsWith("preflight/"), "the settled call was an experiment's")
+  assert.equal(s.unsettledTail, false)
+  assert.ok(s.meters["unified-5h"].cumulativeUpperEq * 100 + 1e-9 >= trueTicks(h))
+})
+
+test("run end after an operator cancel: no settle PING, and the summary flags the unread tail", async () => {
+  const controller = new AbortController()
+  const h = harness({
+    lag: { kind: "call" }, script: { [TTL_LAST]: { foreignTicks: 2 } }, opts: { signal: controller.signal },
+    tap: (e) => { if (e.ev === "step_result" && e.stepId === TTL_LAST) controller.abort() },
+  })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.equal(h.adapter.invoked.at(-1), TTL_LAST, "nothing is issued after the cancel")
+  assert.equal(s.unsettledTail, true)
+  assert.equal(s.unsettledTailReason, "cancelled")
+  assert.deepEqual(h.events.filter((e) => e.ev === "campaign_stop").map((e) => e.reason), ["cancelled"])
+  assert.equal(s.exitCode, EXIT.ABORTED)
+})
+
+test("run end after a global stop rule (refusal): no settle PING, and the summary flags the unread tail", async () => {
+  const h = harness({ lag: { kind: "call" }, script: { "ttl-1h-unique-prefix/treatment/2": { stop_reason: "refusal" } } })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.equal(h.adapter.invoked.at(-1), "ttl-1h-unique-prefix/treatment/2")
+  assert.equal(s.unsettledTail, true)
+  assert.equal(s.unsettledTailReason, "refusal")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+})
+
+test("run end with no paid call since the last quiet reading: no settle PING, tail not flagged", async () => {
+  const tick = { foreignTicks: 1 }
+  const h = harness({ lag: { kind: "none" }, script: { "preflight/baseline/1": tick, "preflight/baseline-2/1": tick, "preflight/baseline-3/1": tick } })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.ok(h.events.some((e) => e.ev === "quiet_check_failed"))
+  assert.ok(!h.adapter.invoked.some((id) => id.startsWith("preflight/settle")))
+  assert.equal(s.unsettledTail, false)
+})
+
+test("crash cut at the final settle's intent without a proxy row: exit 4, nothing issued", async () => {
+  const { r, resumed } = await liveAndCut(lastIntentIs((e) => e.ev === "step_intent" && isSettle(e)))
+  assert.equal(resumed.exitCode, EXIT.IN_DOUBT)
+  assert.deepEqual(r.adapter.invoked, [])
+  assert.equal(resumed.unsettledTail, true)
+})
+
+for (const [label, at, withRow] of [
+  ["at the final settle's intent with its proxy row", lastIntentIs((e) => e.ev === "step_intent" && isSettle(e)), true],
+  ["between the final settle's result and run_ended", lastIntentIs((e) => e.ev === "step_result" && isSettle(e)), false],
+]) {
+  test(`crash cut ${label}: resumed without re-issuing it, meters as live`, async () => {
+    const { summary, r, resumed } = await liveAndCut(at, { withRow })
+    assert.deepEqual(r.adapter.invoked, [], "nothing is issued")
+    assert.equal(resumed.exitCode, summary.exitCode)
+    assert.equal(resumed.unsettledTail, false)
+    for (const m of METERS) assert.equal(resumed.meters[m].cumulativeUpperEq, summary.meters[m].cumulativeUpperEq, m)
+  })
+}
+
+test("crash cut after the last experiment_ended, before the final settle: the resume settles the meter", async () => {
+  const lastEnded = (e, i, arr) => e.ev === "experiment_ended" && !arr.slice(i + 1).some((x) => x.ev === "experiment_ended")
+  const { summary, r, resumed } = await liveAndCut(lastEnded)
+  assert.deepEqual(r.adapter.invoked, ["preflight/settle-r1/0"])
+  assert.deepEqual(rowOf(r, "preflight/settle-r1/0").chargeTo, TTL_KEYS)
+  assert.equal(resumed.unsettledTail, false)
+  for (const m of METERS) assert.equal(resumed.meters[m].cumulativeUpperEq, summary.meters[m].cumulativeUpperEq, m)
 })

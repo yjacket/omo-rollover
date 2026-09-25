@@ -1311,6 +1311,32 @@ async function settleGauge(st, { expectWindowRoll = false } = {}) {
   return { fatal: null }
 }
 
+// Stops after which nothing may be issued, so the run-end settle is not either: an operator cancel
+// (clarification A (ii)), an unresolved issuance, a log that already ended, and the Appendix A
+// global stop rules ("stop campaign, no retry"). A cap-driven campaign stop still allows it: the
+// cap refused the next PRICED call, and the settle only reads what was already spent.
+const TAIL_FORBIDDEN = new Set(["cancelled", "in_doubt_step", "run_already_ended", ...CAMPAIGN_FATAL])
+
+/**
+ * The run-end settle point: when the log's last paid call belongs to an experiment, one settle PING
+ * (same 20 s wait, same `chargeTo`) before run_ended, so every meter total the summary reports
+ * includes what that call may still owe. When issuance is forbidden the tail stays unread and the
+ * summary says so (`unsettledTail: true`, `unsettledTailReason`). Pure log predicate, so a resume
+ * reaches the same decision; a crash after the settle's result leaves nothing pending.
+ */
+async function settleRunEnd(st, recordedStop) {
+  if (!settlePendingOf(st.deps.ledger.fold().events)) return { unsettledTail: false }
+  // the cancel is recorded before anything else (clarification A (ii)), and nothing follows it
+  if (st.signal?.aborted) stopCampaign(st, { reason: "cancelled" })
+  const blockedBy = st.inDoubt.length ? "in_doubt_step"
+    : recordedStop?.reason === "run_already_ended" ? "run_already_ended"
+    : (st.campaignStop && TAIL_FORBIDDEN.has(st.campaignStop.reason) ? st.campaignStop.reason : null)
+  if (blockedBy) return { unsettledTail: true, reason: blockedBy }
+  const r = await settleGauge(st, { expectWindowRoll: st.resumeIndex > 0 })
+  if (r.inDoubt) return { unsettledTail: true, reason: "in_doubt_step", fatal: r.fatal, inDoubt: true }
+  return { unsettledTail: false, fatal: r.fatal ?? null }
+}
+
 /**
  * fallbackMissOf(events) -> the experiment_ended that showed the rf-emulation fallback misses, or
  * null. Pure function of the log, so live, fold and resume reach the same verdict.
@@ -1911,12 +1937,17 @@ export async function runMachine(deps, approval, opts = {}) {
       if (r.stop) stopped = r.inDoubt ? "in_doubt" : (st.campaignStop ? "campaign_stop" : "stop_condition")
     }
   }
+  // The run's end is a scope boundary too: the last paid call may still owe its charge, and the
+  // summary's meter totals are an upper bound, so the meter is settled once more before run_ended.
+  const tail = await settleRunEnd(st, recordedStop)
+  if (tail.inDoubt) stopped = "in_doubt"
+  else if (tail.fatal && !stopped) stopped = st.campaignStop ? "campaign_stop" : "settle_failed"
   for (const job of pre.jobs) {
     const agg = st.experiments[job.experiment]
     if (!agg) st.experiments[job.experiment] = { status: "not_run", reason: stopped ?? "not_reached", paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, runs: [] }
   }
   const exitCode = exitCodeOf(st, pre.jobs)
-  const summary = summaryOf(st, exitCode, { issues: [], stopped })
+  const summary = summaryOf(st, exitCode, { issues: [], stopped, unsettledTail: tail.unsettledTail, ...(tail.unsettledTail ? { unsettledTailReason: tail.reason } : {}) })
   st.deps.ledger.writeSummary?.(summary)
   emit(st, { ev: "run_ended", exitCode, reason: stopped ?? "complete", paidRequests: st.paidRequests })
   return summary

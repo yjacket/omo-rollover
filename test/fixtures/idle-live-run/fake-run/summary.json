@@ -65,8 +65,9 @@
   },
   "resumable": false,
   "evidenceDir": "test/fixtures/idle-live-run/fake-run",
-  "paidRequestsIssued": 216,
+  "paidRequestsIssued": 217,
   "inDoubt": [],
   "issues": [],
-  "stopped": null
+  "stopped": null,
+  "unsettledTail": false
 }

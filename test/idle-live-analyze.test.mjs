@@ -1636,7 +1636,8 @@ function unloggedCallCopy(t, stepId) {
 test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not a paid request", async (t) => {
   const reference = analyzeCli(t, path.join(RUN_FIXTURES, "fake-run"))
   const rows = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
-  const unpaid = rows[rows.length - 1]
+  // the last EXPERIMENT row (the fixture now ends on the todo-13 run-end settle PING)
+  const unpaid = rows.findLast((q) => q.experiment !== "preflight")
   const id = unpaid.experiment
   const dir = unloggedCallCopy(t, unpaid.stepId)
   const paid = readJsonl(path.join(dir, "requests.jsonl")).filter((q) => q.stepId !== unpaid.stepId)
@@ -1654,7 +1655,7 @@ test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not 
   for (const other of EXPERIMENTS.filter((e) => e !== id)) assert.deepEqual(r.analysis.experiments[other], reference.analysis.experiments[other], other)
 
   await t.test("a reading on an unpaid row is not meter spend", (tt) => {
-    const lastPaid = rows[rows.length - 2]
+    const lastPaid = rows.findLast((q) => q.stepId !== unpaid.stepId)
     const read = fixtureCopy(tt, "fake-run", (d) => {
       const file = path.join(d, "requests.jsonl")
       writeJsonl(file, readJsonl(file).map((q) => (q.stepId !== unpaid.stepId ? q : {
@@ -1686,7 +1687,8 @@ test("I24/d a requests.jsonl row the proxy never logged (requestCount 0) is not 
 
 test("I27/N7 paid means requestCount >= 1: a malformed count is an anomaly, never a paid request", async (t) => {
   const rows = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
-  const bad = rows[rows.length - 1]
+  // the last EXPERIMENT row (the fixture now ends on the todo-13 run-end settle PING)
+  const bad = rows.findLast((q) => q.experiment !== "preflight")
   const id = bad.experiment
   for (const requestCount of [-1, null, "0", "1", 0.5, 1.5]) {
     await t.test(`requestCount ${JSON.stringify(requestCount)}`, (tt) => {
