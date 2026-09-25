@@ -24,6 +24,7 @@ import {
 import { convertUsage, evaluateIdleCost, USAGE_FIELDS } from "../extension/rollover.ts"
 import { RULES } from "../scripts/idle-live/protocols.mjs"
 import { PRIOR_RANGE_ONLY } from "../scripts/idle-live/caps.mjs"
+import { metersOf } from "../scripts/idle-live/gauge.mjs"
 
 const FIXTURE = "test/fixtures/idle-live-run/analyzer-fixture"
 const SCRIPT = "scripts/idle-live-analyze.mjs"
@@ -1515,27 +1516,50 @@ function explainRecorded(code) {
 // What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
 const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
 
-// record must have a Korean explanation, not the generic "no description" fallback. The
-// scan is scoped to the two literal reason codes this todo introduces (fallback_mode_misses
-// assigned via FALLBACK_MISS, big_context_rewrite named in the rf-emulation comment), not
-// every "reason" string in the file - many (e.g. preflight_refused) are run_ended/campaign-
-// level and never render through an experiment's verdict line.
-test("todo 15/a fallback_mode_misses and big_context_rewrite are explained, not the generic fallback", () => {
+// Todo 15(a) rework (gate st_01a0da3f B1): every reason code that can land in an
+// experiment_ended/step_void record must have a Korean explanation, not the generic "no
+// description" fallback. Machine-recorded verdicts come from two sources: scripts/idle-live/
+// machine.mjs's own literal reason: "..." / reason: FALLBACK_MISS assignments, and
+// scripts/idle-live/protocols.mjs's verdict(status, "code") calls plus its FATAL_ANOMALIES
+// list (protocol verdicts are written into the log by the machine, machine.mjs:1431-1456).
+// The enumeration below is a live source scan, not a pinned list, so a new reason code the
+// machine or a protocol starts recording cannot silently fall back to the generic line.
+test("todo 15/a every experiment_ended/step_void reason code has a Korean explanation", () => {
   const machineSrc = readFileSync(path.join("scripts", "idle-live", "machine.mjs"), "utf8")
-  assert.ok(machineSrc.includes("reason: FALLBACK_MISS"), "sanity: the scan found the todo-13 reason code assignment")
-  assert.ok(machineSrc.includes('"big_context_rewrite"'), "sanity: the scan found the rf-emulation fallback reason code")
-  for (const code of ["fallback_mode_misses", "big_context_rewrite"]) {
+  const protocolsSrc = readFileSync(path.join("scripts", "idle-live", "protocols.mjs"), "utf8")
+  const codes = new Set()
+  for (const m of machineSrc.matchAll(/reason:\s*(?:FALLBACK_MISS|"([a-z_]+)")/g)) codes.add(m[1] ?? "fallback_mode_misses")
+  for (const m of machineSrc.matchAll(/reason\s*===\s*"([a-z_]+)"/g)) codes.add(m[1])
+  for (const m of protocolsSrc.matchAll(/verdict\("(?:aborted|void)",\s*"([a-z_]+)"\)/g)) codes.add(m[1])
+  const fatalAnomalies = protocolsSrc.match(/const FATAL_ANOMALIES = \[([^\]]+)\]/)
+  assert.ok(fatalAnomalies, "sanity: the scan found protocols.mjs's FATAL_ANOMALIES list")
+  for (const m of fatalAnomalies[1].matchAll(/"([a-z_]+)"/g)) codes.add(m[1])
+  // sanity: the scan actually found the codes gate st_01a0da3f B1 named as still generic
+  const B1_CODES = ["short_output", "dial_miss", "early_tick", "no_dial_prefix", "post_walk_overrun", "missing_record", "missing_usage", "missing_ticks", "reset_in_block", "all_runs_invalid", "missing_result_text", "fallback_mode_misses", "big_context_rewrite"]
+  for (const code of B1_CODES) assert.ok(codes.has(code), `sanity: the scan missed "${code}"`)
+  const undescribed = []
+  for (const code of codes) {
     const explanation = explainRecorded(code)
-    assert.notEqual(explanation, UNDESCRIBED, `reason code "${code}" renders the generic fallback line`)
-    assert.ok(explanation, `reason code "${code}" has no explanation at all`)
+    if (!explanation || explanation === UNDESCRIBED) undescribed.push(code)
   }
+  assert.deepEqual(undescribed, [], `reason code(s) render the generic fallback line: ${undescribed.join(", ")}`)
 })
 
 // Todo 15(b) (Appendix B amended settle rule, todo 13): the fixture's `preflight/settle/<n>`
 // rows (experiment: "preflight") must never enter any real experiment's measurement window,
 // and the run/meter spend total must still count their gauge ticks (they are real paid calls).
 test("todo 15/b settle PING rows never enter an experiment window; run-level spend still counts them", (t) => {
-  const dir = fixtureCopy(t, "fake-run")
+  // The fixture's own run-end settle is quiet (same util as the row before it), so a plain
+  // window-count check on it would not distinguish "settle spend counted" from "settle spend
+  // dropped". Bump that settle row's own reading by one tick (0.53 instead of 0.52) so this test
+  // fails under a mutant that excludes settle rows from spend (mutant-n2.txt).
+  const dir = fixtureCopy(t, "fake-run", (d) => {
+    const rows = readJsonl(path.join(d, "requests.jsonl"))
+    const last = rows[rows.length - 1]
+    if (!(typeof last.stepId === "string" && last.stepId.startsWith("preflight/settle"))) throw new Error(`sanity: fixture no longer ends on a settle row (${last.stepId})`)
+    last.headers = { ...last.headers, "anthropic-ratelimit-unified-5h-utilization": "0.53" }
+    writeJsonl(path.join(d, "requests.jsonl"), rows)
+  })
   const r = analyzeCli(t, dir)
   assert.equal(r.code, 0, r.stderr)
   const allRows = readJsonl(path.join(dir, "requests.jsonl"))
@@ -1545,15 +1569,20 @@ test("todo 15/b settle PING rows never enter an experiment window; run-level spe
     const window = r.analysis.experiments[id]?.window
     if (!window || typeof window.requests !== "number") continue
     const ownRows = allRows.filter((row) => row.experiment === id).length
-    assert.equal(window.requests, ownRows, `${id}\u0027s window count includes a non-own (e.g. settle) row`)
+    assert.equal(window.requests, ownRows, `${id}'s window count includes a non-own (e.g. settle) row`)
   }
+  // the run/meter spend is read from ALL readings (not per-experiment): its endUtil must be the
+  // LAST row's own (bumped) reading - a settle-blind spend computation would report the previous
+  // (non-settle, un-bumped) row's util instead. This fails under mutant-n2.txt (spendByMeter
+  // filters out records.experiment === "preflight").
+  const lastRow = allRows[allRows.length - 1]
+  assert.ok(lastRow.stepId.startsWith("preflight/settle"), "sanity: the fixture ends on a settle row")
+  const lastReading = metersOf(lastRow.headers)["unified-5h"]
+  assert.ok(lastReading && lastReading !== "absent", "sanity: the last row carries a unified-5h reading")
+  assert.equal(lastReading.util, 0.53, "sanity: the bump landed")
   const meterSpend = r.analysis.spend["unified-5h"]
   assert.ok(meterSpend.present)
-  const settleTicks = settleRows.reduce((sum, row) => sum + (row.accounting?.ticks?.["unified-5h"] ?? row.ticks?.["unified-5h"] ?? 0), 0)
-  assert.ok(settleTicks >= 0, "sanity: settle rows carry a tick reading")
-  // the run-level meter spend is read from ALL readings (not per-experiment), so it already
-  // includes whatever tick a settle PING carried; a settle-blind analyzer would under-report it.
-  assert.equal(meterSpend.windows, meterSpend.perWindow.length)
+  assert.equal(meterSpend.endUtil, 0.53, "run-level spend's endUtil is not the settle row's own reading - settle spend is not being counted")
 })
 
 // A hand-built minimal log with a fallback-miss (FALLBACK_MISS) closing an experiment: the

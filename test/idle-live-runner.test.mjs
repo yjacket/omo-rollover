@@ -263,7 +263,17 @@ test("a crash after run_started with an in-doubt step exits 4, resumable, and li
       throw new Error("killed after the intent")
     },
   })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.IN_DOUBT)
+  assert.equal(s.resumable, true)
+  assert.deepEqual(s.inDoubt, ["fable-write-tick/0"])
+  assert.deepEqual(s.interrupted, [])
+})
 
+// N1 rework (gate st_01a0da3f): RRN1 and RRN2 stand alone at the top level, not nested inside
+// another test's body (a nested test() call reports as a subtest of the enclosing one and a
+// failing RRN1 also fails the unrelated in-doubt test).
 test("RRN1: a crash with an open policy-effect experiment exits 4, resumable (kills a mutant that excludes every id starting with 'p')", async (t) => {
   const fx = fixture(t)
   const h = harness({
@@ -272,14 +282,6 @@ test("RRN1: a crash with an open policy-effect experiment exits 4, resumable (ki
       throw new Error("killed mid policy-effect")
     },
   })
-
-test("RRN2: the runner imports PREFLIGHT_ID from machine.mjs instead of redeclaring it", () => {
-  assert.equal(PREFLIGHT_ID, "preflight")
-  const runnerSrc = readFileSync(new URL("../scripts/idle-live-runner.mjs", import.meta.url), "utf8")
-  assert.ok(runnerSrc.includes("PREFLIGHT_ID"), "runner still uses PREFLIGHT_ID")
-  assert.ok(runnerSrc.includes('import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"'), "imported from machine.mjs")
-  assert.ok(!/const PREFLIGHT_ID\s*=/.test(runnerSrc), "no local redeclaration")
-})
   const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
   const s = h.summary()
   assert.equal(code, EXIT.IN_DOUBT)
@@ -288,12 +290,13 @@ test("RRN2: the runner imports PREFLIGHT_ID from machine.mjs instead of redeclar
   assert.deepEqual(s.interrupted, ["policy-effect"])
   assert.deepEqual(s.inDoubt, [])
 })
-  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
-  const s = h.summary()
-  assert.equal(code, EXIT.IN_DOUBT)
-  assert.equal(s.resumable, true)
-  assert.deepEqual(s.inDoubt, ["fable-write-tick/0"])
-  assert.deepEqual(s.interrupted, [])
+
+test("RRN2: the runner imports PREFLIGHT_ID from machine.mjs instead of redeclaring it", () => {
+  assert.equal(PREFLIGHT_ID, "preflight")
+  const runnerSrc = readFileSync(new URL("../scripts/idle-live-runner.mjs", import.meta.url), "utf8")
+  assert.ok(runnerSrc.includes("PREFLIGHT_ID"), "runner still uses PREFLIGHT_ID")
+  assert.ok(runnerSrc.includes('import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"'), "imported from machine.mjs")
+  assert.ok(!/const PREFLIGHT_ID\s*=/.test(runnerSrc), "no local redeclaration")
 })
 
 test("a crash after run_started with nothing resumable exits 3, resumable:false", async (t) => {

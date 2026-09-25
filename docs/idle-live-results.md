@@ -8,7 +8,7 @@
 - 판정: aborted (cap_exceeded: 다음 호출이 지출 한도를 넘을 것으로 예측되어 게이트가 거부했다: 이 실험만 중단했다)
 
 ## 2. output-quota (출력 계수)
-- 판정: aborted (short_output: 기계가 기록한 사유 코드(추가 설명 없음))
+- 판정: aborted (short_output: 출력 계수 게이트 조건(출력 토큰 6,000 이상 AND stop_reason이 end_turn)을 만족하지 못한 첫 호출이라 이 실험을 중단했다)
 
 ## 3. ttl-1h-unique-prefix (1h TTL 갱신)
 - 판정: contaminated (anomalies_present)
@@ -17,10 +17,10 @@
 - 결론: renews_at_55min (55분 읽기가 TTL을 갱신함, n=2, 사용량 기준 HIT/MISS - 창 오염으로 measured 아님)
 
 ## 4. restore-decomposition (복원 분해)
-- 판정: aborted (big_context_rewrite: 대체 모드(rf-emulation)에서 캐시를 놓쳐 대용량 컨텍스트를 처음부터 다시 써야 했다: 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
+- 판정: aborted (big_context_rewrite: 이 호출의 사용량이 캐시를 놓치고 대용량 컨텍스트를 처음부터 다시 썼다(--resume이든 대체 모드 rf-emulation이든, 기록된 세션 모드에서 캐시 적중을 얻지 못했다는 뜻이다): 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
 
 ## 5. policy-effect (정책 효과)
-- 판정: aborted (big_context_rewrite: 대체 모드(rf-emulation)에서 캐시를 놓쳐 대용량 컨텍스트를 처음부터 다시 써야 했다: 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
+- 판정: aborted (big_context_rewrite: 이 호출의 사용량이 캐시를 놓치고 대용량 컨텍스트를 처음부터 다시 썼다(--resume이든 대체 모드 rf-emulation이든, 기록된 세션 모드에서 캐시 적중을 얻지 못했다는 뜻이다): 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
 
 ## 6. 지출 (meter별)
 
