@@ -764,13 +764,29 @@ test("N3 output: no bound computed publishes unidentified, not upper_bound", () 
   assert.equal(o, null, "no findings were computed for a machine-recorded verdict")
   const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
   const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
-  assert.notEqual(prov?.fields?.billedModelOutput?.status, "upper_bound")
+  assert.equal(prov?.fields?.billedModelOutput?.status, "unidentified")
 
   // the genuine upper_bound case (B8) is unaffected
   const b8 = run()
   const b8Prov = (b8.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
   assert.equal(b8.experiments["output-quota"].findings.kOutUpperBound > 0, true)
   assert.equal(b8Prov?.fields?.billedModelOutput?.status, "upper_bound")
+})
+
+test("N1 (todo 14) policyAnswer.notes follows the actual output status, not a hardcoded upper-bound sentence", () => {
+  // aborted:short_output -> output.findings is null -> outputStatus is "unidentified": the note
+  // must say so and must not claim an upper bound that was never computed.
+  const evs = [...cloneEvents(), { ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: "short_output" }]
+  const a = run(records, evs)
+  const note = a.policyAnswer.notes.find((n) => n.startsWith("output coefficient"))
+  assert.ok(note, "an output-coefficient note is present")
+  assert.ok(!note.includes("is an upper bound only"), `note must not claim an upper bound when none was computed: ${note}`)
+  assert.match(note, /not identified|unidentified/, `note must name the unidentified status: ${note}`)
+
+  // the genuine upper_bound case (B8) still gets the upper-bound sentence
+  const b8 = run()
+  const b8Note = b8.policyAnswer.notes.find((n) => n.startsWith("output coefficient"))
+  assert.ok(b8Note.includes("is an upper bound only"), b8Note)
 })
 
 test("N6 every experiment with a machine-recorded verdict carries it as recordedMachineVerdict, even when the analyzer re-judges it", () => {
@@ -782,6 +798,15 @@ test("N6 every experiment with a machine-recorded verdict carries it as recorded
   for (const id of ["fable-write-tick", "output-quota", "restore-decomposition", "policy-effect"]) {
     assert.deepEqual(a.experiments[id].recordedMachineVerdict, { status: "valid", reason: null }, id)
   }
+
+  // non-valid recorded machine verdicts (aborted, void) are carried too, not just valid ones.
+  const abortedEvs = [...cloneEvents(), { ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: "short_output" }]
+  const abortedRun = run(records, abortedEvs)
+  assert.deepEqual(abortedRun.experiments["output-quota"].recordedMachineVerdict, { status: "aborted", reason: "short_output" })
+
+  const voidEvs = [...cloneEvents(), { ev: "experiment_ended", experiment: "restore-decomposition", run: null, status: "void", reason: "interrupted_by_crash" }]
+  const voidRun = run(records, voidEvs)
+  assert.deepEqual(voidRun.experiments["restore-decomposition"].recordedMachineVerdict, { status: "void", reason: "interrupted_by_crash" })
 })
 
 test("N2 md: a contaminated ttl window's renewal line does not say measured", () => {
@@ -789,12 +814,14 @@ test("N2 md: a contaminated ttl window's renewal line does not say measured", ()
   dirty.find((r) => r.experiment === "ttl-1h-unique-prefix").model = "claude-opus-5"
   const a = run(dirty)
   assert.equal(a.experiments["ttl-1h-unique-prefix"].status, "contaminated")
-  assert.equal(a.experiments["ttl-1h-unique-prefix"].findings.renewsAt55min, "measured", "findings keep the raw usage-based label")
+  // N4 (todo 14): the machine-consumed label itself must not say "measured" under a contaminated
+  // status - it follows the analyzer's own non-clean-window convention (sourceKind "unknown").
+  assert.equal(a.experiments["ttl-1h-unique-prefix"].findings.renewsAt55min, "unknown", "the label must match the contaminated status, not the raw usage-based verdict")
   const md = renderMarkdown(a)
   const line = md.split(/\r?\n/).find((l) => l.startsWith("- 결론:") && l.includes("renews_at_55min"))
   assert.ok(line, "renewal conclusion line present")
   assert.ok(!line.includes(", measured)"), `line must not say measured under a contaminated window: ${line}`)
-  assert.ok(line.includes("측정 아님") || line.includes("아님"), `line must say the renewal is not counted as measured: ${line}`)
+  assert.ok(line.includes("아님"), `line must say the renewal is not counted as measured: ${line}`)
 
   // the clean-window case (default fixture) is unaffected: it still says measured
   const clean = run()

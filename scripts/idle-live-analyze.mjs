@@ -1538,7 +1538,17 @@ export function analyzeRun(rows, events, opts = {}) {
   const experiments = {
     "fable-write-tick": { status: fable.status, reason: fable.reason, window: fable.window, hypotheses: fable.findings?.hypotheses ?? [], findings: fable.findings },
     "output-quota": { status: output.status, reason: output.reason, window: output.window, hypotheses: [], findings: output.findings },
-    "ttl-1h-unique-prefix": { status: ttl.status, reason: ttl.reason, window: ttl.window, hypotheses: [], findings: ttl.findings },
+    // N4 (todo 14): the machine-consumed label must not say "measured" once the window itself is
+    // not valid (e.g. contaminated) - it follows the analyzer's existing non-clean-window
+    // convention (sourceKind "unknown"), the same value windowStatus already uses for a dirty
+    // window (line ~998).
+    "ttl-1h-unique-prefix": {
+      status: ttl.status,
+      reason: ttl.reason,
+      window: ttl.window,
+      hypotheses: [],
+      findings: ttl.findings && ttl.status !== "valid" && ttl.findings.renewsAt55min === "measured" ? { ...ttl.findings, renewsAt55min: "unknown" } : ttl.findings,
+    },
     "restore-decomposition": { status: restore.status, reason: restore.reason, window: restore.window, hypotheses: [], findings: restore.findings },
     "policy-effect": { status: policy.status, reason: policy.reason, window: policy.window, hypotheses: [], findings: policy.findings },
   }
@@ -1597,7 +1607,14 @@ export function analyzeRun(rows, events, opts = {}) {
         ? "cost model built from restore run 1 phase sums"
         : `no cost model: phase costs missing for ${["warm", "ctxCreate", "parkParent", "restoreChild", "resumeRaw"].filter((k) => parts[k].lo === null).join(", ")}`,
       T ? "write coefficient measured by this run" : "coefficients are the reported prior RANGE only: this evidence did not measure T",
-      kOut ? "output coefficient measured by this run" : `output coefficient is an upper bound only (${outputReason ?? "unidentified"})`,
+      // N1 (todo 14): the note follows outputStatus - a genuine upper bound (a bound WAS
+      // computed, e.g. an unobserved phase) reads differently from unidentified (no bound at all,
+      // e.g. a machine-recorded non-valid verdict with no findings).
+      kOut
+        ? "output coefficient measured by this run"
+        : outputStatus === "upper_bound"
+          ? `output coefficient is an upper bound only (${outputReason ?? "unidentified"})`
+          : `output coefficient not identified: no bound was computed (${outputReason ?? "unidentified"})`,
     ],
   })
   policyAnswer.phaseCostsEq = parts

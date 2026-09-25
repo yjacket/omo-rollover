@@ -3798,9 +3798,8 @@
           "sourceKind": "unknown",
           "requests": 1,
           "recordedMachineVerdict": {
-            "status": "aborted",
             "reason": "cap_exceeded",
-            "seq": 22
+            "status": "aborted"
           }
         },
         {
@@ -3812,9 +3811,8 @@
           "sourceKind": "measured",
           "requests": 1,
           "recordedMachineVerdict": {
-            "status": "aborted",
             "reason": "short_output",
-            "seq": 26
+            "status": "aborted"
           }
         },
         {
@@ -3827,7 +3825,10 @@
           ],
           "sourceKind": "unknown",
           "requests": 10,
-          "recordedMachineVerdict": null
+          "recordedMachineVerdict": {
+            "reason": null,
+            "status": "valid"
+          }
         },
         {
           "experiment": "restore-decomposition",
@@ -3840,9 +3841,8 @@
           "sourceKind": "unknown",
           "requests": 5,
           "recordedMachineVerdict": {
-            "status": "aborted",
             "reason": "big_context_rewrite",
-            "seq": 16
+            "status": "aborted"
           }
         },
         {
@@ -3854,9 +3854,8 @@
           "sourceKind": "measured",
           "requests": 2,
           "recordedMachineVerdict": {
-            "status": "aborted",
             "reason": "big_context_rewrite",
-            "seq": 32
+            "status": "aborted"
           }
         }
       ],
@@ -3899,7 +3898,7 @@
           "quality is reported as states and scores, never monetised into parkQualityEq",
           "no cost model: phase costs missing for warm, ctxCreate, parkParent, restoreChild, resumeRaw",
           "coefficients are the reported prior RANGE only: this evidence did not measure T",
-          "output coefficient is an upper bound only (experiment_not_valid:short_output)",
+          "output coefficient not identified: no bound was computed (experiment_not_valid:short_output)",
           "evidence_incomplete: restore-decomposition:aborted,policy-effect:aborted"
         ],
         "forecast": null,

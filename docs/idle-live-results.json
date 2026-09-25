@@ -481,7 +481,7 @@
         "experiment": "ttl-1h-unique-prefix",
         "n": 2,
         "reason": null,
-        "renewsAt55min": "measured",
+        "renewsAt55min": "unknown",
         "runs": [
           {
             "control": {
@@ -806,7 +806,7 @@
       "quality is reported as states and scores, never monetised into parkQualityEq",
       "no cost model: phase costs missing for warm, ctxCreate, parkParent, restoreChild, resumeRaw",
       "coefficients are the reported prior RANGE only: this evidence did not measure T",
-      "output coefficient is an upper bound only (experiment_not_valid:short_output)",
+      "output coefficient not identified: no bound was computed (experiment_not_valid:short_output)",
       "evidence_incomplete: restore-decomposition:aborted,policy-effect:aborted"
     ],
     "options": {
