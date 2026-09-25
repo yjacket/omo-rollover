@@ -4,3 +4,4 @@
 # proposal, so their checkout must not change.
 test/fixtures/idle-live-run/** -text
 docs/idle-experiments-approval-2026-09-23.json -text
+docs/idle-live-results.json -text
