@@ -1578,6 +1578,10 @@ async function smokeRun(st) {
   emit(st, { ev: "experiment_started", experiment: "smoke", run: null, t0: exp.t0, baselines: exp.baselines, pool: { seeds: [seed], uuids: [] }, mode: { ...st.mode }, carryPhase: null, dialPrefix: null })
   const write = smokeStep({ index: 0, arm: "write", kind: "write", role: "smoke_write", atOffsetMs: 0, prompt, dominantField: "cacheWrite1h", hit: false, seed })
   const w = await runStep(st, exp, write)
+  // What the smoke paid is what the proxy logged for each of its own steps - same rule as the
+  // general experiment loop (exp.paid += r.paid), counted before the verdict so a step that ended
+  // the smoke fatally, or left it in doubt, is still counted as the paid call it was (N2).
+  exp.paid += w.paid ?? 0
   if (w.fatal) {
     emit(st, { ev: "experiment_ended", experiment: "smoke", run: null, status: w.fatal.status, reason: w.fatal.reason, paidRequests: exp.paid, parity: null, result: null })
     return { exitCode: EXIT.ABORTED, smoke: { ...out, reason: w.fatal.reason } }
@@ -1585,6 +1589,7 @@ async function smokeRun(st) {
   out.write = { cacheWrite1h: w.result.record?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? null, ticks: w.result.ticks?.[METER_5H] ?? null }
   const dial = smokeStep({ index: 1, arm: "dial", kind: "dial", role: "smoke_dial", atOffsetMs: RULES.restore.settleMs, prompt, dominantField: "cacheRead", hit: true, seed })
   const d = await runStep(st, exp, dial)
+  exp.paid += d.paid ?? 0
   if (d.fatal) {
     emit(st, { ev: "experiment_ended", experiment: "smoke", run: null, status: d.fatal.status, reason: d.fatal.reason, paidRequests: exp.paid, parity: null, result: null })
     return { exitCode: EXIT.ABORTED, smoke: { ...out, reason: d.fatal.reason } }
@@ -1593,7 +1598,7 @@ async function smokeRun(st) {
   const hit = Number.isFinite(cacheRead) && cacheRead >= threshold
   out.dial = { cacheRead, hit, ticks: d.result.ticks?.[METER_5H] ?? null }
   const status = hit ? "valid" : "aborted"
-  emit(st, { ev: "experiment_ended", experiment: "smoke", run: null, status, reason: hit ? null : "smoke_dial_miss", paidRequests: 2, parity: null, result: { experiment: "smoke", status, ...out } })
+  emit(st, { ev: "experiment_ended", experiment: "smoke", run: null, status, reason: hit ? null : "smoke_dial_miss", paidRequests: exp.paid, parity: null, result: { experiment: "smoke", status, ...out } })
   return { exitCode: hit ? EXIT.OK : EXIT.ABORTED, smoke: hit ? out : { ...out, reason: "smoke_dial_miss" } }
 }
 
@@ -1643,8 +1648,20 @@ export async function runMachine(deps, approval, opts = {}) {
   // (ii) A cancel already in force when the machine starts is recorded before the run's own
   // bookkeeping, so nothing at all precedes it in the log.
   if (st.signal?.aborted) stopCampaign(st, { reason: "cancelled" })
-  if (!opts.resume) emit(st, { ev: "run_started", evidenceDir: st.evidenceDir, dryRun: opts.dryRun === true, smoke: opts.smoke === true, only: opts.only ?? null, adapter: deps.adapter?.capabilities ?? null, proxyPort: deps.proxy?.port ?? null })
-  else await resumeFromLog(st)
+  if (!opts.resume) {
+    emit(st, { ev: "run_started", evidenceDir: st.evidenceDir, dryRun: opts.dryRun === true, smoke: opts.smoke === true, only: opts.only ?? null, adapter: deps.adapter?.capabilities ?? null, proxyPort: deps.proxy?.port ?? null })
+  } else if (fold(st.deps.ledger.fold().events).experiments.smoke) {
+    // N3 (todo 12, Appendix B amendment: a smoke is never resumable). The smoke is not one of the
+    // approved jobs Appendix A schedules, so a bare --resume would find nothing of it "in progress"
+    // and fall through to the fresh-campaign branch below, issuing the full approved plan for real;
+    // --resume --smoke would call smokeRun() again from its start and re-emit step_intent for ids
+    // already in this log (preflight/baseline/0..2, smoke/write/0, smoke/dial/1), re-paying for
+    // calls already logged. Refuse outright instead of doing either.
+    emit(st, { ev: "run_ended", exitCode: EXIT.ABORTED, reason: "smoke_not_resumable", issues: ["smoke_not_resumable"] })
+    return summaryOf(st, EXIT.ABORTED, { issues: ["smoke_not_resumable"], notRunReason: "smoke_not_resumable" })
+  } else {
+    await resumeFromLog(st)
+  }
 
   const pre = await preflight(deps, approval, { ...opts, onCancel: () => stopCampaign(st, { reason: "cancelled" }) })
   // The same read again for a preflight that was given no hook: a cancel taken during the scan must

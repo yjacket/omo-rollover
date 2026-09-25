@@ -1106,6 +1106,9 @@ test("--smoke does preflight, 3 PINGs, one WRITE-2000 and one DIAL read of it", 
   const recs = h.ledger.requests.filter((r) => r.experiment === "smoke")
   assert.equal(recs[0].promptSha256, recs[1].promptSha256, "the dial read re-sends the write's exact bytes")
   assert.equal(h.ev("experiment_ended").find((e) => e.experiment === "smoke").status, "valid")
+  // N2 (todo 12): the valid path must derive paidRequests, not hard-code it - pinned here even
+  // though the derived value happens to equal the old literal on a clean pair (see report.md).
+  assert.equal(h.ev("experiment_ended").find((e) => e.experiment === "smoke").paidRequests, 2)
 })
 
 test("--smoke fails loudly when the DIAL read is not a cache hit", async () => {
@@ -1115,6 +1118,85 @@ test("--smoke fails loudly when the DIAL read is not a cache hit", async () => {
   assert.equal(s.smoke.dial.hit, false)
   assert.equal(s.experiments["fable-write-tick"].status, "not_run")
   assert.equal(h.ev("experiment_ended").find((e) => e.experiment === "smoke").reason, "smoke_dial_miss")
+  assert.equal(h.ev("experiment_ended").find((e) => e.experiment === "smoke").paidRequests, 2, "the write and the dial were both paid calls even though the dial missed")
+})
+
+// N2 (todo 12, gate st_01a0d886 note N2): smokeRun never increments exp.paid, so its failure
+// branches wrote experiment_ended.paidRequests: exp.paid, which was 0 even after a paid WRITE or
+// DIAL call. These two regressions fail a step outright (not just "misses") so they exercise the
+// two failure branches (:1582 write-fatal, :1589 dial-fatal) the gate cited, each with a distinct
+// paid-row count.
+test("N2 a smoke WRITE step that fails outright still reports its own paid row, not 0", async () => {
+  const h = harness({ script: { "smoke/write/0": { records: 2 } } })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  const ended = h.ev("experiment_ended").find((e) => e.experiment === "smoke")
+  assert.equal(ended.reason, "unexpected_request_count")
+  assert.equal(ended.paidRequests, 2, "the write call drained 2 proxy records: both were paid")
+})
+
+test("N2 a smoke DIAL step that fails outright still reports the write's AND its own paid rows, not 0", async () => {
+  const h = harness({ script: { "smoke/dial/1": { records: 2 } } })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  const ended = h.ev("experiment_ended").find((e) => e.experiment === "smoke")
+  assert.equal(ended.reason, "unexpected_request_count")
+  assert.equal(ended.paidRequests, 3, "1 paid write row + 2 paid dial rows")
+})
+
+// N3 (todo 12, gate st_01a0d886 note N3): a smoke step left in doubt currently exits 3
+// (EXIT.ABORTED), while Appendix B's generic contract makes an in-doubt state exit 4. Investigated
+// with fakes (see report.md): --resume on a smoke evidence dir is not meaningful either way -
+// without --smoke it falls through to the fresh-campaign branch and would launch the real approved
+// plan; with --smoke it calls smokeRun() again and re-emits step_intent for the ids already in the
+// log (preflight/baseline/0..2, smoke/write/0, smoke/dial/1), re-paying for calls already logged.
+// Decision: keep the non-resumable exit (3) and make --resume refuse outright on a smoke evidence
+// dir instead of doing either of those things. See appendix-b-amendment.md.
+test("N3 a smoke step left in doubt exits 3 (not 4): a smoke is never resumable", async () => {
+  const h = harness({ script: { "smoke/write/0": { error_result: { code: "nonzero_exit", message: "exit code 1" }, exitCode: 1, records: 0 } } })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED, "not EXIT.IN_DOUBT: a smoke's in-doubt step is deliberately never resumable")
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.inDoubt, ["smoke/write/0"], "the doubt is still reported, even though the run is not resumable")
+})
+
+async function smokeInDoubtFixture() {
+  const h = harness({ script: { "smoke/write/0": { error_result: { code: "nonzero_exit", message: "exit code 1" }, exitCode: 1, records: 0 } } })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED, "fixture source must be the in-doubt smoke")
+  return { events: h.ledger.events.slice(), requests: h.ledger.requests.slice(), cli: new Map(h.ledger.cli), crashedAt: h.clock.now() }
+}
+
+function smokeResumeHarness(fixture, opts = {}) {
+  const ledger = memoryLedger()
+  for (const e of fixture.events) ledger.events.push(e)
+  for (const r of fixture.requests ?? []) ledger.requests.push(r)
+  for (const [k, v] of fixture.cli ?? []) ledger.cli.set(k, v)
+  return harness({ ledger, clockStart: fixture.crashedAt + 1000, ...opts })
+}
+
+test("N3 --resume without --smoke on a smoke evidence dir refuses cleanly, not a stuck exit-4 that can never reconcile", async () => {
+  // Investigated with fakes: without this refusal, --resume alone issues no campaign step (the
+  // unresolved inDoubt entry blocks fresh issuance) but reports exit 4 / resumable:true forever -
+  // proxy.jsonl can never gain the missing smoke record, so the "resumable" promise can never be
+  // honoured. That is worse than a plain refusal: it invites an operator to keep retrying.
+  const fx = await smokeInDoubtFixture()
+  const h1 = smokeResumeHarness(fx)
+  const s1 = await h1.run({ resume: "fake-run" })
+  assert.deepEqual(h1.ids(), [], "no approved-campaign step is issued on a smoke evidence dir")
+  assert.equal(s1.exitCode, EXIT.ABORTED)
+  assert.equal(s1.resumable, false)
+  assert.ok(s1.issues?.includes("smoke_not_resumable"), JSON.stringify(s1.issues))
+})
+
+test("N3 --resume --smoke on a smoke evidence dir refuses instead of re-issuing the smoke's own steps", async () => {
+  const fx = await smokeInDoubtFixture()
+  const h2 = smokeResumeHarness(fx)
+  const s2 = await h2.run({ resume: "fake-run", smoke: true })
+  assert.deepEqual(h2.ids(), [], "the smoke is never re-invoked on resume - its ids are already in the log")
+  assert.equal(s2.exitCode, EXIT.ABORTED)
+  assert.equal(s2.resumable, false)
+  assert.ok(s2.issues?.includes("smoke_not_resumable"), JSON.stringify(s2.issues))
 })
 
 // ==================================================================== group D
