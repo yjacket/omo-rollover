@@ -1695,6 +1695,8 @@ export function analyzeRun(rows, events, opts = {}) {
       malformedRequestRows: skippedRequests,
       malformedEventRows: skippedEvents,
       rule: "a request row that does not parse voids every experiment: it cannot be attributed",
+      // present only when an optional input existed but could not be read (loadRunDir)
+      ...(opts.integrityWarnings?.length ? { warnings: opts.integrityWarnings } : {}),
     },
     ...(campaign ? { campaign } : {}),
     experiments,
@@ -1727,6 +1729,7 @@ export function renderMarkdown(analysis) {
   L.push(`증거: requests.jsonl sha256 \`${analysis.generatedFrom.requests.sha256 ?? "없음"}\`, events.jsonl sha256 \`${analysis.generatedFrom.events.sha256 ?? "없음"}\`.`)
   L.push("게이지 해상도는 0.01이므로 모든 계수는 양자화 구간으로만 보고한다. 이 구간은 신뢰구간이 아니며 점추정값은 발표하지 않는다(발표하는 점은 구간의 상단이라고 명시한다).")
   L.push(`증거 무결성: 해석 불가 요청 행 ${analysis.integrity.malformedRequestRows}개 -> ${analysis.integrity.ok ? "없음" : "모든 실험 void"}.`)
+  for (const w of analysis.integrity.warnings ?? []) L.push(`증거 무결성 경고: ${w.file}을(를) 읽을 수 없다(${w.issue}: ${w.detail}). 이 파일이 없는 것으로 보고 분석했다.`)
   const c = analysis.campaign
   if (c) {
     const stops = c.stops.map((s) => `${s.reason}${s.experiment ? ` (${s.experiment})` : ""}`).join(", ")
@@ -1890,18 +1893,29 @@ export function loadRunDir(dir) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error
   }
-  let eventsText = ""
+  // Every run the machine starts writes events.jsonl (even a campaign cancelled before start), and
+  // the verdicts are read from it: a missing or unreadable event log is never an empty one.
+  let eventsText
   try {
     eventsText = readFileSync(eventsPath, "utf8")
-  } catch {
-    eventsText = ""
+  } catch (error) {
+    // neither log present: no run directory at all (reported as such by main)
+    if (requestsText === null && error?.code === "ENOENT") throw error
+    throw Object.assign(new Error(`events.jsonl: ${error?.message ?? error}`), { code: error?.code ?? "unknown", issue: "unreadable_event_log" })
   }
-  let summary = null
-  try {
-    summary = JSON.parse(readFileSync(summaryPath, "utf8"))
-  } catch {
-    summary = null
+  // Inputs that only refine the report. An absent one is a known shape (a crashed run has no
+  // summary.json; a step may have no CLI artifact); one that exists but cannot be read or parsed
+  // is named in `warnings`, which the analysis carries as integrity.warnings.
+  const warnings = []
+  const readOptionalJson = (file, issue, name) => {
+    try {
+      return JSON.parse(readFileSync(file, "utf8"))
+    } catch (error) {
+      if (error?.code !== "ENOENT") warnings.push({ issue, file: name, detail: String(error?.code ?? error?.name ?? "unknown") })
+      return null
+    }
   }
+  const summary = readOptionalJson(summaryPath, "summary_unreadable", "summary.json")
   const requests = parseRecords(requestsText)
   const events = parseRecords(eventsText)
   // cli/<stepId>.json for the steps whose answer text the quality rules need. A file that is
@@ -1909,13 +1923,11 @@ export function loadRunDir(dir) {
   const cli = {}
   for (const r of requests.records) {
     if (!QUALITY_ROLES.has(r.role) || typeof r.stepId !== "string") continue
-    try {
-      cli[r.stepId] = JSON.parse(readFileSync(path.join(dir, "cli", `${sanitizeStepId(r.stepId)}.json`), "utf8"))
-    } catch {
-      // absent artifact
-    }
+    const name = `cli/${sanitizeStepId(r.stepId)}.json`
+    const artifact = readOptionalJson(path.join(dir, name), "cli_artifact_unreadable", name)
+    if (artifact !== null) cli[r.stepId] = artifact
   }
-  return { requestsText, eventsText, summary, requests, events, cli }
+  return { requestsText, eventsText, summary, requests, events, cli, warnings }
 }
 
 /** Reasons of every experiment that is not valid, so the one-line summary never reads as success. */
@@ -1931,7 +1943,7 @@ async function main(argv) {
   try {
     loaded = loadRunDir(args.runDir)
   } catch (error) {
-    return { code: 2, payload: usage(`unreadable_run_directory:${error?.code ?? "unknown"}`) }
+    return { code: 2, payload: usage(`${error?.issue ?? "unreadable_run_directory"}:${error?.code ?? "unknown"}`) }
   }
   if (!loaded.requests.records.length && campaignOf(loaded.events.records, [])?.status !== "cancelled_before_start") {
     return { code: 2, payload: usage(loaded.requestsText === null ? "unreadable_run_directory:ENOENT" : "no_request_record") }
@@ -1944,6 +1956,7 @@ async function main(argv) {
     cli: loaded.cli,
     skippedRequests: loaded.requests.skipped.length,
     skippedEvents: loaded.events.skipped.length,
+    integrityWarnings: loaded.warnings,
   })
   const outPath = args.out ?? path.join(args.runDir, "analysis.json")
   await mkdir(path.dirname(path.resolve(outPath)), { recursive: true })

@@ -2,7 +2,7 @@
 // Pure analysis over a committed evidence fixture: no timers, no sleeps, no network.
 import test from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, cpSync, mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs"
+import { readFileSync, cpSync, mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -1515,6 +1515,57 @@ function explainRecorded(code) {
 }
 // What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
 const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
+
+// Todo 18 B2: the verdicts are read from events.jsonl, so a run dir whose event log is missing or
+// unreadable must fail loudly (exit 2, a named issue, no analysis written) - never be analyzed as
+// if the log were empty, which reports integrity.ok and verdicts the machine never recorded.
+for (const [name, edit, code] of [
+  ["missing", (d) => rmSync(path.join(d, "events.jsonl")), "ENOENT"],
+  ["a directory", (d) => { rmSync(path.join(d, "events.jsonl")); mkdirSync(path.join(d, "events.jsonl")) }, "EISDIR"],
+]) {
+  test(`B2 a run dir whose events.jsonl is ${name} exits 2 with unreadable_event_log and writes no analysis`, (t) => {
+    const dir = fixtureCopy(t, "fake-run", edit)
+    const r = analyzeCli(t, dir)
+    assert.equal(r.code, 2, r.stderr)
+    assert.equal(r.payload.ok, false)
+    assert.equal(r.payload.error, `unreadable_event_log:${code}`)
+    assert.equal(r.analysis, null)
+    assert.equal(r.md, null)
+  })
+}
+
+// Todo 18 note 8: an optional input that exists but cannot be read is named in
+// integrity.warnings (and in the doc), not silently treated as absent. A clean run carries no
+// warnings key at all, so the published analysis of a readable run is unchanged.
+test("N8 an unreadable summary.json is an integrity warning, not silently absent", (t) => {
+  const clean = analyzeCli(t, fixtureCopy(t, "fake-run"))
+  assert.equal(clean.code, 0, clean.stderr)
+  assert.equal("warnings" in clean.analysis.integrity, false)
+  for (const [label, edit, detail] of [
+    ["malformed", (d) => writeFileSync(path.join(d, "summary.json"), "{not json"), "SyntaxError"],
+    ["a directory", (d) => { rmSync(path.join(d, "summary.json")); mkdirSync(path.join(d, "summary.json")) }, "EISDIR"],
+  ]) {
+    const r = analyzeCli(t, fixtureCopy(t, "fake-run", edit))
+    assert.equal(r.code, 0, `${label}: ${r.stderr}`)
+    assert.deepEqual(r.analysis.integrity.warnings, [{ issue: "summary_unreadable", file: "summary.json", detail }], label)
+    assert.ok(r.md.includes("summary_unreadable"), `${label}: the doc names the warning`)
+  }
+  // absent is a known shape (a crashed run writes no summary): no warning
+  const absent = analyzeCli(t, fixtureCopy(t, "fake-run", (d) => rmSync(path.join(d, "summary.json"))))
+  assert.equal(absent.code, 0, absent.stderr)
+  assert.equal("warnings" in absent.analysis.integrity, false)
+})
+
+test("N8 a malformed CLI artifact is an integrity warning and is not scored", (t) => {
+  const reqs = readJsonl(path.join(RUN_FIXTURES, "fake-run", "requests.jsonl"))
+  const step = reqs.find((r) => r.role === "guard" && existsSync(path.join(RUN_FIXTURES, "fake-run", "cli", `${sanitizeStepId(r.stepId)}.json`)))
+  assert.ok(step, "sanity: the fixture has a guard step with a CLI artifact")
+  const file = `cli/${sanitizeStepId(step.stepId)}.json`
+  const r = analyzeCli(t, fixtureCopy(t, "fake-run", (d) => writeFileSync(path.join(d, file), "{truncated")))
+  assert.equal(r.code, 0, r.stderr)
+  assert.deepEqual(r.analysis.integrity.warnings, [{ issue: "cli_artifact_unreadable", file, detail: "SyntaxError" }])
+  assert.ok(r.md.includes("cli_artifact_unreadable"))
+})
 
 // Todo 15(a) rework 2 (gate st_01a0da3f RB1), widened by todo 17 (re-review 2 RRN-a / probe P5):
 // every reason code that can land in an experiment_ended/step_void record must have a Korean
