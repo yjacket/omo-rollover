@@ -1333,6 +1333,13 @@ const REASON_TEXT = Object.freeze({
   invalid_reading: "계기 판독값(사용률 또는 reset 시각)이 올바르지 않아 게이트가 거부했다",
   meter_absent: "응답 헤더에 이 한도 계기가 없었다(게이트는 경고로만 기록한다)",
   request_row_missing: "기록된 응답의 requests.jsonl 행이 없어(row_missing) 사용량을 읽을 수 없다",
+  // todo 13 (header lag): the fallback shape (rf-emulation) misses the cache on this CLI once a
+  // gauge reading already shows the miss, so the machine stops issuing further big-context jobs.
+  fallback_mode_misses: "복원 성공 확인(gate)에 실패해 대체 모드(rf-emulation)로 전환했는데, 그 대체 모드마저 캐시를 놓쳐 이후 대용량 컨텍스트 작업을 중단했다",
+  big_context_rewrite: "대체 모드(rf-emulation)에서 캐시를 놓쳐 대용량 컨텍스트를 처음부터 다시 써야 했다: 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다",
+  skipped_arm: "이 어댑터가 지원하지 않는 arm의 단계라서 발행하지 않고 건너뛰었다",
+  run_already_ended: "이전 프로세스가 이미 캠페인을 종료 상태로 기록해 재개가 더 이상 호출하지 않았다",
+  smoke_dial_miss: "smoke 모드의 dial 읽기가 예상한 캐시 적중을 보이지 않았다",
 })
 // A code the machine recorded that has no entry above is still printed, and marked as recorded.
 const UNDESCRIBED_REASON_TEXT = "기계가 기록한 사유 코드(추가 설명 없음)"

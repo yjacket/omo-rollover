@@ -26,7 +26,7 @@ export const REQUEST_VERSION = "idle-live-request/1"
 export const RUNSTATE_VERSION = "idle-live-runstate/1"
 
 const METER_5H = "unified-5h"
-const PREFLIGHT_ID = "preflight"
+export const PREFLIGHT_ID = "preflight"
 // The baseline block is the instrument's zero: the cap gate needs a meter reading before it can
 // project anything, so these PINGs are issued outside the gate. Appendix A section 0 budgets
 // ~0.002 for them; the machine bounds the block by count (3) and shape (PING) instead.

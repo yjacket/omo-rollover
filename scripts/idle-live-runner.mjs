@@ -27,17 +27,13 @@ import crypto from "node:crypto"
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
+import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
 import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/claude-cli.mjs"
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
 import { EXPERIMENT_IDS } from "./idle-live/protocols.mjs"
-
-// The baseline/re-baseline quiet check's pseudo-experiment id (matches machine.mjs's own
-// PREFLIGHT_ID, not exported there). Used only by logState()'s RN6 fix, below.
-const PREFLIGHT_ID = "preflight"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, "..")

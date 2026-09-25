@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url"
 import { createRequire, syncBuiltinESMExports } from "node:module"
 import { EventEmitter } from "node:events"
 
-import { EXIT, manifest, runMachine, SUMMARY_VERSION } from "../scripts/idle-live/machine.mjs"
+import { EXIT, manifest, runMachine, SUMMARY_VERSION, PREFLIGHT_ID } from "../scripts/idle-live/machine.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
 
 // Process-level tripwires (I19 b), installed BEFORE the runner is imported: processes.mjs binds its
@@ -119,6 +119,16 @@ const ALL_ENDED = [
   { ev: "step_intent", stepId: "fable-write-tick/0", experiment: "fable-write-tick" },
   { ev: "step_result", stepId: "fable-write-tick/0", experiment: "fable-write-tick" },
   { ev: "experiment_ended", experiment: "fable-write-tick", run: null, status: "valid", reason: null },
+]
+
+// RRN1 (todo 12 gate re-review 2, st_01a0d9db): a policy-effect id starts with the same letter
+// as "preflight" - a mutant that excludes every id starting with "p" from `interrupted` (instead
+// of just the PREFLIGHT_ID sentinel) would wrongly drop an open policy-effect experiment and
+// silently promise nothing to resume.
+const OPEN_POLICY_EFFECT = [
+  { ev: "run_started", evidenceDir: null },
+  { ev: "preflight", ok: true },
+  { ev: "experiment_started", experiment: "policy-effect", run: null },
 ]
 
 // ------------------------------------------------------------- before run_started: exit 2
@@ -253,6 +263,31 @@ test("a crash after run_started with an in-doubt step exits 4, resumable, and li
       throw new Error("killed after the intent")
     },
   })
+
+test("RRN1: a crash with an open policy-effect experiment exits 4, resumable (kills a mutant that excludes every id starting with 'p')", async (t) => {
+  const fx = fixture(t)
+  const h = harness({
+    runMachine: async (deps) => {
+      for (const e of OPEN_POLICY_EFFECT) deps.ledger.append(e)
+      throw new Error("killed mid policy-effect")
+    },
+  })
+
+test("RRN2: the runner imports PREFLIGHT_ID from machine.mjs instead of redeclaring it", () => {
+  assert.equal(PREFLIGHT_ID, "preflight")
+  const runnerSrc = readFileSync(new URL("../scripts/idle-live-runner.mjs", import.meta.url), "utf8")
+  assert.ok(runnerSrc.includes("PREFLIGHT_ID"), "runner still uses PREFLIGHT_ID")
+  assert.ok(runnerSrc.includes('import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"'), "imported from machine.mjs")
+  assert.ok(!/const PREFLIGHT_ID\s*=/.test(runnerSrc), "no local redeclaration")
+})
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.IN_DOUBT)
+  assert.equal(s.exitCode, EXIT.IN_DOUBT)
+  assert.equal(s.resumable, true)
+  assert.deepEqual(s.interrupted, ["policy-effect"])
+  assert.deepEqual(s.inDoubt, [])
+})
   const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
   const s = h.summary()
   assert.equal(code, EXIT.IN_DOUBT)

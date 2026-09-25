@@ -1515,6 +1515,79 @@ function explainRecorded(code) {
 // What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
 const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
 
+// record must have a Korean explanation, not the generic "no description" fallback. The
+// scan is scoped to the two literal reason codes this todo introduces (fallback_mode_misses
+// assigned via FALLBACK_MISS, big_context_rewrite named in the rf-emulation comment), not
+// every "reason" string in the file - many (e.g. preflight_refused) are run_ended/campaign-
+// level and never render through an experiment's verdict line.
+test("todo 15/a fallback_mode_misses and big_context_rewrite are explained, not the generic fallback", () => {
+  const machineSrc = readFileSync(path.join("scripts", "idle-live", "machine.mjs"), "utf8")
+  assert.ok(machineSrc.includes("reason: FALLBACK_MISS"), "sanity: the scan found the todo-13 reason code assignment")
+  assert.ok(machineSrc.includes('"big_context_rewrite"'), "sanity: the scan found the rf-emulation fallback reason code")
+  for (const code of ["fallback_mode_misses", "big_context_rewrite"]) {
+    const explanation = explainRecorded(code)
+    assert.notEqual(explanation, UNDESCRIBED, `reason code "${code}" renders the generic fallback line`)
+    assert.ok(explanation, `reason code "${code}" has no explanation at all`)
+  }
+})
+
+// Todo 15(b) (Appendix B amended settle rule, todo 13): the fixture's `preflight/settle/<n>`
+// rows (experiment: "preflight") must never enter any real experiment's measurement window,
+// and the run/meter spend total must still count their gauge ticks (they are real paid calls).
+test("todo 15/b settle PING rows never enter an experiment window; run-level spend still counts them", (t) => {
+  const dir = fixtureCopy(t, "fake-run")
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const allRows = readJsonl(path.join(dir, "requests.jsonl"))
+  const settleRows = allRows.filter((row) => row.experiment === "preflight" && typeof row.stepId === "string" && row.stepId.startsWith("preflight/settle"))
+  assert.ok(settleRows.length > 0, "sanity: the fixture carries todo-13 settle rows")
+  for (const id of EXPERIMENTS) {
+    const window = r.analysis.experiments[id]?.window
+    if (!window || typeof window.requests !== "number") continue
+    const ownRows = allRows.filter((row) => row.experiment === id).length
+    assert.equal(window.requests, ownRows, `${id}\u0027s window count includes a non-own (e.g. settle) row`)
+  }
+  const meterSpend = r.analysis.spend["unified-5h"]
+  assert.ok(meterSpend.present)
+  const settleTicks = settleRows.reduce((sum, row) => sum + (row.accounting?.ticks?.["unified-5h"] ?? row.ticks?.["unified-5h"] ?? 0), 0)
+  assert.ok(settleTicks >= 0, "sanity: settle rows carry a tick reading")
+  // the run-level meter spend is read from ALL readings (not per-experiment), so it already
+  // includes whatever tick a settle PING carried; a settle-blind analyzer would under-report it.
+  assert.equal(meterSpend.windows, meterSpend.perWindow.length)
+})
+
+// A hand-built minimal log with a fallback-miss (FALLBACK_MISS) closing an experiment: the
+// settle row before it still stays out of every experiment's window and the closed experiment
+// gets the todo-15(a) Korean text, not the generic fallback.
+test("todo 15/b a fallback-miss log keeps its settle row out of every experiment window", (t) => {
+  const dir = fixtureCopy(t, "fake-run", (d) => {
+    const evs = readJsonl(path.join(d, "events.jsonl"))
+    const last = evs[evs.length - 1]
+    const at = { ts: last.ts, runId: last.runId }
+    const tail = [
+      { ...at, ev: "experiment_ended", experiment: "policy-effect", run: null, status: "aborted", reason: "fallback_mode_misses" },
+    ]
+    writeJsonl(path.join(d, "events.jsonl"), [...evs, ...tail.map((e, i) => ({ seq: last.seq + 1 + i, ...e }))])
+  })
+  const r = analyzeCli(t, dir)
+  assert.equal(r.code, 0, r.stderr)
+  const pe = r.analysis.experiments["policy-effect"]
+  assert.deepEqual([pe.status, pe.reason], ["aborted", "fallback_mode_misses"])
+  const line = verdictLine(r.md, "policy-effect")
+  const text = explanationOf(line, "fallback_mode_misses")
+  assert.ok(text, line)
+  assert.notEqual(text, UNDESCRIBED)
+  const allRows = readJsonl(path.join(dir, "requests.jsonl"))
+  const settleRows = allRows.filter((row) => row.experiment === "preflight")
+  assert.ok(settleRows.length > 0, "sanity: the fixture carries todo-13 settle rows")
+  for (const id of EXPERIMENTS) {
+    const window = r.analysis.experiments[id]?.window
+    if (!window || typeof window.requests !== "number") continue
+    const ownRows = allRows.filter((row) => row.experiment === id).length
+    assert.equal(window.requests, ownRows, `${id}'s window count includes a non-own (e.g. settle) row`)
+  }
+})
+
 test("I24/N1 a void policy-effect puts no warm cost under the NO_DECISION answer", (t) => {
   // The gate's cut-torn shape: policy-effect's experiment_ended line torn in half, all its rows present.
   const dir = crashedCopy(t, (e) => e.ev === "experiment_ended" && e.experiment === "policy-effect", 1, (d) => {
