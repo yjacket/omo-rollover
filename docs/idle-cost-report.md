@@ -162,9 +162,10 @@ output-quota / restore-decomposition / policy-effect는 `protocol_amendment_requ
    없는 단일 창 2회, policy-effect는 쌍 3회), 추가 쌍 실행, 5m lane 경로(CLI 밖 어댑터
    필요)를 논의할 수 있다.
 
-운영 메모: 다음 유료 실행은 `wt/idle-experiments-live-run-w2`(또는 그 브랜치를 랜딩한 곳)나
-이 호스트(`core.autocrlf=true`)의 새 checkout에서 시작해야 한다. `wt/idle-cost-shadow-implementation`
-worktree에 있는 `scripts/idle-experiments.mjs` 작업 사본은 이 계획 이전의 LF 바이트(sha256
+운영 메모: 다음 유료 실행은 `wt/idle-experiments-live-run-w2`에서 시작하거나, 랜딩된 브랜치
+(`wt/idle-cost-shadow-implementation`)를 이 호스트(`core.autocrlf=true`)에 새로 checkout한
+사본에서 시작해야 한다 - 기존 `wt/idle-cost-shadow-implementation` worktree는 안 된다.
+그 worktree에 있는 `scripts/idle-experiments.mjs` 작업 사본은 이 계획 이전의 LF 바이트(sha256
 `74a4b8f9...`)라서, 서명된 승인 파일의 `plannerSha256`(CRLF 작업 사본 바이트)과 맞지 않는다.
 그 worktree에서 러너를 돌리면 `planner_sha_drift`로 거부된다(안전한 쪽으로 실패한다).
 

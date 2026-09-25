@@ -799,3 +799,34 @@ test("RN4: experiments that never ran report 0/0 on the dry-run path", async () 
     assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: dry-run spentUpperEq`)
   }
 })
+
+// RN5 (todo 19, gate st_01a0da9f re-review 1 note RR5): the campaign-stop RN4 test above and the
+// dry-run RN4 test above both reach summaryOf's RECORD branch - the campaign-stop path fills a
+// `not_run` placeholder for every scheduled job before summaryOf ever runs (line ~1951), and the
+// dry-run path never charges anything at all. Neither exercises the branch summaryOf takes when
+// `st.experiments[id]` is genuinely absent (no placeholder) AFTER a charged tick: the smoke path
+// (preflight + a quiet check, no experiment ever started). Here the quiet check's PING sees a
+// foreign tick on every one of its 3 attempts, so `quiet_check_failed` stops the campaign before
+// smokeRun ever creates an experiment record - `st.experiments` is empty for all five ids, and
+// summaryOf's no-record branch is the ONLY branch in play. A mutant that reads spend from
+// `plan:<id>` (or any scope) in that branch, instead of the literal 0, would leak the charged
+// `plan:preflight` tick into every never-run experiment's summary; RN5 kills it
+// (task-19/mutant.txt).
+test("RN5: a campaign refused after a charged quiet-check tick (no experiment ever started) reports 0/0 for every experiment", async () => {
+  const script = {
+    "preflight/baseline/0": { foreignTicks: 1 },
+    "preflight/baseline-2/0": { foreignTicks: 1 },
+    "preflight/baseline-3/0": { foreignTicks: 1 },
+  }
+  const h = harness({ lag: { kind: "call" }, script })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.smoke?.reason, "foreign_traffic", "the quiet check exhausted its 3 attempts")
+  const preflightTicks = h.ledger.requests.filter((x) => PLAN_OF(x) === "plan:preflight").reduce((a, x) => a + Math.max(0, x.accounting?.ticks?.["unified-5h"] ?? 0), 0)
+  assert.ok(preflightTicks >= 1, "the quiet-check tick landed on plan:preflight")
+  for (const id of EXPERIMENT_IDS) {
+    assert.equal(s.experiments[id]?.status, "not_run", `${id}: no experiment ever started`)
+    assert.equal(s.experiments[id].spentObservedEq, 0, `${id}: spentObservedEq must not read the charged preflight tick`)
+    assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: spentUpperEq must not read the charged preflight tick`)
+  }
+})
