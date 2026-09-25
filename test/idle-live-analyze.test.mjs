@@ -1516,27 +1516,42 @@ function explainRecorded(code) {
 // What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
 const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
 
-// Todo 15(a) rework (gate st_01a0da3f B1): every reason code that can land in an
+// Todo 15(a) rework 2 (gate st_01a0da3f RB1): every reason code that can land in an
 // experiment_ended/step_void record must have a Korean explanation, not the generic "no
-// description" fallback. Machine-recorded verdicts come from two sources: scripts/idle-live/
-// machine.mjs's own literal reason: "..." / reason: FALLBACK_MISS assignments, and
-// scripts/idle-live/protocols.mjs's verdict(status, "code") calls plus its FATAL_ANOMALIES
-// list (protocol verdicts are written into the log by the machine, machine.mjs:1431-1456).
-// The enumeration below is a live source scan, not a pinned list, so a new reason code the
-// machine or a protocol starts recording cannot silently fall back to the generic line.
+// description" fallback. Machine-recorded verdicts come from three sources, all scanned live
+// at test time (not pinned literals), so a new code cannot silently fall back:
+//   - scripts/idle-live/machine.mjs: literal reason: "..." / reason: FALLBACK_MISS
+//     assignments, reason === "..." comparisons, and the DELIVERY_FAILURE / CAMPAIGN_FATAL
+//     sets (their members close an experiment via anomalies.find(...CAMPAIGN_FATAL/
+//     DELIVERY_FAILURE...), machine.mjs:1022-1077, 1447).
+//   - scripts/idle-live/protocols.mjs: verdict(status, "code") calls and FATAL_ANOMALIES.
+//   - scripts/idle-live/caps.mjs: every gate refusal/warning `code: "..."` literal (these
+//     reach an experiment as a gate-refused step_void/experiment_ended reason via the
+//     machine's gate-refusal path).
+// A code this scan finds that is only ever a run_ended-level reason (never an experiment's
+// own reason) still gets real Korean text below rather than a special-cased exclusion, so
+// there is nothing here that can silently widen without the test catching it.
 test("todo 15/a every experiment_ended/step_void reason code has a Korean explanation", () => {
   const machineSrc = readFileSync(path.join("scripts", "idle-live", "machine.mjs"), "utf8")
   const protocolsSrc = readFileSync(path.join("scripts", "idle-live", "protocols.mjs"), "utf8")
+  const capsSrc = readFileSync(path.join("scripts", "idle-live", "caps.mjs"), "utf8")
   const codes = new Set()
   for (const m of machineSrc.matchAll(/reason:\s*(?:FALLBACK_MISS|"([a-z_]+)")/g)) codes.add(m[1] ?? "fallback_mode_misses")
   for (const m of machineSrc.matchAll(/reason\s*===\s*"([a-z_]+)"/g)) codes.add(m[1])
+  for (const setName of ["DELIVERY_FAILURE", "CAMPAIGN_FATAL"]) {
+    const m = machineSrc.match(new RegExp(`const ${setName} = new Set\\(\\[([^\\]]+)\\]\\)`))
+    assert.ok(m, `sanity: the scan found machine.mjs's ${setName} set`)
+    for (const code of m[1].matchAll(/"([a-z_]+)"/g)) codes.add(code[1])
+  }
   for (const m of protocolsSrc.matchAll(/verdict\("(?:aborted|void)",\s*"([a-z_]+)"\)/g)) codes.add(m[1])
   const fatalAnomalies = protocolsSrc.match(/const FATAL_ANOMALIES = \[([^\]]+)\]/)
   assert.ok(fatalAnomalies, "sanity: the scan found protocols.mjs's FATAL_ANOMALIES list")
   for (const m of fatalAnomalies[1].matchAll(/"([a-z_]+)"/g)) codes.add(m[1])
-  // sanity: the scan actually found the codes gate st_01a0da3f B1 named as still generic
+  for (const m of capsSrc.matchAll(/code:\s*"([a-z_]+)"/g)) codes.add(m[1])
+  // sanity: the scan actually found the codes gate st_01a0da3f named as still generic
   const B1_CODES = ["short_output", "dial_miss", "early_tick", "no_dial_prefix", "post_walk_overrun", "missing_record", "missing_usage", "missing_ticks", "reset_in_block", "all_runs_invalid", "missing_result_text", "fallback_mode_misses", "big_context_rewrite"]
   for (const code of B1_CODES) assert.ok(codes.has(code), `sanity: the scan missed "${code}"`)
+  for (const code of ["adapter_error", "refusal", "invalid_step", "meter_absent"]) assert.ok(codes.has(code), `sanity: the widened scan missed "${code}"`)
   const undescribed = []
   for (const code of codes) {
     const explanation = explainRecorded(code)

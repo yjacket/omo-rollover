@@ -1337,7 +1337,7 @@ const REASON_TEXT = Object.freeze({
   // threshold, protocols.mjs bigContextRewriteWrite1h), not from a gauge reading or header lag -
   // once one big-context call shows the cache miss, the machine stops issuing further big-context
   // jobs of that kind rather than pay the same ~143K rewrite again.
-  fallback_mode_misses: "복원 성공 확인(gate)에 실패해 대체 모드(rf-emulation)로 전환했는데, 그 호출의 사용량이 캐시를 놓쳤음을 보여 이후 대용량 컨텍스트 작업을 중단했다",
+  fallback_mode_misses: "이전에 기록된 다른 호출이 대체 모드(rf-emulation)에서 캐시를 놓쳤음(big_context_rewrite)을 보여, 이 작업은 같은 결과를 낼 것으로 보고 호출 없이(0건) 바로 중단했다",
   // Mode-neutral: a big-context rewrite can happen under --resume or under the rf-emulation
   // fallback (both are recorded session modes for this job) - the text must not assert which one
   // ran without reading the event's own `result.mode`.
@@ -1347,11 +1347,14 @@ const REASON_TEXT = Object.freeze({
   smoke_dial_miss: "smoke 모드의 dial 읽기가 예상한 캐시 적중을 보이지 않았다",
   // todo 15 rework (gate st_01a0da3f B1): protocol verdicts (scripts/idle-live/protocols.mjs),
   // recorded into experiment_ended by machine.mjs, that still fell back to the generic line.
-  short_output: "출력 계수 게이트 조건(출력 토큰 6,000 이상 AND stop_reason이 end_turn)을 만족하지 못한 첫 호출이라 이 실험을 중단했다",
-  dial_miss: "dial 읽기가 예상한 캐시 적중(prefix hit)을 보이지 않아 이 블록을 중단했다",
-  early_tick: "예비 걷기(pre-walk) 중 너무 이르게 tick이 관측돼 위상을 신뢰할 수 없어 이 블록을 무효로 닫았다",
+  // The output-quota gate floor is proportional to the block's own output target
+  // (gateMinOutput * level.target / outputTarget, protocols.mjs:325), not a fixed 6,000 - block
+  // 1's floor happens to be 6,000 (the base gateMinOutput) but block 3's is 3,000 (a 4K target).
+  short_output: "이 블록의 목표 출력에 비례해 정해지는 최소 출력 토큰 기준(gateMinOutput 비례식) AND stop_reason이 end_turn 조건을 만족하지 못한 첫 호출이라 이 실험을 중단했다",
+  dial_miss: "dial 읽기가 예상한 캐시 적중(prefix hit)을 보이지 않아 이 실험 전체를 중단했다(finish가 전체 실험을 닫는다)",
+  early_tick: "예비 걷기(pre-walk) 중 너무 이르게 tick이 관측돼 위상을 신뢰할 수 없어 이 실험 전체를 무효로 닫았다(finish가 전체 실험을 닫는다)",
   no_dial_prefix: "이 블록이 쓸 dial prefix가 없어(직전 쓰기가 없거나 체인이 끊겨서) 중단했다",
-  post_walk_overrun: "post-walk 걷기가 허용된 읽기 횟수를 넘겨도 tick을 보지 못해 이 블록을 중단했다",
+  post_walk_overrun: "post-walk 걷기가 허용된 읽기 횟수(40)를 넘겨도 tick을 보지 못했거나, tick을 보긴 했지만 이상 기준(읽기 38회 이후)보다 늦게 왔다: 두 경우 모두 이 실험을 중단했다",
   missing_record: "이 단계의 응답 기록을 읽을 수 없어(proxy 기록 없음) 무효로 닫았다",
   missing_usage: "응답에 이 판정에 필요한 사용량(usage) 필드가 없어 무효로 닫았다",
   missing_ticks: "이 판정에 필요한 게이지 tick 값을 읽을 수 없어 무효로 닫았다",

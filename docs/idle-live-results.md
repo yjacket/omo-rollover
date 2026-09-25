@@ -8,7 +8,7 @@
 - 판정: aborted (cap_exceeded: 다음 호출이 지출 한도를 넘을 것으로 예측되어 게이트가 거부했다: 이 실험만 중단했다)
 
 ## 2. output-quota (출력 계수)
-- 판정: aborted (short_output: 출력 계수 게이트 조건(출력 토큰 6,000 이상 AND stop_reason이 end_turn)을 만족하지 못한 첫 호출이라 이 실험을 중단했다)
+- 판정: aborted (short_output: 이 블록의 목표 출력에 비례해 정해지는 최소 출력 토큰 기준(gateMinOutput 비례식) AND stop_reason이 end_turn 조건을 만족하지 못한 첫 호출이라 이 실험을 중단했다)
 
 ## 3. ttl-1h-unique-prefix (1h TTL 갱신)
 - 판정: contaminated (anomalies_present)
