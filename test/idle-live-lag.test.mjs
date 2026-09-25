@@ -781,11 +781,12 @@ test("RN4: experiments that never ran report 0/0 after a cap-driven campaign sto
     assert.equal(s.experiments[id].spentObservedEq, 0, `${id}: not-run spentObservedEq`)
     assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: not-run spentUpperEq`)
   }
-  // a quiet-check tick charged to plan:preflight must not leak into any not-run experiment
-  const preflightTicks = h.ledger.requests.filter((x) => PLAN_OF(x) === "plan:preflight").reduce((a, x) => a + Math.max(0, x.accounting?.ticks?.["unified-5h"] ?? 0), 0)
-  assert.ok(preflightTicks >= 0)
 })
 
+// On --dry-run no experiment record exists at all, so summaryOf takes its no-record branch - the
+// only branch the campaign-stop test above never reaches (there every scheduled experiment has a
+// not_run placeholder record). This test pins that branch: a mutant reporting its spend as null
+// ("unknown") instead of 0, or dropping the dry_run reason, fails here (task-18/mutant-rn4-dry.txt).
 test("RN4: experiments that never ran report 0/0 on the dry-run path", async () => {
   const h = harness({ lag: { kind: "call" } })
   const s = await h.run({ dryRun: true })
@@ -793,6 +794,7 @@ test("RN4: experiments that never ran report 0/0 on the dry-run path", async () 
   assert.equal(h.adapter.invoked.length, 0, "no call is issued on --dry-run")
   for (const id of EXPERIMENT_IDS) {
     assert.equal(s.experiments[id].status, "not_run")
+    assert.equal(s.experiments[id].reason, "dry_run")
     assert.equal(s.experiments[id].spentObservedEq, 0, `${id}: dry-run spentObservedEq`)
     assert.equal(s.experiments[id].spentUpperEq, 0, `${id}: dry-run spentUpperEq`)
   }

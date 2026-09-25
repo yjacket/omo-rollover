@@ -1333,7 +1333,7 @@ const REASON_TEXT = Object.freeze({
   invalid_reading: "계기 판독값(사용률 또는 reset 시각)이 올바르지 않아 게이트가 거부했다",
   meter_absent: "응답 헤더에 이 한도 계기가 없었다(게이트는 경고로만 기록한다)",
   request_row_missing: "기록된 응답의 requests.jsonl 행이 없어(row_missing) 사용량을 읽을 수 없다",
-  // todo 13(b): the miss is read from the response's own usage (cacheWrite1h >= the big-context
+  // The miss is read from the response's own usage (cacheWrite1h >= the big-context
   // threshold, protocols.mjs bigContextRewriteWrite1h), not from a gauge reading or header lag -
   // once one big-context call shows the cache miss, the machine stops issuing further big-context
   // jobs of that kind rather than pay the same ~143K rewrite again.
@@ -1345,14 +1345,11 @@ const REASON_TEXT = Object.freeze({
   skipped_arm: "이 어댑터가 지원하지 않는 arm의 단계라서 발행하지 않고 건너뛰었다",
   run_already_ended: "이전 프로세스가 이미 캠페인을 종료 상태로 기록해 재개가 더 이상 호출하지 않았다",
   smoke_dial_miss: "smoke 모드의 dial 읽기가 예상한 캐시 적중을 보이지 않았다",
-  // todo 15 rework (gate st_01a0da3f B1): protocol verdicts (scripts/idle-live/protocols.mjs),
-  // recorded into experiment_ended by machine.mjs, that still fell back to the generic line.
-  // The output-quota gate floor is proportional to the block's own output target
+  // Protocol verdicts (scripts/idle-live/protocols.mjs), recorded into experiment_ended by
+  // machine.mjs. The output-quota gate floor is proportional to the block's own output target
   // (gateMinOutput * level.target / outputTarget, protocols.mjs:325), not a fixed 6,000 - block
   // 1's floor happens to be 6,000 (the base gateMinOutput) but block 3's is 3,000 (a 4K target).
-  // todo 17 (gate st_01a0da3f re-review 2 RRN-b, RRN-c): rewritten in plain Korean - no internal
-  // identifier or English logical word in the rendered sentence, and "다 읽도록" instead of
-  // "넘겨도" since the walk stops at 40 reads rather than exceeding it.
+  // The post-walk stops at 40 reads, so its text says the walk read all 40, not that it exceeded them.
   short_output: "8K 블록의 최소 출력 토큰 기준은 6,000이고, 그보다 작은 블록은 그 블록의 목표 출력에 비례해 정해진다. 이 기준을 채우지 못했거나, 채웠어도 모델이 끝까지 답하지 않은(stop_reason이 end_turn이 아닌) 첫 호출이라 이 실험을 중단했다",
   dial_miss: "dial 읽기가 예상한 캐시 적중(prefix hit)을 보이지 않아 이 실험 전체를 중단했다",
   early_tick: "예비 걷기(pre-walk) 중 너무 이르게 tick이 관측돼 위상을 신뢰할 수 없어 이 실험 전체를 무효로 닫았다",

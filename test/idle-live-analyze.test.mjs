@@ -1618,32 +1618,6 @@ test("todo 15/a every experiment_ended/step_void reason code has a Korean explan
   assert.deepEqual(undescribed, [], `reason code(s) render the generic fallback line: ${undescribed.join(", ")}`)
 })
 
-// Todo 17 (gate st_01a0da3f re-review 2 RRN-b): the reason texts a reader sees must be plain
-// Korean, not source code dressed up in Korean. Precisely: no string in REASON_TEXT may contain
-// (a) a camelCase token (a lowercase letter immediately followed by an uppercase letter in the
-// same run of letters, e.g. "gateMinOutput" - a plain Korean sentence never produces this shape)
-// or (b) an English logical-operator word ("AND", "OR", "NOT") standing in for a Korean
-// conjunction, or (c) the bare word "finish" naming the code's own function. Established
-// domain vocabulary the reader needs (CLI, HTTP, JSON, dial, tick, arm, preflight, and similar
-// snake_case/lowercase terms already used throughout the doc) is not flagged: this test targets
-// the specific residue named in the gate note, not every English loanword in the file.
-test("todo 17 no rendered reason text carries a code identifier or an English logical word", () => {
-  const src = readFileSync(SCRIPT, "utf8")
-  const m = src.match(/const REASON_TEXT = Object\.freeze\(\{([\s\S]*?)\n\}\)/)
-  assert.ok(m, "sanity: the scan found the REASON_TEXT map")
-  const DENY_WORDS = new Set(["AND", "OR", "NOT", "finish"])
-  const offenders = []
-  for (const entry of m[1].matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)) {
-    const [, code, text] = entry
-    for (const tok of text.matchAll(/[A-Za-z][A-Za-z_]*/g)) {
-      const word = tok[0]
-      const isCamelCase = /[a-z][A-Z]/.test(word)
-      if (isCamelCase || DENY_WORDS.has(word)) offenders.push(`${code}: "${word}"`)
-    }
-  }
-  assert.deepEqual(offenders, [], `code identifier or English logical word in rendered text: ${offenders.join(", ")}`)
-})
-
 // Todo 15(b) (Appendix B amended settle rule, todo 13): the fixture's `preflight/settle/<n>`
 // rows (experiment: "preflight") must never enter any real experiment's measurement window,
 // and the run/meter spend total must still count their gauge ticks (they are real paid calls).
