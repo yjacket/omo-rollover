@@ -4,7 +4,7 @@
 // nothing is paid. Appendix B: only exit 4 is resumable.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
@@ -310,6 +310,111 @@ test("--resume on a log with nothing resumable and the port in use exits 3, resu
   assert.equal(code, EXIT.ABORTED)
   assert.equal(s.resumable, false)
   assert.deepEqual(s.issues, ["proxy_port_in_use"])
+})
+
+// ------------------------------------------------------ todo 12 rework (gate st_01a0d9db)
+// N3/B1/N4: the smoke-resume refusal must be a PURE READ, before the proxy bind, the adapter
+// creation or the run.json rewrite - so a refused --resume leaves the evidence dir byte-identical.
+
+const SMOKE_BASELINE_IN_DOUBT = [
+  { ev: "run_started", evidenceDir: null, smoke: true },
+  { ev: "preflight", ok: true },
+  { ev: "step_intent", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/1", experiment: "preflight" },
+  { ev: "step_void", stepId: "preflight/baseline/1", experiment: "preflight", reason: "unknown_issue_state", inDoubt: true },
+]
+
+test("--resume on a smoke evidence dir (baseline PING in doubt, no smoke experiment key) refuses before any proxy bind, adapter creation or run.json rewrite", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100000"
+  const evidenceDir = seedRun(fx, runId, SMOKE_BASELINE_IN_DOUBT)
+  const before = readFileSync(join(evidenceDir, "run.json"), "utf8")
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.equal(h.calls.startProxy, 0, "no proxy bind")
+  assert.equal(h.calls.runMachine, 0, "the machine was never entered")
+  assert.equal(h.calls.createAdapter.length, 0, "no adapter created")
+  assert.equal(readFileSync(join(evidenceDir, "run.json"), "utf8"), before, "run.json was never rewritten")
+})
+
+test("--resume --smoke on a smoke evidence dir also refuses before any side effect", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100100"
+  seedRun(fx, runId, SMOKE_BASELINE_IN_DOUBT)
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId, "--smoke"], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.equal(h.calls.startProxy, 0)
+  assert.equal(h.calls.runMachine, 0)
+})
+
+test("N4 --resume --smoke on a NON-smoke (campaign) evidence dir refuses exit 2, before any side effect", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100200"
+  seedRun(fx, runId, IN_DOUBT_STEP) // no run_started.smoke - a real campaign log
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId, "--smoke"], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.PREFLIGHT)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_resume_of_campaign"])
+  assert.equal(h.calls.startProxy, 0)
+  assert.equal(h.calls.runMachine, 0)
+})
+
+test("N3 a refused --resume on a copy of the recorded smoke2 evidence leaves every file byte-identical", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260925-121230"
+  const evidenceDir = join(fx.evidence, runId)
+  const src = "C:/dev/omo/omo-rollover-wt/idle-experiments-live-run-w1/.omo/ulw-execute/evidence/idle-live-run/smoke2/20260925-121230"
+  mkdirSync(evidenceDir, { recursive: true })
+  for (const name of ["events.jsonl", "requests.jsonl", "proxy.jsonl", "label.txt", "summary.json"]) {
+    writeFileSync(join(evidenceDir, name), readFileSync(join(src, name)))
+  }
+  // run.json is rebuilt to bind THIS test's approval sha (else resume_approval_drift fires first);
+  // every OTHER file is the untouched recorded evidence.
+  writeFileSync(join(evidenceDir, "run.json"), `${JSON.stringify(manifest({ runId, evidenceDir, approvalSha256: sha256(fx.approvalText), plannerSha256: PLANNER_SHA, proxyPort: 18999 }), null, 2)}\n`)
+  const hashesOf = () => new Map(readdirSync(evidenceDir).map((f) => [f, sha256(readFileSync(join(evidenceDir, f)))]))
+  const before = hashesOf()
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.deepEqual([...hashesOf().entries()].sort(), [...before.entries()].sort(), "every file in the evidence dir is byte-identical after the refusal")
+})
+
+// N7: the runner's own crash classification (used when the MACHINE throws mid-flight, not on a
+// --resume attempt) must not promise exit 4 resumable:true for a smoke dir just because it holds
+// an in-doubt or open step.
+const SMOKE_CRASH_IN_DOUBT = [
+  { ev: "run_started", evidenceDir: null, smoke: true },
+  { ev: "preflight", ok: true },
+  { ev: "step_intent", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/1", experiment: "preflight" },
+]
+
+test("N7 the machine throwing mid-smoke (not a --resume attempt) is classified exit 3 resumable:false, never exit 4", async (t) => {
+  const fx = fixture(t)
+  const h = harness({
+    runMachine: async (deps) => {
+      for (const e of SMOKE_CRASH_IN_DOUBT) deps.ledger.append(e)
+      throw new Error("killed mid-smoke baseline PING")
+    },
+  })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--smoke"], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["runner_crashed", "smoke_not_resumable"])
 })
 
 // ------------------------------------------------------------- I3: the proxy handle's readLog

@@ -1642,6 +1642,31 @@ const CTX_CREATE_ROLE = "ctx_create"
 
 const rebuildDialPrefix = (dp) => (isObject(dp) && Number.isInteger(dp.seed) ? { prompt: makeTask(dp.seed).ctxPrompt, sessionId: dp.sessionId ?? null, seed: dp.seed } : null)
 
+// N3/B1 (todo 12 rework, gate st_01a0d9db). A smoke's own baseline PINGs run under experiment
+// "preflight" (baselineBlock, called from smokeRun BEFORE experiment_started{smoke} is ever
+// written), so a smoke that stopped inside its own baseline block leaves a log with
+// run_started.smoke:true but no "smoke" experiment key - `fold(...).experiments.smoke` alone
+// misses it. Every process that ever entered smokeRun writes run_started{smoke:true} as its very
+// first event, on every path (in-doubt baseline PING, quiet-check failure, hard crash, cancel, a
+// clean finish), so keying on that too closes the gap.
+export function isSmokeLog(events) {
+  const rows = typeof events === "string" ? parseJsonl(events) : Array.isArray(events) ? events : []
+  if (rows.some((e) => isObject(e) && e.ev === "run_started" && e.smoke === true)) return true
+  return Boolean(fold(rows).experiments.smoke)
+}
+
+// A smoke resume refusal is a PURE READ: no event is appended, so a refused --resume leaves the
+// evidence dir byte-identical (Appendix B amendment, todo 12 rework N3 - the runner-level
+// short-circuit in idle-live-runner.mjs keeps the proxy bind and the run.json rewrite from ever
+// happening too). The folded inDoubt and paidRequests are reported (not the fresh, empty ones), so
+// the refusal summary is not misleading about what the log actually holds (N5).
+function smokeResumeRefusal(st, raw, issue, exitCode) {
+  const folded = fold(raw)
+  st.inDoubt = folded.inDoubt.slice()
+  st.paidRequests = folded.paidRequests
+  return summaryOf(st, exitCode, { issues: [issue], notRunReason: issue })
+}
+
 /** runMachine(deps, approval, opts) -> Summary. See Appendix B "Experiment loop". */
 export async function runMachine(deps, approval, opts = {}) {
   const st = newState(deps, approval, opts)
@@ -1650,16 +1675,27 @@ export async function runMachine(deps, approval, opts = {}) {
   if (st.signal?.aborted) stopCampaign(st, { reason: "cancelled" })
   if (!opts.resume) {
     emit(st, { ev: "run_started", evidenceDir: st.evidenceDir, dryRun: opts.dryRun === true, smoke: opts.smoke === true, only: opts.only ?? null, adapter: deps.adapter?.capabilities ?? null, proxyPort: deps.proxy?.port ?? null })
-  } else if (fold(st.deps.ledger.fold().events).experiments.smoke) {
-    // N3 (todo 12, Appendix B amendment: a smoke is never resumable). The smoke is not one of the
-    // approved jobs Appendix A schedules, so a bare --resume would find nothing of it "in progress"
-    // and fall through to the fresh-campaign branch below, issuing the full approved plan for real;
-    // --resume --smoke would call smokeRun() again from its start and re-emit step_intent for ids
-    // already in this log (preflight/baseline/0..2, smoke/write/0, smoke/dial/1), re-paying for
-    // calls already logged. Refuse outright instead of doing either.
-    emit(st, { ev: "run_ended", exitCode: EXIT.ABORTED, reason: "smoke_not_resumable", issues: ["smoke_not_resumable"] })
-    return summaryOf(st, EXIT.ABORTED, { issues: ["smoke_not_resumable"], notRunReason: "smoke_not_resumable" })
   } else {
+    const raw = st.deps.ledger.fold().events
+    if (isSmokeLog(raw)) {
+      // N3 (todo 12, Appendix B amendment: a smoke is never resumable). The smoke is not one of
+      // the approved jobs Appendix A schedules, so a bare --resume would find nothing of it "in
+      // progress" and fall through to the fresh-campaign branch below, issuing the full approved
+      // plan for real; --resume --smoke would call smokeRun() again from its start and re-emit
+      // step_intent for ids already in this log (preflight/baseline/0..2, smoke/write/0,
+      // smoke/dial/1), re-paying for calls already logged. Refuse outright instead of doing
+      // either - whether the smoke got past its own baseline block or not, and whether it ended
+      // in doubt or completed cleanly (N1).
+      return smokeResumeRefusal(st, raw, "smoke_not_resumable", EXIT.ABORTED)
+    }
+    if (opts.smoke) {
+      // N4: --resume <campaignRunId> --smoke against a log that never recorded a --smoke run
+      // would run a fresh smoke INSIDE that campaign's own log, re-issuing ids
+      // (preflight/baseline/0..2) the campaign log already holds and permanently making the
+      // campaign unresumable afterward (every later --resume of it would now see
+      // run_started.smoke:true too). Refuse before smokeRun ever starts.
+      return smokeResumeRefusal(st, raw, "smoke_resume_of_campaign", EXIT.PREFLIGHT)
+    }
     await resumeFromLog(st)
   }
 

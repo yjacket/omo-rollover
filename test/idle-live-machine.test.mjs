@@ -1199,6 +1199,121 @@ test("N3 --resume --smoke on a smoke evidence dir refuses instead of re-issuing 
   assert.ok(s2.issues?.includes("smoke_not_resumable"), JSON.stringify(s2.issues))
 })
 
+// ------------------------------------------------------- todo 12 rework (gate st_01a0d9db)
+
+// B1: `smokeRun` issues its 3 baseline PINGs as experiment "preflight" BEFORE
+// experiment_started{smoke} is ever written (baselineBlock runs first). A smoke that stops inside
+// that block leaves a log with run_started.smoke:true but no "smoke" experiment key - the old
+// predicate `fold(events).experiments.smoke` missed every one of these.
+async function smokeBaselineInDoubtFixture() {
+  const h = harness({ script: { "preflight/baseline/1": { error_result: { code: "nonzero_exit", message: "exit code 1" }, exitCode: 1, records: 0 } } })
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.ABORTED, "fixture source: a baseline PING in doubt")
+  assert.equal(h.ev("experiment_started").find((e) => e.experiment === "smoke"), undefined, "the fixture must stop BEFORE the smoke experiment key ever exists")
+  return { events: h.ledger.events.slice(), requests: h.ledger.requests.slice(), cli: new Map(h.ledger.cli), crashedAt: h.clock.now() }
+}
+
+test("B1 a smoke whose baseline PING is in doubt (no smoke experiment key yet) still refuses bare --resume", async () => {
+  const fx = await smokeBaselineInDoubtFixture()
+  const h = smokeResumeHarness(fx)
+  const s = await h.run({ resume: "fake-run" })
+  assert.deepEqual(h.ids(), [], "no approved-campaign step is issued, and exit is not the stuck exit-4")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.equal(h.ledger.events.length, fx.events.length, "a pure-read refusal: no event was appended (not even run_ended, not a reconciliation)")
+})
+
+test("B1 a smoke whose baseline PING is in doubt (no smoke experiment key yet) still refuses --resume --smoke", async () => {
+  const fx = await smokeBaselineInDoubtFixture()
+  const h = smokeResumeHarness(fx)
+  const s = await h.run({ resume: "fake-run", smoke: true })
+  assert.deepEqual(h.ids(), [], "the baseline PINGs are never re-issued with the ids already in the log")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+})
+
+test("B1 a hard crash at the step_intent of a smoke's baseline PING (no result, no void at all) refuses --resume, not the approved campaign", async () => {
+  const first = harness()
+  const s0 = await first.run({ smoke: true })
+  assert.equal(s0.exitCode, EXIT.OK, "the fixture source must be a clean smoke")
+  const cut = first.ledger.events.findIndex((e) => e.ev === "step_intent" && e.stepId === "preflight/baseline/1")
+  assert.ok(cut > 0)
+  const events = first.ledger.events.slice(0, cut + 1) // ends right after step_intent: a hard kill, not even a step_void
+  const fx = { events, requests: [], cli: new Map(), crashedAt: Date.parse(events[events.length - 1].ts) }
+  const h = smokeResumeHarness(fx)
+  const s = await h.run({ resume: "fake-run" })
+  assert.deepEqual(h.ids(), [], "zero adapter calls - not the whole approved campaign")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+})
+
+// N1 (gate note, folded into B1): "always refused" must hold for a COMPLETED, valid smoke too -
+// not only for one left in doubt.
+test("N1 a completed, valid smoke also refuses --resume in both modes, not just an in-doubt one", async () => {
+  const first = harness()
+  const s0 = await first.run({ smoke: true })
+  assert.equal(s0.exitCode, EXIT.OK)
+  const fx = { events: first.ledger.events.slice(), requests: first.ledger.requests.slice(), cli: new Map(first.ledger.cli), crashedAt: first.clock.now() }
+
+  const h1 = smokeResumeHarness(fx)
+  const s1 = await h1.run({ resume: "fake-run" })
+  assert.deepEqual(h1.ids(), [])
+  assert.equal(s1.exitCode, EXIT.ABORTED)
+  assert.deepEqual(s1.issues, ["smoke_not_resumable"])
+
+  const h2 = smokeResumeHarness(fx)
+  const s2 = await h2.run({ resume: "fake-run", smoke: true })
+  assert.deepEqual(h2.ids(), [], "a completed smoke must not re-send all 5 of its steps")
+  assert.equal(s2.exitCode, EXIT.ABORTED)
+  assert.deepEqual(s2.issues, ["smoke_not_resumable"])
+  assert.equal(h1.ledger.events.length, fx.events.length)
+  assert.equal(h2.ledger.events.length, fx.events.length)
+})
+
+// N4: --resume <campaignRunId> --smoke against a NON-smoke (approved campaign) log must be refused
+// too - it would otherwise run a smoke inside that log, re-using ids the campaign already holds.
+test("N4 --resume --smoke against a non-smoke (campaign) evidence dir is refused, not run inside that log", async () => {
+  const fx = await crashFixture({ withProxyRecord: true })
+  const h = resumeHarness(fx)
+  const s = await h.run({ resume: "fake-run", smoke: true, only: ONLY_TTL })
+  assert.deepEqual(h.ids(), [], "no smoke step is issued inside the campaign's own log")
+  assert.equal(s.exitCode, EXIT.PREFLIGHT)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_resume_of_campaign"])
+})
+
+// N5: the refusal summary must report what the log actually holds, not an empty/zero default.
+test("N5 the smoke-resume refusal summary reports the folded inDoubt and paidRequestsIssued, not [] and 0", async () => {
+  const fx = await smokeBaselineInDoubtFixture()
+  const expected = fold(fx.events)
+  assert.ok(expected.inDoubt.length > 0, "the fixture must actually hold doubt")
+  assert.ok(expected.paidRequests > 0, "the baseline PING before the one in doubt was a paid call")
+  const h = smokeResumeHarness(fx)
+  const s = await h.run({ resume: "fake-run" })
+  assert.deepEqual(s.inDoubt, expected.inDoubt)
+  assert.equal(s.paidRequestsIssued, expected.paidRequests)
+})
+
+// B2: the miss/valid-path emit line can be reached with exp.paid != 2. The adapter has no invoke
+// timeout, so a WRITE call that outlasts the DIAL's tolerance window makes runStep void the DIAL
+// as "late_step" (no paid call at all), and smokeRun then ends aborted smoke_dial_miss with only
+// the WRITE's one paid row - not the old hard-coded 2.
+test("B2 a smoke whose WRITE call runs long enough to void the DIAL late derives paidRequests from paid rows, not a hard-coded 2", async () => {
+  let h
+  h = harness({ tap: (e) => { if (e.ev === "step_result" && e.stepId === "smoke/write/0") h.clock.set(h.clock.now() + 11 * 60_000) } })
+  const s = await h.run({ smoke: true })
+  const ended = h.ev("experiment_ended").find((e) => e.experiment === "smoke")
+  assert.equal(ended.status, "aborted")
+  assert.equal(ended.reason, "smoke_dial_miss")
+  const dialVoid = h.ev("step_void").find((e) => e.stepId === "smoke/dial/1")
+  assert.equal(dialVoid?.reason, "late_step", JSON.stringify(h.ev("step_void")))
+  assert.equal(ended.paidRequests, 1, "only the WRITE was ever paid; the DIAL voided late before any call was made")
+  assert.equal(s.exitCode, EXIT.ABORTED)
+})
+
 // ==================================================================== group D
 // the full five-experiment run, its committed evidence fixture, and the source scan
 

@@ -27,7 +27,7 @@ import crypto from "node:crypto"
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { runMachine, fold, manifest, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
+import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
 import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/claude-cli.mjs"
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
@@ -189,7 +189,7 @@ function evidenceBlocker(dir) {
  * log exists but cannot be read or folded: nothing about it can be claimed.
  */
 export function logState(evidenceDir) {
-  const none = { started: false, inDoubt: [], interrupted: [], paidRequests: 0, unreadable: null }
+  const none = { started: false, inDoubt: [], interrupted: [], paidRequests: 0, smoke: false, unreadable: null }
   if (!evidenceDir) return none
   let text
   try {
@@ -205,7 +205,10 @@ export function logState(evidenceDir) {
     return { ...none, started: null, paidRequests: null, unreadable: String(e.message) }
   }
   const interrupted = Object.entries(st.experiments).filter(([, x]) => x.status === "started").map(([key]) => key)
-  return { started: st.startedAt !== null, inDoubt: st.inDoubt.slice(), interrupted, paidRequests: st.paidRequests, unreadable: null }
+  // N7 (todo 12 rework): a smoke evidence dir is never resumable even when the MACHINE itself
+  // throws mid-flight (not a --resume attempt at all) - this classification path must not promise
+  // exit 4 / resumable:true for one just because it happens to hold an in-doubt or open step.
+  return { started: st.startedAt !== null, inDoubt: st.inDoubt.slice(), interrupted, paidRequests: st.paidRequests, smoke: isSmokeLog(text), unreadable: null }
 }
 
 /** The summary for a failure the machine did not report itself, classified from the log. */
@@ -213,6 +216,7 @@ function classified(ctx, issues, extra = {}) {
   const s = logState(ctx.evidenceDir)
   const base = { runId: ctx.runId, evidenceDir: ctx.evidenceDir, paidRequestsIssued: s.paidRequests, inDoubt: s.inDoubt, interrupted: s.interrupted, ...extra }
   if (s.unreadable) return refusal([...issues, "event_log_unreadable"], { ...base, exitCode: EXIT.ABORTED, logError: s.unreadable })
+  if (s.smoke) return refusal([...issues, "smoke_not_resumable"], { ...base, exitCode: EXIT.ABORTED, resumable: false })
   if (s.inDoubt.length || s.interrupted.length) return refusal(issues, { ...base, exitCode: EXIT.IN_DOUBT, resumable: true })
   if (s.started) return refusal(issues, { ...base, exitCode: EXIT.ABORTED })
   return refusal(issues, { ...base, exitCode: EXIT.PREFLIGHT })
@@ -400,6 +404,21 @@ async function run(argv, env, ctx, finish) {
       return finish(refusal(["resume_approval_drift"], { evidenceDir }))
     }
     if (!opts.port && Number.isInteger(recorded.proxyPort)) opts.port = recorded.proxyPort
+    // N3/B1/N4 (todo 12 rework). The smoke-resume refusal is a PURE READ of this evidence dir's
+    // own events.jsonl - it must happen before the proxy bind and before run.json is rewritten
+    // below, so a refused --resume leaves the evidence dir byte-identical. A smoke evidence dir
+    // (run_started.smoke:true, on every path it can stop on) is never resumable; a non-smoke
+    // (campaign) evidence dir resumed with --smoke would run a smoke inside that log, re-using ids
+    // it already holds, so that is refused too.
+    let rawEvents = ""
+    try {
+      rawEvents = readText(path.join(evidenceDir, "events.jsonl"))
+    } catch {
+      rawEvents = ""
+    }
+    const smokeLog = isSmokeLog(rawEvents)
+    if (smokeLog) return finish(refusal(["smoke_not_resumable"], { runId, evidenceDir, exitCode: EXIT.ABORTED, resumable: false }))
+    if (opts.smoke) return finish(refusal(["smoke_resume_of_campaign"], { runId, evidenceDir, exitCode: EXIT.PREFLIGHT, resumable: false }))
   }
 
   const logPath = path.join(evidenceDir, "proxy.jsonl")
