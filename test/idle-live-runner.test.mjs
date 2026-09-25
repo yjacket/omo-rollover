@@ -10,6 +10,7 @@ import { join, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { createRequire, syncBuiltinESMExports } from "node:module"
+import { EventEmitter } from "node:events"
 
 import { EXIT, manifest, runMachine } from "../scripts/idle-live/machine.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
@@ -60,18 +61,24 @@ function fakeProxy(port = 18999) {
 }
 
 // Collects stdout; every call must end with exactly one JSON summary line.
+// The env is injected (I28), so the resolved CLI path never depends on the host's APPDATA.
+const FAKE_APPDATA = "C:/fake/AppData/Roaming"
+const FAKE_DEFAULT_CLI = join(FAKE_APPDATA, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")
+
 function harness(overrides = {}) {
   const stdout = []
-  const calls = { startProxy: 0, runMachine: 0, fetch: 0 }
+  const calls = { startProxy: 0, runMachine: 0, fetch: 0, probeCli: [], createAdapter: [] }
   const proxy = fakeProxy()
   const io = {
     stdout: (s) => stdout.push(s),
     stderr: () => {},
+    env: { APPDATA: FAKE_APPDATA },
     startProxy: async () => { calls.startProxy += 1; return proxy },
     runMachine: async () => { calls.runMachine += 1; throw new Error("runMachine not scripted") },
-    createAdapter: () => ({ capabilities: { ttlLanes: ["1h"] }, invoke: async () => { throw new Error("never invoked") } }),
+    createAdapter: (opts) => { calls.createAdapter.push(opts); return { capabilities: { ttlLanes: ["1h"] }, invoke: async () => { throw new Error("never invoked") } } },
     conflicting: async () => [],
     fetch: async () => { calls.fetch += 1; throw new Error("fetch not scripted") },
+    probeCli: async (cli, env) => { calls.probeCli.push({ cli, env }); return "2.1.278" },
     ...overrides,
   }
   const summary = () => {
@@ -401,18 +408,20 @@ test("the port-owner health probe carries an abort signal, so a silent owner can
 // Driving main() with a seam that lacks any live dependency must throw BEFORE any effect: no
 // evidence dir, no port bind, no process scan, no spawn. Each case below would otherwise stop at
 // an injected EACCES proxy failure, so even without the guard nothing here reaches a real machine.
-const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch"]
+const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch", "probeCli"]
 for (const missing of LIVE_DEPS) {
   test(`a test seam without ${missing} throws live_dep_not_injected before touching anything`, async (t) => {
     const fx = fixture(t)
     const io = {
       stdout: () => {},
       stderr: () => {},
+      env: { APPDATA: FAKE_APPDATA },
       startProxy: async () => { throw Object.assign(new Error("listen EACCES"), { code: "EACCES" }) },
       runMachine: async () => { throw new Error("never reached") },
       createAdapter: () => ({ capabilities: {}, invoke: async () => { throw new Error("never invoked") } }),
       conflicting: async () => [],
       fetch: async () => { throw new Error("never fetched") },
+      probeCli: async () => "2.1.278",
     }
     delete io[missing]
     await assert.rejects(main(["--approval", fx.approval, "--evidence", fx.evidence], io), (e) => {
@@ -580,6 +589,204 @@ test("the dry-run table labels each per-idle cap with its enforced scope (ttl fr
   const cap = (id) => rows.find((r) => `${r.experiment}${r.run ? `#${r.run}` : ""}` === id).perIdleCapEq.toFixed(2)
   assert.equal(cell("ttl-1h-unique-prefix"), `${cap("ttl-1h-unique-prefix")}/frame`)
   assert.equal(cell("restore-decomposition#1"), `${cap("restore-decomposition#1")}/run`)
+})
+
+// ------------------------------------------------------------- I28: CLI resolution and --version probe
+
+// npm installs only `claude` / `claude.cmd` shims; node spawn without a shell cannot start them.
+// The runner defaults to the npm package's claude.exe (quota-test/2026-09-19/run.mjs:22) and, on
+// every path that can pay, refuses in preflight unless `<cli> --version` starts and parses.
+const { resolveCli } = await import("../scripts/idle-live-runner.mjs")
+const { probeCliVersion, CLI_PROBE_TIMEOUT_MS } = await import("../scripts/idle-live/adapters/claude-cli.mjs")
+
+test("I28 resolveCli: IDLE_LIVE_CLI wins, else the APPDATA npm claude.exe, else null (never a bare shim name)", () => {
+  assert.equal(resolveCli({ APPDATA: FAKE_APPDATA }), FAKE_DEFAULT_CLI)
+  assert.equal(resolveCli({ APPDATA: FAKE_APPDATA, IDLE_LIVE_CLI: "D:/tools/claude.exe" }), "D:/tools/claude.exe")
+  assert.equal(resolveCli({ APPDATA: FAKE_APPDATA, IDLE_LIVE_CLI: "" }), FAKE_DEFAULT_CLI, "an empty override is no override")
+  assert.equal(resolveCli({}), null, "no APPDATA and no override: nothing to spawn")
+  assert.equal(resolveCli({ APPDATA: "" }), null)
+})
+
+test("I28 the live path probes the resolved default CLI with the injected env and hands the adapter the same path", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ startProxy: async () => { throw Object.assign(new Error("listen EACCES"), { code: "EACCES" }) } })
+  await main(ARGV.live(fx), h.io)
+  assert.deepEqual(h.calls.probeCli.map((c) => c.cli), [FAKE_DEFAULT_CLI])
+  assert.equal(h.calls.probeCli[0].env, h.io.env, "the probe sees the env the runner was given")
+})
+
+test("I28 IDLE_LIVE_CLI in the injected env is the path probed and the path the adapter spawns", async (t) => {
+  const fx = fixture(t)
+  const h = harness({
+    env: { APPDATA: FAKE_APPDATA, IDLE_LIVE_CLI: "D:/tools/claude.exe" },
+    runMachine: async (deps, approval, opts) => ({ v: "idle-live-summary/1", runId: opts.runId, exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: opts.evidenceDir, paidRequestsIssued: 0 }),
+  })
+  assert.equal(await main(ARGV.live(fx), h.io), EXIT.OK)
+  assert.deepEqual(h.calls.probeCli.map((c) => c.cli), ["D:/tools/claude.exe"])
+  assert.deepEqual(h.calls.createAdapter.map((c) => c.cli), ["D:/tools/claude.exe"])
+})
+
+const cliFailure = (code) => Object.assign(new Error(`probe failed: ${code}`), { code })
+for (const code of ["spawn_failed", "exit_nonzero", "timeout", "version_unparseable"]) {
+  test(`I28 a CLI probe that fails (${code}) refuses preflight: exit 2 cli_unavailable, resumable:false, nothing bound, spawned or paid`, async (t) => {
+    const fx = fixture(t)
+    const h = harness({ probeCli: async (cli) => { h.calls.probeCli.push({ cli }); throw cliFailure(code) } })
+    const code_ = await main(ARGV.live(fx), h.io)
+    const s = h.summary()
+    assert.equal(code_, EXIT.PREFLIGHT)
+    assert.equal(s.exitCode, EXIT.PREFLIGHT)
+    assert.equal(s.resumable, false)
+    assert.deepEqual(s.issues, ["cli_unavailable"])
+    assert.equal(s.cli, FAKE_DEFAULT_CLI)
+    assert.equal(s.cliError.code, code)
+    assert.equal(s.paidRequestsIssued, 0)
+    assert.equal(h.calls.probeCli.length, 1)
+    assert.equal(h.calls.startProxy, 0)
+    assert.equal(h.calls.runMachine, 0)
+    assert.deepEqual(h.calls.createAdapter, [])
+    assert.equal(existsSync(fx.evidence), false, "refused before the evidence dir exists")
+  })
+}
+
+test("I28 with no APPDATA and no IDLE_LIVE_CLI the runner refuses cli_unavailable without spawning anything", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ env: {} })
+  assert.equal(await main(ARGV.live(fx), h.io), EXIT.PREFLIGHT)
+  const s = h.summary()
+  assert.deepEqual(s.issues, ["cli_unavailable"])
+  assert.equal(s.cli, null)
+  assert.equal(s.cliError.code, "cli_path_unresolved")
+  assert.deepEqual(h.calls.probeCli, [])
+  assert.equal(h.calls.startProxy, 0)
+})
+
+test("I28 --smoke probes the CLI and refuses when it cannot start", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ probeCli: async (cli) => { h.calls.probeCli.push({ cli }); throw cliFailure("spawn_failed") } })
+  assert.equal(await main([...ARGV.live(fx), "--smoke"], h.io), EXIT.PREFLIGHT)
+  assert.deepEqual(h.summary().issues, ["cli_unavailable"])
+  assert.equal(h.calls.probeCli.length, 1)
+  assert.equal(h.calls.startProxy, 0)
+})
+
+test("I28 --resume probes the CLI and refuses before binding the proxy or touching the run", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260925-090000"
+  const evidenceDir = seedRun(fx, runId, IN_DOUBT_STEP)
+  const eventsBefore = readFileSync(join(evidenceDir, "events.jsonl"), "utf8")
+  const h = harness({ probeCli: async (cli) => { h.calls.probeCli.push({ cli }); throw cliFailure("spawn_failed") } })
+  assert.equal(await main([...ARGV.live(fx), "--resume", runId], h.io), EXIT.PREFLIGHT)
+  const s = h.summary()
+  assert.deepEqual(s.issues, ["cli_unavailable"])
+  assert.equal(s.resumable, false)
+  assert.equal(h.calls.probeCli.length, 1)
+  assert.equal(h.calls.startProxy, 0)
+  assert.equal(h.calls.runMachine, 0)
+  assert.equal(readFileSync(join(evidenceDir, "events.jsonl"), "utf8"), eventsBefore, "the resumable log is untouched")
+})
+
+test("I28 --dry-run never probes the CLI", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ runMachine: async () => DRY_OK, probeCli: async () => { throw new Error("dry run must not probe") } })
+  assert.equal(await main(ARGV.dry(fx), h.io), EXIT.OK)
+  assert.equal(h.summary().exitCode, EXIT.OK)
+})
+
+test("I28 run.json records the probed CLI version, not IDLE_LIVE_CLI_VERSION", async (t) => {
+  const fx = fixture(t)
+  let dir = null
+  const h = harness({
+    env: { APPDATA: FAKE_APPDATA, IDLE_LIVE_CLI_VERSION: "9.9.9" },
+    runMachine: async (deps, approval, opts) => { dir = opts.evidenceDir; return { v: "idle-live-summary/1", runId: opts.runId, exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: opts.evidenceDir, paidRequestsIssued: 0 } },
+  })
+  assert.equal(await main(ARGV.live(fx), h.io), EXIT.OK)
+  assert.equal(JSON.parse(readFileSync(join(dir, "run.json"), "utf8")).cliVersion, "2.1.278")
+})
+
+// probeCliVersion itself, driven with a fake spawn and a fake timer: nothing starts, nothing waits.
+function probeChild({ stdout = "", code = 0, error = null, hang = false } = {}) {
+  const child = new EventEmitter()
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kills = []
+  child.kill = (sig) => { child.kills.push(sig ?? "SIGTERM"); return true }
+  if (!hang) {
+    queueMicrotask(() => {
+      if (error) { child.emit("error", error); child.emit("close", -4058, null); return }
+      if (stdout) child.stdout.emit("data", Buffer.from(stdout))
+      child.emit("close", code, null)
+    })
+  }
+  return child
+}
+function probeSpawn(childOpts) {
+  const spawn = (cmd, args, options) => {
+    const child = probeChild(childOpts)
+    spawn.calls.push({ cmd, args, options, child })
+    return child
+  }
+  spawn.calls = []
+  return spawn
+}
+function fakeTimer() {
+  const timer = { armed: [], cleared: [] }
+  timer.set = (fn, ms) => { timer.armed.push({ fn, ms }); return timer.armed.length }
+  timer.clear = (handle) => { timer.cleared.push(handle) }
+  return timer
+}
+const probe = (spawn, timer = fakeTimer(), baseEnv = { PATH: "p" }) => probeCliVersion({ cli: "C:/fake/claude.exe", spawn, baseEnv, timer })
+
+test("I28 probeCliVersion spawns `<cli> --version` without a shell, with the adapter's quiet env, and strips ' (Claude Code)'", async () => {
+  const spawn = probeSpawn({ stdout: "2.1.278 (Claude Code)\n" })
+  const timer = fakeTimer()
+  assert.equal(await probe(spawn, timer), "2.1.278")
+  assert.equal(spawn.calls.length, 1)
+  const { cmd, args, options } = spawn.calls[0]
+  assert.equal(cmd, "C:/fake/claude.exe")
+  assert.deepEqual(args, ["--version"])
+  assert.ok(!options.shell, "no shell: the path itself must be startable")
+  assert.equal(options.env.PATH, "p", "the base env is passed through")
+  assert.equal(options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1")
+  assert.equal(options.env.DISABLE_AUTOUPDATER, "1")
+  assert.deepEqual(timer.armed.map((a) => a.ms), [CLI_PROBE_TIMEOUT_MS])
+  assert.deepEqual(timer.cleared, [1], "the bound is cleared once the probe settles")
+})
+
+test("I28 probeCliVersion accepts a bare semver line", async () => {
+  assert.equal(await probe(probeSpawn({ stdout: "2.1.278\r\n" })), "2.1.278")
+})
+
+for (const [name, childOpts, code] of [
+  ["ENOENT", { error: Object.assign(new Error("spawn C:/fake/claude.exe ENOENT"), { code: "ENOENT" }) }, "spawn_failed"],
+  ["a non-zero exit", { stdout: "2.1.278 (Claude Code)\n", code: 1 }, "exit_nonzero"],
+  ["empty output", { stdout: "" }, "version_unparseable"],
+  ["not a version", { stdout: "Welcome to Claude Code!\n" }, "version_unparseable"],
+  ["a version buried in other text", { stdout: "update available\n2.1.278 (Claude Code)\n" }, "version_unparseable"],
+]) {
+  test(`I28 probeCliVersion rejects ${name} with ${code}`, async () => {
+    const timer = fakeTimer()
+    await assert.rejects(probe(probeSpawn(childOpts), timer), (e) => e.code === code)
+    assert.deepEqual(timer.cleared, [1])
+  })
+}
+
+test("I28 probeCliVersion rejects a synchronous spawn throw with spawn_failed", async () => {
+  const spawn = () => { throw Object.assign(new Error("spawn EINVAL"), { code: "EINVAL" }) }
+  await assert.rejects(probe(spawn), (e) => e.code === "spawn_failed" && /EINVAL/.test(e.message))
+})
+
+test("I28 probeCliVersion rejects a hung CLI with timeout when its bound fires, and kills it", async () => {
+  const spawn = probeSpawn({ hang: true })
+  const timer = fakeTimer()
+  let outcome = null
+  probe(spawn, timer).then((version) => { outcome = { version } }, (error) => { outcome = { error } })
+  assert.equal(timer.armed.length, 1)
+  timer.armed[0].fn() // the bound firing, without any real time passing
+  // One event-loop turn lets the settled promise's handlers run. A probe the bound does not settle
+  // fails here instead of leaving the test pending forever.
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(outcome?.error?.code, "timeout", `the bound must reject the probe, got ${JSON.stringify(outcome)}`)
+  assert.deepEqual(spawn.calls[0].child.kills, ["SIGTERM"])
 })
 
 // Must stay LAST: no test above reached a real spawn, scan, bind, connect or fetch.

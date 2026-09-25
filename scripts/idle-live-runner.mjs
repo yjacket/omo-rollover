@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url"
 
 import { runMachine, fold, manifest, EXIT, SUMMARY_VERSION } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
-import { createClaudeCliAdapter } from "./idle-live/adapters/claude-cli.mjs"
+import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/claude-cli.mjs"
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
@@ -39,8 +39,19 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, "..")
 const PLANNER = path.join(repo, "scripts/idle-experiments.mjs")
 const PROPOSAL = path.join(repo, "docs/idle-experiments-approval-proposal.json")
-const DEFAULT_CLI = process.env.IDLE_LIVE_CLI ?? "claude"
 const HEALTH_TIMEOUT_MS = 2000
+
+/**
+ * The CLI the live run spawns: a non-empty IDLE_LIVE_CLI, else the npm package's claude.exe under
+ * %APPDATA% (as quota-test/2026-09-19/run.mjs:22). npm's `claude` / `claude.cmd` shims cannot be
+ * started by spawn without a shell, so a bare name is never the default. null (APPDATA unset and no
+ * override) is refused as cli_unavailable / cli_path_unresolved, never guessed.
+ */
+export function resolveCli(env) {
+  if (env.IDLE_LIVE_CLI) return env.IDLE_LIVE_CLI
+  if (!env.APPDATA) return null
+  return path.join(env.APPDATA, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")
+}
 
 const USAGE = `usage: node scripts/idle-live-runner.mjs --approval <file> --evidence <dir> [--resume <runId>] [--only <id>[,<id>]] [--dry-run] [--smoke] [--port <n>]`
 
@@ -247,9 +258,11 @@ function printSchedule(write, schedule, skippedArms) {
  * port bind, spawn or network call. Each dep is read once and the value checked is the value used,
  * so inherited or non-enumerable deps are honoured, never silently replaced by the real ones.
  * stdout, stderr and timeoutSignal (the health-probe bound) are optional: they cause no live
- * effect, and a seam without them gets the real ones.
+ * effect, and a seam without them gets the real ones. `env` (an object, read once) is where the CLI
+ * path is resolved from and what the probe and the adapter pass to the CLI; a seam without it gets
+ * process.env. probeCli(cli, env) -> version is the `<cli> --version` preflight (I28).
  */
-const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch"]
+const LIVE_DEPS = ["startProxy", "runMachine", "createAdapter", "conflicting", "fetch", "probeCli"]
 const OPTIONAL_DEPS = ["stdout", "stderr", "timeoutSignal"]
 const REAL_IO = Object.freeze({
   stdout: (s) => process.stdout.write(s),
@@ -260,6 +273,7 @@ const REAL_IO = Object.freeze({
   conflicting,
   fetch: (...args) => globalThis.fetch(...args),
   timeoutSignal: (ms) => AbortSignal.timeout(ms),
+  probeCli: (cli, env) => probeCliVersion({ cli, spawn, baseEnv: env }),
 })
 
 export async function main(argv = process.argv.slice(2), io = undefined) {
@@ -277,6 +291,8 @@ export async function main(argv = process.argv.slice(2), io = undefined) {
     const dep = io[k]
     env[k] = typeof dep === "function" ? dep : REAL_IO[k]
   }
+  const processEnv = io.env
+  env.processEnv = processEnv && typeof processEnv === "object" ? processEnv : process.env
   const ctx = { runId: null, evidenceDir: null }
   const finish = (summary) => {
     env.stdout(`${JSON.stringify(summary)}\n`)
@@ -349,6 +365,18 @@ async function run(argv, env, ctx, finish) {
 
   if (!opts.evidence) return finish(refusal(["no_evidence_dir"]))
 
+  // 3a. the CLI must start before anything paid can be scheduled (live, --smoke, --resume): `<cli>
+  // --version`, no API call. Refused before the evidence dir or the proxy exist, so a resumable log
+  // is left exactly as it was. The probed version is what run.json records.
+  const cli = resolveCli(env.processEnv)
+  if (!cli) return finish(refusal(["cli_unavailable"], { cli, cliError: { code: "cli_path_unresolved", message: "IDLE_LIVE_CLI and APPDATA are both unset" } }))
+  let cliVersion
+  try {
+    cliVersion = await env.probeCli(cli, env.processEnv)
+  } catch (e) {
+    return finish(refusal(["cli_unavailable"], { cli, cliError: { code: String(e?.code ?? "probe_failed"), message: String(e?.message ?? e) } }))
+  }
+
   // 3. live run (or --smoke): evidence directory, proxy, adapter, ledger.
   const runId = opts.resume ?? new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")
   const evidenceDir = path.resolve(opts.evidence, runId)
@@ -396,7 +424,7 @@ async function run(argv, env, ctx, finish) {
   let summary
   try {
     const ledger = openLedger(evidenceDir)
-    const adapter = env.createAdapter({ cli: DEFAULT_CLI, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile })
+    const adapter = env.createAdapter({ cli, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile, baseEnv: env.processEnv })
     process.on("SIGINT", onSignal)
     process.on("SIGTERM", onSignal)
 
@@ -409,7 +437,7 @@ async function run(argv, env, ctx, finish) {
       plannerSha256: shas.plannerSha256,
       proposalSha256: shas.proposalSha256,
       adapter: adapter.capabilities,
-      cliVersion: process.env.IDLE_LIVE_CLI_VERSION ?? null,
+      cliVersion,
       model: approval.target.modelId,
       order: approval.order,
       proxyPort: proxy.port,

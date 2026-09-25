@@ -10,6 +10,57 @@ const STDOUT_HEAD = 2000
 
 const fail = (code, message) => Object.assign(new Error(message), { code })
 
+// Set on every spawn of the CLI, the paid calls and the --version probe alike.
+const QUIET_ENV = Object.freeze({
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  DISABLE_AUTOUPDATER: "1",
+  DISABLE_TELEMETRY: "1",
+  DISABLE_ERROR_REPORTING: "1",
+})
+
+export const CLI_PROBE_TIMEOUT_MS = 10_000
+const VERSION_LINE = /^(\d+\.\d+\.\d+\S*)(?: \(Claude Code\))?$/
+const realTimer = { set: (fn, ms) => setTimeout(fn, ms), clear: (handle) => clearTimeout(handle) }
+
+/**
+ * probeCliVersion({ cli, spawn, baseEnv, timer }) -> version string, e.g. "2.1.278".
+ * Runs `<cli> --version` (no shell, no API call) with the same quiet env as a paid call, bounded by
+ * CLI_PROBE_TIMEOUT_MS. Rejects with code spawn_failed | exit_nonzero | timeout |
+ * version_unparseable; the output must be exactly one version line, optionally " (Claude Code)".
+ */
+export function probeCliVersion({ cli, spawn, baseEnv = process.env, timer = realTimer }) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let handle = null
+    const settle = (fn, value) => {
+      if (settled) return
+      settled = true
+      if (handle !== null) timer.clear(handle)
+      fn(value)
+    }
+    let child
+    try {
+      child = spawn(cli, ["--version"], { env: { ...baseEnv, ...QUIET_ENV }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+    } catch (e) {
+      return settle(reject, fail("spawn_failed", `spawn failed: ${e?.message ?? e}`))
+    }
+    let out = ""
+    child.stdout.on("data", (d) => { out += d })
+    child.stderr.on("data", () => {})
+    handle = timer.set(() => {
+      child.kill("SIGTERM")
+      settle(reject, fail("timeout", `${cli} --version did not exit within ${CLI_PROBE_TIMEOUT_MS} ms`))
+    }, CLI_PROBE_TIMEOUT_MS)
+    child.on("error", (e) => settle(reject, fail("spawn_failed", `spawn failed: ${e.message}`)))
+    child.on("close", (code, sig) => {
+      if (code !== 0) return settle(reject, fail("exit_nonzero", `${cli} --version exited ${code ?? sig}`))
+      const m = VERSION_LINE.exec(out.trim())
+      if (!m) return settle(reject, fail("version_unparseable", `unexpected --version output: ${JSON.stringify(out.slice(0, 200))}`))
+      settle(resolve, m[1])
+    })
+  })
+}
+
 export function createClaudeCliAdapter({ cli, model, spawn, workDir, labelFile, baseEnv = process.env }) {
   const capabilities = { ttlLanes: ["1h"], resume: true, maxOutputTokens: null, model }
 
@@ -31,10 +82,7 @@ export function createClaudeCliAdapter({ cli, model, spawn, workDir, labelFile, 
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_CUSTOM_HEADERS: `x-idle-step: ${stepHeader}`,
       MAX_THINKING_TOKENS: "0",
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      DISABLE_AUTOUPDATER: "1",
-      DISABLE_TELEMETRY: "1",
-      DISABLE_ERROR_REPORTING: "1",
+      ...QUIET_ENV,
     }
     if (labelFile) {
       fs.mkdirSync(path.dirname(labelFile), { recursive: true })
