@@ -1379,6 +1379,22 @@ function recordedVerdictOf(events, experiment) {
 }
 
 /**
+ * The machine's own last recorded verdict for an experiment, unfiltered (unlike
+ * recordedVerdictOf, which only tracks void/aborted ranks and is used to short-circuit the
+ * analyzer's own judgement). This is display-only: it never changes what the analyzer measures
+ * or reports as status/reason, even when the analyzer re-judges a machine-valid window as
+ * contaminated (D2 ruling: the analyzer is the authority on window cleanliness).
+ */
+function machineVerdictOf(events, experiment) {
+  const ends = (events ?? []).filter((e) => e?.ev === "experiment_ended" && e.experiment === experiment)
+  if (!ends.length) return null
+  const last = ends.at(-1)
+  // seq is a global log position, not a content identity - a resume's own preflight can shift it
+  // for an unrelated experiment, so it is left out of this display-only field.
+  return { status: last.status ?? null, reason: typeof last.reason === "string" && last.reason ? last.reason : null }
+}
+
+/**
  * The campaign as the log records it: processes (a resume appends run_resumed), campaign stops,
  * and the one case with nothing to measure - a cancel recorded before any issuance (clarification
  * A (ii): campaign_stop{cancelled} is written first; there may be no run_started and no request).
@@ -1502,7 +1518,10 @@ export function analyzeRun(rows, events, opts = {}) {
   // contaminated window measures nothing at all.
   const outputWindowUsable = output.status === "valid" || output.status === "upper_bound"
   const kOut = outputWindowUsable ? (output.findings?.kOut ?? null) : null
-  const outputStatus = kOut ? "measured" : "upper_bound"
+  // "upper_bound" means a bound was actually computed (analyzeOutputQuota's own kOutUpperBound,
+  // e.g. an unobserved phase, B8); a machine-recorded non-valid verdict computes no findings at
+  // all, and must not claim a bound that does not exist.
+  const outputStatus = kOut ? "measured" : output.findings?.kOutUpperBound != null ? "upper_bound" : "unidentified"
   // A window with no findings is either the machine's own recorded verdict (the window stayed
   // clean; the experiment is not valid for its own reason, e.g. aborted:short_output) or a hard
   // void from an unclean window (schema/usage/reset defects) - only the latter is unclean.
@@ -1525,6 +1544,7 @@ export function analyzeRun(rows, events, opts = {}) {
   }
   for (const [id, x] of [["fable-write-tick", fable], ["output-quota", output], ["ttl-1h-unique-prefix", ttl], ["restore-decomposition", restore], ["policy-effect", policy]]) {
     if (x.recordedVerdict) experiments[id].recordedVerdict = x.recordedVerdict
+    experiments[id].recordedMachineVerdict = machineVerdictOf(events, id)
   }
 
   const { records: coefficientRecords, provenance: coefficientProvenance } = buildCoefficientRecords({
@@ -1692,7 +1712,12 @@ export function renderMarkdown(analysis) {
   if (t.findings) {
     for (const r of t.findings.runs)
       L.push(`- run ${r.run}: 처치 ping ${r.treatment.ping ?? "?"}, 처치 check ${r.treatment.check ?? "?"}, 대조 check ${r.control.check ?? "?"} (${r.status}${r.reason ? `: ${r.reason}` : ""}, 일정 준수 ${r.timing.ok === null ? "확인 불가" : r.timing.ok ? "예" : "아니오"})`)
-    L.push(`- 결론: ${t.findings.verdict}${t.findings.renewsAt55min ? ` (55분 읽기가 TTL을 갱신함, n=${t.findings.n}, measured)` : ""}`)
+    const renewalNote = t.findings.renewsAt55min
+      ? t.status === "valid"
+        ? ` (55분 읽기가 TTL을 갱신함, n=${t.findings.n}, measured)`
+        : ` (55분 읽기가 TTL을 갱신함, n=${t.findings.n}, 사용량 기준 HIT/MISS - 창 오염으로 measured 아님)`
+      : ""
+    L.push(`- 결론: ${t.findings.verdict}${renewalNote}`)
   }
   L.push("")
   L.push("## 4. restore-decomposition (복원 분해)")

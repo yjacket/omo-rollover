@@ -7,7 +7,7 @@
           "range": null,
           "reason": "experiment_not_valid:short_output",
           "sourceKind": "unknown",
-          "status": "upper_bound"
+          "status": "unidentified"
         },
         "cacheRead": {
           "range": null,
@@ -323,6 +323,10 @@
       "findings": null,
       "hypotheses": [],
       "reason": "cap_exceeded",
+      "recordedMachineVerdict": {
+        "reason": "cap_exceeded",
+        "status": "aborted"
+      },
       "recordedVerdict": {
         "reason": "cap_exceeded",
         "run": null,
@@ -359,6 +363,10 @@
       "findings": null,
       "hypotheses": [],
       "reason": "short_output",
+      "recordedMachineVerdict": {
+        "reason": "short_output",
+        "status": "aborted"
+      },
       "recordedVerdict": {
         "reason": "short_output",
         "run": null,
@@ -393,6 +401,10 @@
       "findings": null,
       "hypotheses": [],
       "reason": "big_context_rewrite",
+      "recordedMachineVerdict": {
+        "reason": "big_context_rewrite",
+        "status": "aborted"
+      },
       "recordedVerdict": {
         "reason": "big_context_rewrite",
         "run": null,
@@ -427,6 +439,10 @@
       "findings": null,
       "hypotheses": [],
       "reason": "big_context_rewrite",
+      "recordedMachineVerdict": {
+        "reason": "big_context_rewrite",
+        "status": "aborted"
+      },
       "recordedVerdict": {
         "reason": "big_context_rewrite",
         "run": 1,
@@ -676,6 +692,10 @@
       },
       "hypotheses": [],
       "reason": "anomalies_present",
+      "recordedMachineVerdict": {
+        "reason": null,
+        "status": "valid"
+      },
       "status": "contaminated",
       "window": {
         "baselineResets": [

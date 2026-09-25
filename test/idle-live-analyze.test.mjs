@@ -740,7 +740,6 @@ test("D5 output: an aborted experiment with a clean window names the non-valid v
   const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
   const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
   assert.equal(prov?.fields?.billedModelOutput?.reason, "experiment_not_valid:short_output")
-  assert.notEqual(prov?.fields?.billedModelOutput?.reason, "output_window_not_clean")
 })
 
 test("D5 output: a genuinely unclean window keeps output_window_not_clean", () => {
@@ -753,6 +752,56 @@ test("D5 output: a genuinely unclean window keeps output_window_not_clean", () =
   const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
   const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
   assert.equal(prov?.fields?.billedModelOutput?.reason, "output_window_not_clean")
+})
+
+test("N3 output: no bound computed publishes unidentified, not upper_bound", () => {
+  // The aborted:short_output shape has no kOutUpperBound at all (findings null) - the field
+  // status must say so, distinct from the genuine "upper_bound" case (B8, where a bound WAS
+  // computed from an unobserved phase).
+  const evs = [...cloneEvents(), { ev: "experiment_ended", experiment: "output-quota", run: null, status: "aborted", reason: "short_output" }]
+  const a = run(records, evs)
+  const o = a.experiments["output-quota"].findings
+  assert.equal(o, null, "no findings were computed for a machine-recorded verdict")
+  const five = a.coefficientRecords.find((c) => c.quotaMeterOrCostUnit.startsWith("unified-5h"))
+  const prov = (a.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
+  assert.notEqual(prov?.fields?.billedModelOutput?.status, "upper_bound")
+
+  // the genuine upper_bound case (B8) is unaffected
+  const b8 = run()
+  const b8Prov = (b8.coefficientProvenance ?? []).find((p) => p.quotaMeterOrCostUnit === five.quotaMeterOrCostUnit)
+  assert.equal(b8.experiments["output-quota"].findings.kOutUpperBound > 0, true)
+  assert.equal(b8Prov?.fields?.billedModelOutput?.status, "upper_bound")
+})
+
+test("N6 every experiment with a machine-recorded verdict carries it as recordedMachineVerdict, even when the analyzer re-judges it", () => {
+  // The fixture's ttl-1h-unique-prefix machine verdict is valid (no rank in recordedVerdictOf,
+  // which only tracks void/aborted), so the analyzer re-judges the window itself - but the
+  // machine's own verdict must still be visible on the experiment.
+  const a = run()
+  assert.deepEqual(a.experiments["ttl-1h-unique-prefix"].recordedMachineVerdict, { status: "valid", reason: null })
+  for (const id of ["fable-write-tick", "output-quota", "restore-decomposition", "policy-effect"]) {
+    assert.deepEqual(a.experiments[id].recordedMachineVerdict, { status: "valid", reason: null }, id)
+  }
+})
+
+test("N2 md: a contaminated ttl window's renewal line does not say measured", () => {
+  const dirty = clone()
+  dirty.find((r) => r.experiment === "ttl-1h-unique-prefix").model = "claude-opus-5"
+  const a = run(dirty)
+  assert.equal(a.experiments["ttl-1h-unique-prefix"].status, "contaminated")
+  assert.equal(a.experiments["ttl-1h-unique-prefix"].findings.renewsAt55min, "measured", "findings keep the raw usage-based label")
+  const md = renderMarkdown(a)
+  const line = md.split(/\r?\n/).find((l) => l.startsWith("- 결론:") && l.includes("renews_at_55min"))
+  assert.ok(line, "renewal conclusion line present")
+  assert.ok(!line.includes(", measured)"), `line must not say measured under a contaminated window: ${line}`)
+  assert.ok(line.includes("측정 아님") || line.includes("아님"), `line must say the renewal is not counted as measured: ${line}`)
+
+  // the clean-window case (default fixture) is unaffected: it still says measured
+  const clean = run()
+  const cleanLine = renderMarkdown(clean)
+    .split(/\r?\n/)
+    .find((l) => l.startsWith("- 결론:") && l.includes("renews_at_55min"))
+  assert.ok(cleanLine.includes(", measured)"), cleanLine)
 })
 
 // ------------------------------------------------------------------------------------------

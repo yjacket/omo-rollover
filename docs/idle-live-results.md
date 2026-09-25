@@ -14,7 +14,7 @@
 - 판정: contaminated (anomalies_present)
 - run 1: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
 - run 2: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
-- 결론: renews_at_55min (55분 읽기가 TTL을 갱신함, n=2, measured)
+- 결론: renews_at_55min (55분 읽기가 TTL을 갱신함, n=2, 사용량 기준 HIT/MISS - 창 오염으로 measured 아님)
 
 ## 4. restore-decomposition (복원 분해)
 - 판정: aborted (big_context_rewrite: 기계가 기록한 사유 코드(추가 설명 없음))
@@ -34,7 +34,7 @@
 
 | meter | sourceKind | cacheWrite1h 구간 | 발표값(상단) | 출력 계수 |
 | --- | --- | --- | --- | --- |
-| `unified-5h-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (upper_bound: experiment_not_valid:short_output) |
+| `unified-5h-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: experiment_not_valid:short_output) |
 | `unified-7d-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
 | `unified-7d_oi-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
 
@@ -168,7 +168,7 @@
   | #12 | rf-emulation | 3,035 | 143,486 | |
 
   #6·#10·#12는 `cacheWrite1h >= 100000` 규칙으로 중단됐다(protocols.mjs:61, :435).
-- #4가 쓴 캐시가 살아 있었다는 증거: #7이 #4와 바이트가 같은 프롬프트(sha `d27fe235`, 204,457자)를 새 세션으로 57초 뒤에 보내 146,397을 읽었다.
+- #4가 쓴 캐시가 살아 있었다는 증거: #7이 #4와 바이트가 같은 프롬프트(sha `d27fe235`, 204,457자)를 새 세션으로 #4 응답 뒤 73.2초(#4 요청 시각 기준 76.4초) 뒤에 보내 146,397을 읽었다.
 - rf-emulation이 맞지 않는 이유:
   - #6의 프롬프트는 `c0720691`, 204,711자다. #4 프롬프트에 `"\n\n"`과 park 텍스트를 **같은 텍스트 블록 안에** 붙인 것이다(filler.mjs:49-50 `appendPrompt`, protocols.mjs:420-424 `bigContext`). 어댑터는 이것을 하나의 stdin 프롬프트로 보낸다(adapters/claude-cli.mjs:113).
   - 캐시 적중에 필요한 블록 경계가 시스템 프롬프트 뒤에 없다. 그래서 읽기가 정확히 3,035에 머문다.
