@@ -37,6 +37,17 @@ const BASELINE_SPACING_MS = 60_000
 const QUIET_RETRY_MS = 10 * 60_000
 const QUIET_ATTEMPTS = 3
 const RESET_SETTLE_MS = 120_000 // Appendix A section 1: sleep to reset + 120 s
+// Todo 13 (gauge header lag, todo-9 D1): a response's ratelimit header does not carry that call's
+// own charge, so the tick a scope's LAST call caused shows up on whatever call comes next. Before
+// a new experiment scope takes its baseline, the machine settles the gauge with one PING outside
+// every experiment, charged to the scope whose call left the gauge unsettled (`chargeTo`). The wait
+// before it is Appendix A's own 20 s post-write settle; in the live run a call read the previous
+// call's charge 0.45 s after it ended, so any time-based posting delay the data allows is shorter.
+const SETTLE_WAIT_MS = RULES.restore.settleMs
+// An experiment that closed `aborted:big_context_rewrite` in rf-emulation mode showed the fallback
+// shape misses the cache on this CLI; every later big-context job would pay the same ~143K write.
+const BIG_CONTEXT = new Set(["restore-decomposition", "policy-effect"])
+const FALLBACK_MISS = "fallback_mode_misses"
 const SMOKE = Object.freeze({ lines: 2000, writeTokens: 59_400, hitFactor: 0.9, pings: 3, pingSpacingMs: 60_000 })
 
 // Random draws are pre-drawn per experiment and recorded in `experiment_started`, so the analyzer
@@ -236,6 +247,7 @@ function newState(deps, approval, opts) {
     jobs: {},              // job key -> { status, reason, paidRequests }
     resetWaits: 0,         // reset waits taken so far: re-baseline PING ids are per wait
     resumeIndex: 0,        // how many times this run has been resumed: preflight PING ids per run
+    settles: 0,            // settle PINGs this process issued: their ids are per process
     mode: { resumeHit: null },
     dialPrefix: null,
     carry: { phase: null },
@@ -640,7 +652,13 @@ const META_OF = (step) => ({
   prefix: step.prefix ?? null,
   scopeId: step.scopeId ?? null,
   dominantField: step.dominantField ?? null,
+  // only a settle PING has one: the scopes its reading is charged to (absent everywhere else, so
+  // every other record keeps its bytes)
+  ...(Array.isArray(step.chargeTo) ? { chargeTo: [...step.chargeTo] } : {}),
 })
+
+/** The [idle, plan] scope keys a recorded call's ticks are attributed to - live, fold and resume alike. */
+const chargeKeysOf = (e) => (Array.isArray(e?.chargeTo) ? e.chargeTo : [idleScopeOf(e), e?.experiment ? `plan:${e.experiment}` : null])
 
 // Appendix B's record schema: caps:[{ scope, name, capEq, remainingUpperEq }]. A tripped cap is
 // reported through `gate_refused`, so the per-record rows stay at the four schema fields.
@@ -714,11 +732,11 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     return { fatal: { status: "aborted", reason: "skipped_arm_requested" } }
   }
 
-  // The gate needs both scopes to exist so their (attributed) spend is reported even at zero.
-  const idleKey = idleScopeOf(step)
-  const planKey = `plan:${step.experiment}`
+  // The gate needs both scopes to exist so their (attributed) spend is reported even at zero. A
+  // settle PING is charged to the scopes it settles (`chargeTo`), which already exist.
+  const [idleKey, planKey] = chargeKeysOf(step)
   if (idleKey) attributedScope(st, idleKey)
-  attributedScope(st, planKey)
+  if (planKey) attributedScope(st, planKey)
   let accounting = { caps: [], predictedTicks: null, predictedEq: null, predictionTier: null, warnings: [] }
   if (!ungated) {
     const g = gate({ ...step, scopeId: idleKey }, gateState(st), gateApprovalOf(st), st.priors)
@@ -846,7 +864,10 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   else if (known !== null) exp.phase.addCost(known)
   const [phiLo, phiHi] = exp.phase.bounds()
   const phaseLedgerRow = { phiLo: eq(phiLo), phiHi: eq(phiHi), early: exp.phase.early(), phiHat: eq(exp.phase.phiHat()), knownCost: known === null ? null : eq(known) }
-  st.lastCall = { ticked: ticks5h > 0, knownCost: known, bounds: [eq(phiLo), eq(phiHi)] }
+  // A call of known sub-tick cost crosses at most ONE tick boundary on its own. More than that, or
+  // movement beyond its prediction, is somebody else's charge (a late tick): the phase it would set
+  // is not established, so it is never carried into the next experiment (todo 13).
+  st.lastCall = { ticked: ticks5h > 0, knownCost: known, bounds: [eq(phiLo), eq(phiHi)], explained: unexplained === 0 && ticks5h <= 1 && !rolled }
 
   const idleSpend = spendOf(idleKey ? st.scopes[idleKey] : null)
   const expBase = exp.baselines?.[METER_5H] ?? null
@@ -1242,6 +1263,84 @@ const stripSteps = (result) => {
   return out
 }
 
+// ------------------------------------------------ settle point and fallback miss (todo 13)
+
+/**
+ * settlePendingOf(events) -> [idleKey, planKey] | null. Pure function of the log. The gauge is
+ * unsettled when the last paid call the log records belongs to an experiment: the charge of that
+ * call is not in its own header (todo-9 D1), so the next reading can carry it. The returned keys
+ * are the scopes that reading is charged to. A quiet-check or settle PING leaves nothing pending
+ * that is not already somebody's (it is itself the settle), so after one the answer is null.
+ */
+export function settlePendingOf(events) {
+  let last = null
+  for (const e of Array.isArray(events) ? events : []) if (isObject(e) && e.ev === "step_result") last = e
+  if (!last || last.experiment === PREFLIGHT_ID) return null
+  return chargeKeysOf(last)
+}
+
+/**
+ * One PING outside every experiment, after Appendix A's 20 s settle, whose reading is charged to
+ * the scopes the log says are unsettled - never to the next scope, whose baseline is then this
+ * reading (snapshotBaselines reads the latest one). Every cap stays hard: the ticks it reads are
+ * applied to every meter window like any call's, and to the previous scope's idle and plan totals.
+ * A carried phase survives only a settle that did not tick; a tick here cannot be told from a late
+ * one, so it drops the carry. A quiet settle leaves the carried bounds as they were, the
+ * convention protocols.mjs already applies to the hold PINGs an output-quota block chains across
+ * (Appendix A: fixed per-request costs are subtracted analytically; the settle row records its own
+ * known cost): shifting the upper bound by 6.4e-4 tick would push it past rho, and the next
+ * experiment would pay a whole pre-walk (up to 0.81 tick) for a PING's worth of phase.
+ */
+async function settleGauge(st, { expectWindowRoll = false } = {}) {
+  const keys = settlePendingOf(st.deps.ledger.fold().events)
+  if (!keys) return { fatal: null }
+  const arm = st.resumeIndex ? `settle-r${st.resumeIndex}` : "settle"
+  const index = st.settles++
+  const exp = { id: PREFLIGHT_ID, run: null, t0: nowOf(st), phase: phaseLedger(), baselines: {}, steps: [] }
+  // After a resume's downtime the window may have rolled under the log's last reading: that is a
+  // roll, not an anomaly, and the unreadable delta is charged one tick like any other.
+  const step = { ...pingStep({ role: "settle_ping", arm, index, atOffsetMs: SETTLE_WAIT_MS, n: index + 1, expectWindowRoll }), chargeTo: keys }
+  const r = await runStep(st, exp, step, { ungated: true })
+  if (r.fatal) {
+    syncCampaignStop(st, { experiment: PREFLIGHT_ID, stepId: step.id })
+    return { fatal: r.fatal, inDoubt: r.inDoubt === true }
+  }
+  const m5 = r.result?.meters?.[METER_5H]
+  const moved = !m5 || m5.absent === true || m5.sameWindow === false || (r.result?.ticks?.[METER_5H] ?? 0) !== 0
+  if (moved) st.carry.phase = null
+  return { fatal: null }
+}
+
+/**
+ * fallbackMissOf(events) -> the experiment_ended that showed the rf-emulation fallback misses, or
+ * null. Pure function of the log, so live, fold and resume reach the same verdict.
+ */
+export function fallbackMissOf(events) {
+  for (const e of Array.isArray(events) ? events : []) {
+    if (isObject(e) && e.ev === "experiment_ended" && e.status === "aborted" && e.reason === "big_context_rewrite" && e.result?.mode === "rf-emulation") return e
+  }
+  return null
+}
+
+/** Closes a big-context job without a paid call after a recorded fallback miss. */
+function closeByFallbackMiss(st, job, miss) {
+  emit(st, {
+    ev: "experiment_ended", experiment: job.experiment, run: job.run ?? null, status: "aborted", reason: FALLBACK_MISS,
+    paidRequests: 0, parity: null, result: null,
+    decidedBy: { experiment: miss.experiment ?? null, run: miss.run ?? null, seq: Number.isFinite(miss.seq) ? miss.seq : null },
+  })
+  st.experiments[job.experiment] ??= { status: null, reason: null, paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, runs: [] }
+  const agg = st.experiments[job.experiment]
+  agg.runs.push({ run: job.run ?? null, status: "aborted", reason: FALLBACK_MISS })
+  if (agg.status === null || RANK.aborted > (RANK[agg.status] ?? 0)) {
+    agg.status = "aborted"
+    agg.reason = FALLBACK_MISS
+  }
+  const planSpend = spendOf(st.scopes[`plan:${job.experiment}`])
+  agg.spentObservedEq = planSpend.observedEq
+  agg.spentUpperEq = planSpend.upperEq
+}
+
 function snapshotBaselines(st) {
   const out = {}
   for (const meter of METERS) {
@@ -1342,8 +1441,10 @@ async function runExperiment(st, job) {
     st.dialPrefix = { prompt: result.dialPrefix.prompt, sessionId: result.dialPrefix.sessionId, seed: pool.seeds[0] ?? null }
     emit(st, { ev: "dial_prefix", experiment: id, run: job.run ?? null, seed: st.dialPrefix.seed, sessionId: st.dialPrefix.sessionId })
   }
+  // A phase whose setting tick the ticking call cannot explain (todo 13) is never carried.
+  const unexplainedTick = st.lastCall?.ticked === true && st.lastCall.explained !== true
   const ledgerCarry = st.lastCall?.ticked && st.lastCall.knownCost !== null ? st.lastCall.bounds : null
-  st.carry.phase = Array.isArray(result?.phaseAtEnd) ? result.phaseAtEnd : ledgerCarry
+  st.carry.phase = unexplainedTick ? null : (Array.isArray(result?.phaseAtEnd) ? result.phaseAtEnd : ledgerCarry)
   return { status, stop, inDoubt }
 }
 
@@ -1398,14 +1499,15 @@ function reconcileStep(st, stepId, intent, matches) {
     prefix: intent?.prefix ?? null,
     scopeId: intent?.scopeId ?? null,
     dominantField: intent?.dominantField ?? null,
+    ...(Array.isArray(intent?.chargeTo) ? { chargeTo: [...intent.chargeTo] } : {}),
   }
   // The recovered response was PAID for: its ticks must reach the per-idle and per-plan scopes
   // before the next gate, exactly like a live result (the gate reproduced a run that spent its
-  // whole 0.03 cap in the uncertain call and then issued nine more).
+  // whole 0.03 cap in the uncertain call and then issued nine more). A settle PING's go to the
+  // scopes it settled, as they did live.
   const m5 = applied.meters[METER_5H]
-  const planKey = meta.experiment ? `plan:${meta.experiment}` : null
   const ownTicks = ticks[METER_5H] ?? 0
-  const idleKey = idleScopeOf(meta)
+  const [idleKey, planKey] = chargeKeysOf(meta)
   attribute(st, [idleKey, planKey], m5?.absent || m5?.sameWindow === false ? Math.max(1, ownTicks) : ownTicks, m5?.reset ?? null)
   const spend = spendOf(idleKey ? st.scopes[idleKey] : null)
   const recordOf = ({ p, applied: a }) => ({
@@ -1461,7 +1563,7 @@ async function resumeFromLog(st) {
     const applied = applyReading(st, rec?.headers ?? null)
     const m5 = applied.meters[METER_5H]
     const charged = m5?.absent || m5?.sameWindow === false ? 1 : (applied.ticks[METER_5H] ?? 0)
-    attribute(st, [idleScopeOf(ev), `plan:${ev.experiment}`], charged, m5?.reset ?? null)
+    attribute(st, chargeKeysOf(ev), charged, m5?.reset ?? null)
     // A recorded result whose requests.jsonl row is gone has NO reading to re-account. The charge
     // stays conservative (one tick), but silence would let a truncated evidence dir look clean:
     // the resume says which call it could not read and what it charged for it instead.
@@ -1774,14 +1876,37 @@ export async function runMachine(deps, approval, opts = {}) {
     }
   }
   const fresh = pre.jobs.filter((job) => !reported.has(job.key))
+  // A job the recorded fallback miss already closes issues nothing, so it needs no instrument.
+  const missAtStart = fallbackMissOf(st.deps.ledger.fold().events)
+  const issuing = fresh.filter((job) => !(missAtStart && BIG_CONTEXT.has(job.experiment)))
   // The instrument is established for the experiments that are about to run, never for the log.
-  const base = recordedStop || st.inDoubt.length || fresh.length === 0
-    ? { fatal: recordedStop ? { status: "aborted", reason: recordedStop.reason } : null, stopped: recordedStop?.stopped ?? null }
-    : await baselineBlock(st, { role: st.resumeIndex ? `baseline-r${st.resumeIndex}` : "baseline" })
+  // A resumed log whose last paid call was an experiment's is settled first, exactly as the live
+  // path would have settled it before the next scope (a fresh run has nothing to settle).
+  let base
+  if (recordedStop || st.inDoubt.length || issuing.length === 0) {
+    base = { fatal: recordedStop ? { status: "aborted", reason: recordedStop.reason } : null, stopped: recordedStop?.stopped ?? null }
+  } else {
+    const settle = await settleGauge(st, { expectWindowRoll: st.resumeIndex > 0 })
+    base = settle.fatal
+      ? { fatal: settle.fatal, stopped: settle.inDoubt ? "in_doubt" : (st.campaignStop ? "campaign_stop" : "settle_failed") }
+      : await baselineBlock(st, { role: st.resumeIndex ? `baseline-r${st.resumeIndex}` : "baseline" })
+  }
   let stopped = base.fatal ? (base.stopped ?? (st.campaignStop ? "campaign_stopped" : "baseline_failed")) : (st.inDoubt.length ? "in_doubt" : null)
   if (!stopped) {
     for (const job of fresh) {
       if (stopped) break
+      // (b) the same pure predicate of the log, live and on resume
+      const miss = BIG_CONTEXT.has(job.experiment) ? fallbackMissOf(st.deps.ledger.fold().events) : null
+      if (miss) {
+        closeByFallbackMiss(st, job, miss)
+        continue
+      }
+      // (a) the new scope's baseline is never a reading the previous scope's late tick can land on
+      const settle = await settleGauge(st)
+      if (settle.fatal) {
+        stopped = settle.inDoubt ? "in_doubt" : (st.campaignStop ? "campaign_stop" : "settle_failed")
+        break
+      }
       const r = await runExperiment(st, job)
       if (r.stop) stopped = r.inDoubt ? "in_doubt" : (st.campaignStop ? "campaign_stop" : "stop_condition")
     }

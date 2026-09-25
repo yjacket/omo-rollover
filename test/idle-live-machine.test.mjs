@@ -2287,7 +2287,7 @@ test("M10 crash-prefix resume under revision 2, at zero, 20 and 75 minutes of do
           if (seen.has(r.stepId)) continue
           assert.ok(!r.anomalies.includes("reset_changed"), `${label}: ${r.stepId} was issued across a reset epoch`)
         }
-        const freshPings = h.ledger.requests.filter((r) => !seen.has(r.stepId) && r.stepId.startsWith("preflight/")).map((r) => Date.parse(r.ts_req))
+        const freshPings = h.ledger.requests.filter((r) => !seen.has(r.stepId) && r.stepId.startsWith("preflight/") && !r.stepId.startsWith("preflight/settle")).map((r) => Date.parse(r.ts_req))
         for (let k = 1; k < freshPings.length; k++) {
           const gap = freshPings[k] - freshPings[k - 1]
           assert.ok(gap >= 60_000 - 1, `${label}: fresh quiet-check PINGs are ${gap} ms apart, not 60 s`)
@@ -2358,7 +2358,7 @@ test("R6-B2 after downtime the fresh preflight keeps 60 s spacing and no step st
     const h = resumeHarness(fixture, { gauge, world, clockStart: fixture.crashedAt + downtime })
     const s = await h.run({ resume: "fake-run", only: ["fable-write-tick", ...ONLY_TTL], dialPrefix: DIAL })
     const label = `${downtime / 60_000} min`
-    const pings = h.ledger.requests.filter((r) => r.stepId.startsWith("preflight/")).map((r) => Date.parse(r.ts_req))
+    const pings = h.ledger.requests.filter((r) => r.stepId.startsWith("preflight/") && !r.stepId.startsWith("preflight/settle")).map((r) => Date.parse(r.ts_req))
     assert.ok(pings.length >= 3, `${label}: a fresh preflight runs`)
     for (let i = 1; i < pings.length; i++) {
       assert.ok(pings[i] - pings[i - 1] >= 60_000 - 1, `${label}: PINGs ${pings[i] - pings[i - 1]} ms apart, not 60 s`)
@@ -2897,9 +2897,10 @@ test("R8-B4 a resume inherits the recorded restore mode, and pays no call to re-
     assert.ok(started.length > 0, `fresh experiments run (${at})`)
     for (const e of started) assert.equal(e.mode?.resumeHit, recorded.resumeHit, `${at}: ${e.experiment} starts with the recorded mode`)
     assert.deepEqual(h.ev("mode_set"), [], `${at}: nothing is re-measured, so no new mode_set`)
-    // 218 = the live run's 215 plus this resume's own three fresh preflight PINGs. Without the
-    // recorded mode it is 219: policy-effect pays one gated call to re-measure a recorded fact.
-    assert.equal(s.paidRequestsIssued, 218, `${at}: paid calls, ${JSON.stringify(s.experiments)}`)
+    // 223 = the live run's 220 (its five todo-13 settle PINGs included) plus this resume's own three
+    // fresh preflight PINGs; the resume's first settle PING stands in for the live one before fable.
+    // Without the recorded mode it is 224: policy-effect pays one gated call to re-measure a fact.
+    assert.equal(s.paidRequestsIssued, 223, `${at}: paid calls, ${JSON.stringify(s.experiments)}`)
     assert.equal(s.exitCode, EXIT.OK)
   }
 })
@@ -3448,7 +3449,7 @@ test("I13 a crash between the restore verdict and the mode loses neither, and pa
   const observed = JSON.stringify({ paid: s.paidRequestsIssued, reMeasured: h.ev("mode_set").length, starts: started.map((e) => `${e.experiment}:${e.mode?.resumeHit}`) })
   for (const e of started) assert.equal(e.mode?.resumeHit, recorded.resumeHit, `${e.experiment} inherits the recorded mode: ${observed}`)
   assert.deepEqual(h.ev("mode_set"), [], `nothing is re-measured, so no new mode_set: ${observed}`)
-  assert.equal(s.paidRequestsIssued, 218, `and no extra gated call is paid: ${observed}`)
+  assert.equal(s.paidRequestsIssued, 223, `and no extra gated call is paid: ${observed}`) // see R8-B4 for the count
   assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
 })
 
