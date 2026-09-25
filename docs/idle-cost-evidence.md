@@ -298,7 +298,7 @@ Three records were appended to `coefficientRecords` at indices 21-23, one per me
 - Every coefficient is `null`: `uncachedInput`, `cacheWrite5m`, `cacheWrite1h`, `cacheRead` and `billedModelOutput`.
 - Every record is `sourceKind: "unknown"`, because no clean window identified a coefficient:
   - `cacheWrite1h`: `no_clean_fable_window`.
-  - `billedModelOutput`: `output_window_not_clean` on 5h. The analyzer uses this label for an experiment that is not valid; the output window itself was clean but the gate aborted.
+  - `billedModelOutput`: `experiment_not_valid:short_output` on 5h. The window itself was clean; the machine closed output-quota not valid for its own reason (short_output), which the analyzer now names directly in the reason code instead of the window-cleanliness label.
   - `cacheWrite5m`: `adapter_capability` (the CLI writes only 1h).
   - `cacheRead`: the 5.39M-5.55M prior only (`reported_unverified`).
   - `uncachedInput`: bounded above by `cacheWrite1h`.
