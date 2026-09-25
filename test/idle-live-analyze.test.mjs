@@ -20,6 +20,8 @@ import {
   renderMarkdown,
   stableStringify,
   RHO,
+  pairCounts,
+  unknownTextKo,
 } from "../scripts/idle-live-analyze.mjs"
 import { convertUsage, evaluateIdleCost, USAGE_FIELDS } from "../extension/rollover.ts"
 import { RULES } from "../scripts/idle-live/protocols.mjs"
@@ -1565,6 +1567,35 @@ test("N8 a malformed CLI artifact is an integrity warning and is not scored", (t
   assert.equal(r.code, 0, r.stderr)
   assert.deepEqual(r.analysis.integrity.warnings, [{ issue: "cli_artifact_unreadable", file, detail: "SyntaxError" }])
   assert.ok(r.md.includes("cli_artifact_unreadable"))
+})
+
+// Todo 18 (F1 note 4): the doc's pair sentence is rendered from the completed and the planned
+// pair counts separately - a run whose policy-effect never completed a pair must not read as n=3.
+test("F1-4 pairCounts: completed pairs come from the paired differences, planned from RULES.policy.pairs", () => {
+  const full = run()
+  assert.deepEqual(pairCounts(full), { completed: 3, planned: RULES.policy.pairs })
+  const aborted = JSON.parse(JSON.stringify(full))
+  aborted.experiments["policy-effect"] = { ...aborted.experiments["policy-effect"], status: "aborted", reason: "big_context_rewrite", findings: null }
+  assert.deepEqual(pairCounts(aborted), { completed: 0, planned: RULES.policy.pairs })
+})
+
+// Todo 18 (F1 note 4): section 9 of the Korean doc renders every `unknowns` line through its
+// Korean form. Coverage over every committed run fixture: no line shape falls back to English.
+// Experiment lines are codes only and are rendered unchanged.
+test("F1-4 every unknowns line of every run fixture has a Korean form", (t) => {
+  const lines = new Set(run().unknowns)
+  for (const name of ["fake-run", "cancelled-before-start", "cancelled-inflight", "resumed-3proc", "resumed-between", "resumed-indoubt", "resumed-mid"]) {
+    const r = analyzeCli(t, path.join(RUN_FIXTURES, name))
+    assert.equal(r.code, 0, `${name}: ${r.stderr}`)
+    for (const u of r.analysis.unknowns) lines.add(u)
+  }
+  // shapes the fixtures may not reach, built the way analyzeRun builds them
+  lines.add("k_out (ticks per output token): not identified by this evidence (experiment_not_valid:short_output)")
+  lines.add("restore run 1 park_path guardCorrect: cli_artifact_missing")
+  const missing = [...lines].filter((u) => unknownTextKo(u) === null)
+  assert.deepEqual(missing, [], `unknowns line(s) without a Korean form: ${missing.join(" | ")}`)
+  assert.equal(unknownTextKo("policy-effect: aborted (big_context_rewrite)"), "policy-effect: aborted (big_context_rewrite)")
+  assert.equal(unknownTextKo("an unknown line shape"), null)
 })
 
 // Todo 15(a) rework 2 (gate st_01a0da3f RB1), widened by todo 17 (re-review 2 RRN-a / probe P5):

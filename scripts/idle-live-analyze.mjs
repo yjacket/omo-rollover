@@ -1511,6 +1511,58 @@ function warmSumsFrom(records) {
   return scaleSums(s, 1 / warm.length)
 }
 
+// The `unknowns` list is published in analysis.json as English lines; the Korean doc renders
+// each line through unknownTextKo below. Both come from these definitions, so they cannot drift.
+const UNKNOWN_FIXED = [
+  [
+    "cacheWrite5m coefficient: the CLI writes only the 1h lane, so the 5m arm is skipped (adapter_capability) and k_write5 stays unknown - never defaulted from the 1h lane",
+    "cacheWrite5m 계수: CLI는 1h 캐시에만 쓰므로 5m 갈래는 건너뛰었고(adapter_capability) k_write5는 모른다. 1h 값으로 대신 채우지 않는다",
+  ],
+  [
+    "uncachedInput coefficient (k_input): unknown, only bounded above by the 1h write coefficient",
+    "uncachedInput 계수(k_input): 모른다. 1h 쓰기 계수보다 크지 않다는 상한만 있다",
+  ],
+  [
+    `cacheRead coefficient: the ${READ_TOKENS_PER_TICK_RANGE[0]}-${READ_TOKENS_PER_TICK_RANGE[1]} tokens per tick figure is a reported_unverified prior range from ${PRIOR_RANGE_ONLY.evidenceRef}, not measured by this run`,
+    `cacheRead 계수: tick당 ${READ_TOKENS_PER_TICK_RANGE[0]}-${READ_TOKENS_PER_TICK_RANGE[1]} 토큰이라는 값은 ${PRIOR_RANGE_ONLY.evidenceRef}에 보고된 검증 전 사전 범위(reported_unverified)이며, 이 실행에서 측정하지 않았다`,
+  ],
+  [
+    "return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts",
+    "복귀 예측 q: 측정하지 않았다. 계획기의 항목은 가정 시나리오라는 라벨을 붙였을 뿐 사실로 쓰지 않는다",
+  ],
+  [
+    "skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model",
+    "skillRestoreEq / sharedLossEq / parkQualityEq: 측정하지 않았다. 엔진 모델에는 0 기준값으로 넣었다",
+  ],
+]
+const UNKNOWN_T = [
+  "T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified",
+  "T(5h 쓰기 tick당 토큰 수): 이 증거로는 정하지 못했다. 사전 범위 102K-143K는 검증 전 값(reported_unverified)이다",
+]
+const UNKNOWN_KOUT_PREFIX = "k_out (ticks per output token): not identified by this evidence ("
+const QUALITY_GAP = /^restore run (\S+) (\S+) (\S+): (.*)$/
+const UNKNOWN_KO = new Map([...UNKNOWN_FIXED, UNKNOWN_T])
+
+/**
+ * The Korean line for one `unknowns` entry, or null when the line has no Korean form (a line
+ * shape added without one; the doc then prints the English line). Experiment lines are codes only
+ * (`<id>: <status> (<reason>)`) and stay as they are.
+ */
+export function unknownTextKo(line) {
+  if (UNKNOWN_KO.has(line)) return UNKNOWN_KO.get(line)
+  if (line.startsWith(UNKNOWN_KOUT_PREFIX) && line.endsWith(")")) return `k_out(출력 토큰당 tick): 이 증거로는 정하지 못했다(${line.slice(UNKNOWN_KOUT_PREFIX.length, -1)})`
+  const id = line.slice(0, line.indexOf(":"))
+  if (EXPERIMENT_IDS.includes(id) && /^[a-z0-9-]+: [a-z_]+( \([^()]*\))?$/.test(line)) return line
+  const gap = line.match(QUALITY_GAP)
+  if (gap) return `복원 ${gap[1]}회차 ${gap[2]} ${gap[3]}: ${gap[4]}`
+  return null
+}
+
+/** Policy pairs the doc reports: completed (with paired differences) and planned (RULES.policy.pairs). */
+export function pairCounts(analysis) {
+  return { completed: analysis.experiments["policy-effect"]?.findings?.pairedDifferences?.n ?? 0, planned: RULES.policy.pairs }
+}
+
 export function analyzeRun(rows, events, opts = {}) {
   const records = rows.filter(isPaid)
   const requestsText = opts.requestsText ?? null
@@ -1652,15 +1704,9 @@ export function analyzeRun(rows, events, opts = {}) {
   policyAnswer.phaseCostsEq = parts
   policyAnswer.coefficientEnds = { low: endsLowHigh.low, high: endsLowHigh.high, provenance: endsLowHigh.provenance }
 
-  const unknowns = [
-    "cacheWrite5m coefficient: the CLI writes only the 1h lane, so the 5m arm is skipped (adapter_capability) and k_write5 stays unknown - never defaulted from the 1h lane",
-    "uncachedInput coefficient (k_input): unknown, only bounded above by the 1h write coefficient",
-    `cacheRead coefficient: the ${READ_TOKENS_PER_TICK_RANGE[0]}-${READ_TOKENS_PER_TICK_RANGE[1]} tokens per tick figure is a reported_unverified prior range from ${PRIOR_RANGE_ONLY.evidenceRef}, not measured by this run`,
-    "return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts",
-    "skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model",
-  ]
-  if (!T) unknowns.push("T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified")
-  if (!kOut) unknowns.push(`k_out (ticks per output token): not identified by this evidence (${outputReason ?? "unidentified"})`)
+  const unknowns = UNKNOWN_FIXED.map(([en]) => en)
+  if (!T) unknowns.push(UNKNOWN_T[0])
+  if (!kOut) unknowns.push(`${UNKNOWN_KOUT_PREFIX}${outputReason ?? "unidentified"})`)
   for (const id of EXPERIMENT_IDS) {
     const e = experiments[id]
     if (e.status !== "valid") unknowns.push(`${id}: ${e.status}${e.reason ? ` (${e.reason})` : ""}`)
@@ -1828,7 +1874,9 @@ export function renderMarkdown(analysis) {
   L.push("")
   L.push("## 8. 정책 답 (범위 양 끝)")
   L.push(`- 결론: **${analysis.policyAnswer.action}** (${analysis.policyAnswer.reason})`)
-  L.push(`- 엔진: ${analysis.policyAnswer.engine}, 예측 분포는 측정하지 않았다(${analysis.policyAnswer.forecastReason}). V=0 기준.`)
+  const scenarios = analysis.policyAnswer.scenarios ?? []
+  const forecastCode = String(analysis.policyAnswer.forecastReason ?? "").split(":")[0]
+  L.push(`- 엔진: ${analysis.policyAnswer.engine}, 예측 분포는 측정하지 않았다(${forecastCode}: q를 지어내지 않는다${scenarios.length ? ". 아래 가정 시나리오는 라벨을 붙인 가정일 뿐이다" : ""}). V=0 기준.`)
   if (analysis.policyAnswer.evaluatedAt) {
     for (const end of ["low", "high"]) {
       const d = analysis.policyAnswer.evaluatedAt[end]
@@ -1837,15 +1885,16 @@ export function renderMarkdown(analysis) {
   } else {
     L.push("- 범위 하단/상단 평가 없음: 증거가 불완전하여 엔진을 돌리지 않았다.")
   }
-  for (const s of analysis.policyAnswer.scenarios ?? []) {
+  for (const s of scenarios) {
     L.push(`- 가정 시나리오 \`${s.id}\` (라벨: ${s.labelledAs}, 채택 ${s.promoted ? "예" : "아니오"}): 범위 하단 ${s.low?.action ?? "없음"} / 범위 상단 ${s.high?.action ?? "없음"} -> ${s.action} (${s.reason})`)
   }
   L.push("")
   L.push("## 9. 모르는 것")
   L.push("")
-  for (const u of analysis.unknowns) L.push(`- ${u}`)
+  for (const u of analysis.unknowns) L.push(`- ${unknownTextKo(u) ?? u}`)
   L.push("")
-  L.push("이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행 n=3의 차이는 평균과 범위로만 보고한다.")
+  const pairs = pairCounts(analysis)
+  L.push(`이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행은 계획한 ${pairs.planned}쌍 중 ${pairs.completed}쌍을 마쳤고, 마친 쌍의 차이는 평균과 범위로만 보고한다.`)
   L.push("")
   return L.join("\n")
 }

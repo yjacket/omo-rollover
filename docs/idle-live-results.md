@@ -42,25 +42,25 @@
 
 ## 8. 정책 답 (범위 양 끝)
 - 결론: **NO_DECISION** (evidence_incomplete)
-- 엔진: evaluateIdleCost, 예측 분포는 측정하지 않았다(no_calibrated_forecast: q is never invented; the entries below are labelled hypothetical scenarios). V=0 기준.
+- 엔진: evaluateIdleCost, 예측 분포는 측정하지 않았다(no_calibrated_forecast: q를 지어내지 않는다). V=0 기준.
 - 범위 하단/상단 평가 없음: 증거가 불완전하여 엔진을 돌리지 않았다.
 
 ## 9. 모르는 것
 
-- cacheWrite5m coefficient: the CLI writes only the 1h lane, so the 5m arm is skipped (adapter_capability) and k_write5 stays unknown - never defaulted from the 1h lane
-- uncachedInput coefficient (k_input): unknown, only bounded above by the 1h write coefficient
-- cacheRead coefficient: the 5390000-5550000 tokens per tick figure is a reported_unverified prior range from quota-test/2026-09-19/REPORT.md, not measured by this run
-- return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts
-- skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model
-- T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified
-- k_out (ticks per output token): not identified by this evidence (experiment_not_valid:short_output)
+- cacheWrite5m 계수: CLI는 1h 캐시에만 쓰므로 5m 갈래는 건너뛰었고(adapter_capability) k_write5는 모른다. 1h 값으로 대신 채우지 않는다
+- uncachedInput 계수(k_input): 모른다. 1h 쓰기 계수보다 크지 않다는 상한만 있다
+- cacheRead 계수: tick당 5390000-5550000 토큰이라는 값은 quota-test/2026-09-19/REPORT.md에 보고된 검증 전 사전 범위(reported_unverified)이며, 이 실행에서 측정하지 않았다
+- 복귀 예측 q: 측정하지 않았다. 계획기의 항목은 가정 시나리오라는 라벨을 붙였을 뿐 사실로 쓰지 않는다
+- skillRestoreEq / sharedLossEq / parkQualityEq: 측정하지 않았다. 엔진 모델에는 0 기준값으로 넣었다
+- T(5h 쓰기 tick당 토큰 수): 이 증거로는 정하지 못했다. 사전 범위 102K-143K는 검증 전 값(reported_unverified)이다
+- k_out(출력 토큰당 tick): 이 증거로는 정하지 못했다(experiment_not_valid:short_output)
 - fable-write-tick: aborted (cap_exceeded)
 - output-quota: aborted (short_output)
 - ttl-1h-unique-prefix: contaminated (anomalies_present)
 - restore-decomposition: aborted (big_context_rewrite)
 - policy-effect: aborted (big_context_rewrite)
 
-이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행 n=3의 차이는 평균과 범위로만 보고한다.
+이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행은 계획한 3쌍 중 0쌍을 마쳤고, 마친 쌍의 차이는 평균과 범위로만 보고한다.
 
 ---
 
