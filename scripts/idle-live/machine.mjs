@@ -1670,12 +1670,12 @@ function smokeResumeRefusal(st, raw, issue, exitCode) {
 /** runMachine(deps, approval, opts) -> Summary. See Appendix B "Experiment loop". */
 export async function runMachine(deps, approval, opts = {}) {
   const st = newState(deps, approval, opts)
-  // (ii) A cancel already in force when the machine starts is recorded before the run's own
-  // bookkeeping, so nothing at all precedes it in the log.
-  if (st.signal?.aborted) stopCampaign(st, { reason: "cancelled" })
-  if (!opts.resume) {
-    emit(st, { ev: "run_started", evidenceDir: st.evidenceDir, dryRun: opts.dryRun === true, smoke: opts.smoke === true, only: opts.only ?? null, adapter: deps.adapter?.capabilities ?? null, proxyPort: deps.proxy?.port ?? null })
-  } else {
+  // RN1 (todo 12 re-review 1): the smoke-resume refusal is a PURE READ (N3) - it must come before
+  // EVERYTHING that can write, including the pre-aborted-signal cancel marker below. A resume of a
+  // smoke dir with an already-aborted signal used to append campaign_stop{cancelled} before the
+  // refusal fired, breaking the "nothing is appended" promise for any direct caller of runMachine
+  // (the CLI never reaches this: the runner refuses before it even creates the controller).
+  if (opts.resume) {
     const raw = st.deps.ledger.fold().events
     if (isSmokeLog(raw)) {
       // N3 (todo 12, Appendix B amendment: a smoke is never resumable). The smoke is not one of
@@ -1696,6 +1696,13 @@ export async function runMachine(deps, approval, opts = {}) {
       // run_started.smoke:true too). Refuse before smokeRun ever starts.
       return smokeResumeRefusal(st, raw, "smoke_resume_of_campaign", EXIT.PREFLIGHT)
     }
+  }
+  // (ii) A cancel already in force when the machine starts is recorded before the run's own
+  // bookkeeping, so nothing at all precedes it in the log.
+  if (st.signal?.aborted) stopCampaign(st, { reason: "cancelled" })
+  if (!opts.resume) {
+    emit(st, { ev: "run_started", evidenceDir: st.evidenceDir, dryRun: opts.dryRun === true, smoke: opts.smoke === true, only: opts.only ?? null, adapter: deps.adapter?.capabilities ?? null, proxyPort: deps.proxy?.port ?? null })
+  } else {
     await resumeFromLog(st)
   }
 

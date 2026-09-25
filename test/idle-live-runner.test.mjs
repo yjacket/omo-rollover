@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url"
 import { createRequire, syncBuiltinESMExports } from "node:module"
 import { EventEmitter } from "node:events"
 
-import { EXIT, manifest, runMachine } from "../scripts/idle-live/machine.mjs"
+import { EXIT, manifest, runMachine, SUMMARY_VERSION } from "../scripts/idle-live/machine.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
 
 // Process-level tripwires (I19 b), installed BEFORE the runner is imported: processes.mjs binds its
@@ -278,6 +278,46 @@ test("a crash after run_started with nothing resumable exits 3, resumable:false"
   assert.equal(s.detail, "crash between experiments")
 })
 
+// RN6 (todo 12 re-review 1): "preflight" (the baseline/re-baseline quiet check) is not one of
+// Appendix A's approved jobs and never gets an experiment_ended - fold()'s `expOf` still creates
+// an entry for it the moment its first PING step is logged, with status "started" forever after.
+// ALL_ENDED (above) never exercises this because it holds no preflight step_intent/step_result at
+// all; every REAL evidence dir does. Without excluding "preflight", a crash on a log that finished
+// its one real job cleanly (run_ended{exitCode:0} already written) would still show "preflight" as
+// perpetually interrupted and wrongly promise exit 4 / resumable:true for a run that needs no
+// resuming - a resume --resume can't act on and the operator can't trust.
+const ALL_ENDED_WITH_PREFLIGHT_STEPS = [
+  { ev: "run_started", evidenceDir: null },
+  { ev: "step_intent", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/1", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/1", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/2", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/2", experiment: "preflight" },
+  { ev: "preflight", ok: true },
+  { ev: "experiment_started", experiment: "fable-write-tick", run: null },
+  { ev: "step_intent", stepId: "fable-write-tick/0", experiment: "fable-write-tick" },
+  { ev: "step_result", stepId: "fable-write-tick/0", experiment: "fable-write-tick" },
+  { ev: "experiment_ended", experiment: "fable-write-tick", run: null, status: "valid", reason: null },
+  { ev: "run_ended", exitCode: 0, reason: "complete", paidRequests: 4 },
+]
+
+test("RN6 a crash after a clean run_ended, on a log that ran real preflight baseline PINGs, exits 3 (not the stuck exit-4 'preflight' would otherwise cause)", async (t) => {
+  const fx = fixture(t)
+  const h = harness({
+    runMachine: async (deps) => {
+      for (const e of ALL_ENDED_WITH_PREFLIGHT_STEPS) deps.ledger.append(e)
+      throw new Error("crash after run_ended somehow (e.g. proxy.close() throwing in the finally)")
+    },
+  })
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED, "preflight alone must not be read as an interrupted job")
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.interrupted, [], "'preflight' is excluded - it is redone fresh on any resume, never resumed by key")
+  assert.deepEqual(s.issues, ["runner_crashed"])
+})
+
 // ------------------------------------------------------------- --resume
 
 test("--resume on an in-doubt log with the port held by this run's own proxy exits 4, resumable", async (t) => {
@@ -336,6 +376,11 @@ test("--resume on a smoke evidence dir (baseline PING in doubt, no smoke experim
   assert.equal(code, EXIT.ABORTED)
   assert.equal(s.resumable, false)
   assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  // RB1 (todo 12 re-review 1): the refusal summary reports the FOLDED counts from this evidence
+  // dir's own log, not the refusal() defaults (no inDoubt key, paidRequestsIssued 0) - the one
+  // in-doubt baseline PING and its one paid step_result must both be visible to the operator.
+  assert.deepEqual(s.inDoubt, ["preflight/baseline/1"])
+  assert.equal(s.paidRequestsIssued, 1)
   assert.equal(h.calls.startProxy, 0, "no proxy bind")
   assert.equal(h.calls.runMachine, 0, "the machine was never entered")
   assert.equal(h.calls.createAdapter.length, 0, "no adapter created")
@@ -351,8 +396,56 @@ test("--resume --smoke on a smoke evidence dir also refuses before any side effe
   const s = h.summary()
   assert.equal(code, EXIT.ABORTED)
   assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.deepEqual(s.inDoubt, ["preflight/baseline/1"])
+  assert.equal(s.paidRequestsIssued, 1)
   assert.equal(h.calls.startProxy, 0)
   assert.equal(h.calls.runMachine, 0)
+})
+
+// RB1: the folded counts must also be correct for a COMPLETED, valid smoke (nothing in doubt),
+// not only an in-doubt one - a clean log must report inDoubt:[] and its real paid total, in both
+// resume modes.
+const SMOKE_COMPLETED = [
+  { ev: "run_started", evidenceDir: null, smoke: true },
+  { ev: "preflight", ok: true },
+  { ev: "step_intent", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/0", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/1", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/1", experiment: "preflight" },
+  { ev: "step_intent", stepId: "preflight/baseline/2", experiment: "preflight" },
+  { ev: "step_result", stepId: "preflight/baseline/2", experiment: "preflight" },
+  { ev: "step_intent", stepId: "smoke/write/0", experiment: "smoke" },
+  { ev: "step_result", stepId: "smoke/write/0", experiment: "smoke" },
+  { ev: "step_intent", stepId: "smoke/dial/1", experiment: "smoke" },
+  { ev: "step_result", stepId: "smoke/dial/1", experiment: "smoke" },
+  { ev: "experiment_ended", experiment: "smoke", status: "complete", reason: null, paidRequests: 5 },
+  { ev: "run_ended", exitCode: 0, reason: "complete", paidRequests: 5 },
+]
+
+test("RB1 --resume on a COMPLETED smoke evidence dir refuses with inDoubt:[] and the real paid total, not the refusal() defaults", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100150"
+  seedRun(fx, runId, SMOKE_COMPLETED)
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.deepEqual(s.inDoubt, [])
+  assert.equal(s.paidRequestsIssued, 5)
+})
+
+test("RB1 --resume --smoke on a COMPLETED smoke evidence dir refuses with inDoubt:[] and the real paid total", async (t) => {
+  const fx = fixture(t)
+  const runId = "20260926-100160"
+  seedRun(fx, runId, SMOKE_COMPLETED)
+  const h = harness()
+  const code = await main(["--approval", fx.approval, "--evidence", fx.evidence, "--resume", runId, "--smoke"], h.io)
+  const s = h.summary()
+  assert.equal(code, EXIT.ABORTED)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.deepEqual(s.inDoubt, [])
+  assert.equal(s.paidRequestsIssued, 5)
 })
 
 test("N4 --resume --smoke on a NON-smoke (campaign) evidence dir refuses exit 2, before any side effect", async (t) => {
@@ -369,18 +462,22 @@ test("N4 --resume --smoke on a NON-smoke (campaign) evidence dir refuses exit 2,
   assert.equal(h.calls.runMachine, 0)
 })
 
-test("N3 a refused --resume on a copy of the recorded smoke2 evidence leaves every file byte-identical", async (t) => {
+// RN3 (todo 12 re-review 1): the evidence dir is built entirely from this file's own committed
+// fixtures/generators (SMOKE_BASELINE_IN_DOUBT + representative sibling-file content written
+// in-test) - no untracked or out-of-repo absolute path (the earlier version of this test read
+// another worktree's ignored w1 evidence, which fails in a fresh checkout that lacks that sibling
+// worktree; see test/quota-analysis.test.mjs's realRawAvailable()/t.skip precedent for the
+// alternative this test avoids needing).
+test("N3 a refused --resume on a self-contained smoke evidence dir leaves every file byte-identical", async (t) => {
   const fx = fixture(t)
-  const runId = "20260925-121230"
-  const evidenceDir = join(fx.evidence, runId)
-  const src = "C:/dev/omo/omo-rollover-wt/idle-experiments-live-run-w1/.omo/ulw-execute/evidence/idle-live-run/smoke2/20260925-121230"
-  mkdirSync(evidenceDir, { recursive: true })
-  for (const name of ["events.jsonl", "requests.jsonl", "proxy.jsonl", "label.txt", "summary.json"]) {
-    writeFileSync(join(evidenceDir, name), readFileSync(join(src, name)))
-  }
-  // run.json is rebuilt to bind THIS test's approval sha (else resume_approval_drift fires first);
-  // every OTHER file is the untouched recorded evidence.
-  writeFileSync(join(evidenceDir, "run.json"), `${JSON.stringify(manifest({ runId, evidenceDir, approvalSha256: sha256(fx.approvalText), plannerSha256: PLANNER_SHA, proxyPort: 18999 }), null, 2)}\n`)
+  const runId = "20260926-100300"
+  const evidenceDir = seedRun(fx, runId, SMOKE_BASELINE_IN_DOUBT)
+  // Representative sibling files a real smoke evidence dir also holds, written directly (not
+  // copied from anywhere) so the byte-identical check covers more than just events.jsonl/run.json.
+  writeFileSync(join(evidenceDir, "proxy.jsonl"), `${JSON.stringify({ ts: "2026-09-26T10:00:00.000Z", label: "preflight/baseline/0", stepId: "preflight/baseline/0", runId, method: "POST", path: "/v1/messages", status: 200 })}\n`)
+  writeFileSync(join(evidenceDir, "label.txt"), "preflight/baseline/1\n")
+  writeFileSync(join(evidenceDir, "requests.jsonl"), `${JSON.stringify({ v: "idle-live-request/1", runId, stepId: "preflight/baseline/0", experiment: "preflight", method: "POST", path: "/v1/messages" })}\n`)
+  writeFileSync(join(evidenceDir, "summary.json"), `${JSON.stringify({ v: SUMMARY_VERSION, runId, exitCode: EXIT.ABORTED }, null, 2)}\n`)
   const hashesOf = () => new Map(readdirSync(evidenceDir).map((f) => [f, sha256(readFileSync(join(evidenceDir, f)))]))
   const before = hashesOf()
   const h = harness()

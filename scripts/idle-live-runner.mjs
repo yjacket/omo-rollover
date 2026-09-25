@@ -35,6 +35,10 @@ import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
 import { EXPERIMENT_IDS } from "./idle-live/protocols.mjs"
 
+// The baseline/re-baseline quiet check's pseudo-experiment id (matches machine.mjs's own
+// PREFLIGHT_ID, not exported there). Used only by logState()'s RN6 fix, below.
+const PREFLIGHT_ID = "preflight"
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, "..")
 const PLANNER = path.join(repo, "scripts/idle-experiments.mjs")
@@ -204,7 +208,15 @@ export function logState(evidenceDir) {
   } catch (e) {
     return { ...none, started: null, paidRequests: null, unreadable: String(e.message) }
   }
-  const interrupted = Object.entries(st.experiments).filter(([, x]) => x.status === "started").map(([key]) => key)
+  // RN6 (todo 12 re-review 1): "preflight" (the baseline/re-baseline quiet check) never gets an
+  // experiment_ended - it is not one of Appendix A's approved jobs, and a resume ALWAYS redoes it
+  // fresh regardless of what the log holds for it (revision 2 (5); resumeFromLog never looks it up
+  // by job key either, since pre.jobs never contains "preflight"). fold()'s lazy `expOf` still
+  // creates an entry for it with status "started" the moment its first PING step is logged, and
+  // that status never changes - so EVERY real evidence dir that ever ran its quiet check would
+  // otherwise show "preflight" as perpetually interrupted, even a run that finished cleanly. That
+  // is not a state --resume can act on, so it must not promise exit 4 / resumable:true on its own.
+  const interrupted = Object.entries(st.experiments).filter(([key, x]) => key !== PREFLIGHT_ID && x.status === "started").map(([key]) => key)
   // N7 (todo 12 rework): a smoke evidence dir is never resumable even when the MACHINE itself
   // throws mid-flight (not a --resume attempt at all) - this classification path must not promise
   // exit 4 / resumable:true for one just because it happens to hold an in-doubt or open step.
@@ -417,8 +429,16 @@ async function run(argv, env, ctx, finish) {
       rawEvents = ""
     }
     const smokeLog = isSmokeLog(rawEvents)
-    if (smokeLog) return finish(refusal(["smoke_not_resumable"], { runId, evidenceDir, exitCode: EXIT.ABORTED, resumable: false }))
-    if (opts.smoke) return finish(refusal(["smoke_resume_of_campaign"], { runId, evidenceDir, exitCode: EXIT.PREFLIGHT, resumable: false }))
+    if (smokeLog || opts.smoke) {
+      // RB1 (todo 12 re-review 1): the applied Appendix B amendment says the refusal summary
+      // reports the folded inDoubt and paid counts - true at the machine layer, but the runner is
+      // the only layer the real CLI reaches for a smoke dir, so it must report them too, not the
+      // refusal() defaults (inDoubt absent, paidRequestsIssued 0). The text is already read.
+      const folded = fold(rawEvents)
+      const base = { runId, evidenceDir, resumable: false, inDoubt: folded.inDoubt, paidRequestsIssued: folded.paidRequests }
+      if (smokeLog) return finish(refusal(["smoke_not_resumable"], { ...base, exitCode: EXIT.ABORTED }))
+      return finish(refusal(["smoke_resume_of_campaign"], { ...base, exitCode: EXIT.PREFLIGHT }))
+    }
   }
 
   const logPath = path.join(evidenceDir, "proxy.jsonl")

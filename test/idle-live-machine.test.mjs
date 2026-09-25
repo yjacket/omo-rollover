@@ -1234,6 +1234,24 @@ test("B1 a smoke whose baseline PING is in doubt (no smoke experiment key yet) s
   assert.deepEqual(s.issues, ["smoke_not_resumable"])
 })
 
+// RN1 (todo 12 re-review 1): the smoke-resume refusal is a PURE READ (N3) - it must come before
+// EVERYTHING that can write, including the pre-aborted-signal cancel marker `runMachine` used to
+// append (via `stopCampaign`) BEFORE reaching the resume branch. A resume with an already-aborted
+// signal on a smoke evidence dir must append nothing at all, same as any other refused resume.
+test("RN1 a resume of a smoke evidence dir with an already-aborted signal refuses before any campaign_stop{cancelled} marker is appended", async () => {
+  const fx = await smokeBaselineInDoubtFixture()
+  const controller = new AbortController()
+  controller.abort()
+  const h = smokeResumeHarness(fx, { opts: { signal: controller.signal } })
+  const s = await h.run({ resume: "fake-run" })
+  assert.deepEqual(h.ids(), [])
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.resumable, false)
+  assert.deepEqual(s.issues, ["smoke_not_resumable"])
+  assert.equal(h.ledger.events.length, fx.events.length, "no event appended - not even the pre-aborted-signal campaign_stop{cancelled}")
+  assert.equal(h.ev("campaign_stop").length, 0, "the pre-aborted-signal cancel marker was never written")
+})
+
 test("B1 a hard crash at the step_intent of a smoke's baseline PING (no result, no void at all) refuses --resume, not the approved campaign", async () => {
   const first = harness()
   const s0 = await first.run({ smoke: true })
