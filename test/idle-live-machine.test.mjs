@@ -887,6 +887,110 @@ test("a timed experiment interrupted by a crash is never stitched back together"
   assert.equal(s.exitCode, EXIT.OK, "a void experiment with a reason is terminal")
 })
 
+// I29: claude.exe sends one free `HEAD /api/hello` connectivity probe per process, before its
+// POST. The proxy logs it under the step's label (label-file fallback, no x-idle-step header).
+// Field shapes copied from the real smoke's proxy.jsonl (runId 20260925-113156).
+const helloProbe = (stepId, h) => ({
+  ts: new Date(h.clock.now()).toISOString(), ts_req: new Date(h.clock.now()).toISOString(),
+  label: stepId, stepId: null, runId: h.proxy.runId, method: "HEAD", path: "/api/hello",
+  status: 200, model: null, usage: null, stop_reason: null, error: "unparseable_body", msg_id: null, body_bytes: 0, headers: {},
+})
+// Every invoke drains the probe first, then whatever the scripted POST pushes - the CLI's order.
+function withHelloProbe(h) {
+  const invoke = h.adapter.invoke
+  h.adapter.invoke = (step, env, signal) => { h.proxy.push(helloProbe(step.id, h)); return invoke(step, env, signal) }
+  return h
+}
+const hasAnomaly = (a) => (x) => (x.anomalies ?? []).includes(a)
+
+test("I29 --smoke with the CLI's HEAD /api/hello probe before every POST completes and records only the POSTs", async () => {
+  const h = withHelloProbe(harness())
+  const s = await h.run({ smoke: true })
+  assert.equal(s.exitCode, EXIT.OK, JSON.stringify(h.ev("campaign_stop")))
+  assert.deepEqual(h.ids(), ["preflight/baseline/0", "preflight/baseline/1", "preflight/baseline/2", "smoke/write/0", "smoke/dial/1"])
+  assert.equal(h.proxy.records.filter((r) => r.method === "HEAD").length, 5, "the proxy still logs every probe")
+  const posts = h.proxy.records.filter((r) => r.method === "POST")
+  assert.equal(h.ledger.requests.length, posts.length)
+  assert.deepEqual([...new Set(h.ledger.requests.map((r) => `${r.method} ${r.path}`))], ["POST /v1/messages"])
+  assert.deepEqual(h.ledger.requests.map((r) => r.msgId), posts.map((r) => r.msg_id), "usage and headers come from the POST")
+  assert.equal(s.paidRequestsIssued, posts.length)
+  assert.deepEqual(h.ev("step_result").map((e) => e.accounting.requestCount), [1, 1, 1, 1, 1])
+  assert.deepEqual(h.ev("step_result").map((e) => e.transportProbes), [1, 1, 1, 1, 1])
+  assert.equal(h.events.filter(hasAnomaly("unexpected_request_count")).length, 0)
+})
+
+test("I29 a probe on the adapter-failure path is never a paid row: alone the step stays in doubt, with one POST it is one request", async () => {
+  const target = ttlId("treatment", 4)
+  const failed = { error_result: { code: "nonzero_exit", message: "exit code 1" }, exitCode: 1 }
+  const alone = withHelloProbe(harness({ script: { [target]: { ...failed, records: 0 } } }))
+  const s = await alone.run({ only: ONLY_TTL })
+  assert.equal(s.exitCode, EXIT.IN_DOUBT)
+  assert.deepEqual(s.inDoubt, [target])
+  assert.equal(alone.ledger.requests.filter((r) => r.stepId === target).length, 0)
+  const voided = alone.ev("step_void").find((e) => e.stepId === target)
+  assert.equal(voided.reason, "unknown_issue_state")
+  assert.equal(voided.accounting, undefined, "no request count for a probe")
+  assert.equal(voided.transportProbes, 1)
+
+  // the POST lost its x-idle-step header and its label: drained, but not the step's own
+  const one = withHelloProbe(harness({ script: { [target]: failed } }))
+  const push = one.proxy.push
+  one.proxy.push = (r) => push(r.method === "POST" && r.stepId === target ? { ...r, stepId: null, label: "" } : r)
+  const s1 = await one.run({ only: ONLY_TTL })
+  assert.equal(s1.exitCode, EXIT.IN_DOUBT)
+  const rows = one.ledger.requests.filter((r) => r.stepId === target)
+  assert.equal(rows.length, 1)
+  assert.equal(`${rows[0].method} ${rows[0].path}`, "POST /v1/messages")
+  assert.equal(rows[0].accounting.requestCount, 1)
+  assert.equal(one.ev("step_void").find((e) => e.stepId === target).accounting.requestCount, 1)
+})
+
+test("I29 a probe row beside the POST of an in-doubt step reconciles to one request on resume", async () => {
+  const stepId = ttlId("treatment", 4)
+  const fx = await crashFixture({ stepId, withProxyRecord: true })
+  const at = fx.proxyRecords.findIndex((r) => r.stepId === stepId)
+  fx.proxyRecords.splice(at, 0, { ...helloProbe(stepId, { clock: { now: () => Date.parse(fx.proxyRecords[at].ts_req) }, proxy: { runId: "fake-run" } }) })
+  const h = resumeHarness(fx)
+  await h.run({ resume: "fake-run", only: ONLY_TTL })
+  const ev = h.ev("step_result").find((e) => e.stepId === stepId)
+  assert.equal(ev.source, "proxy_reconciled")
+  assert.equal(ev.accounting.requestCount, 1)
+  assert.ok(!ev.anomalies.includes("unexpected_request_count"), JSON.stringify(ev.anomalies))
+  const rows = h.ledger.requests.filter((r) => r.stepId === stepId)
+  assert.deepEqual(rows.map((r) => `${r.method} ${r.path}`), ["POST /v1/messages"])
+
+  // a probe alone proves nothing was paid: the step stays in doubt
+  const bare = await crashFixture({ stepId, withProxyRecord: false })
+  bare.proxyRecords.push(helloProbe(stepId, { clock: { now: () => bare.crashedAt }, proxy: { runId: "fake-run" } }))
+  const h2 = resumeHarness(bare)
+  const s2 = await h2.run({ resume: "fake-run", only: ONLY_TTL })
+  assert.equal(s2.exitCode, EXIT.IN_DOUBT)
+  assert.deepEqual(s2.inDoubt, [stepId])
+  assert.equal(h2.ledger.requests.filter((r) => r.stepId === stepId).length, 0)
+})
+
+test("I29 fail closed: any other second record, or a second POST, still stops the campaign", async () => {
+  const target = ttlId("treatment", 4)
+  for (const extra of [{ method: "GET", path: "/v1/models" }, { method: "head", path: "/api/hello" }, { method: "HEAD", path: "/api/hello/x" }, {}]) {
+    const h = withHelloProbe(harness())
+    const push = h.proxy.push
+    h.proxy.push = (r) => { push(r); if (r.method === "POST" && r.stepId === target) push({ ...helloProbe(target, h), method: undefined, path: undefined, ...extra }) }
+    const s = await h.run({ only: ONLY_TTL })
+    assert.equal(s.exitCode, EXIT.ABORTED, JSON.stringify(extra))
+    assert.equal(s.experiments[TTL].reason, "unexpected_request_count", JSON.stringify(extra))
+    assert.equal(h.ev("step_result").find((e) => e.stepId === target).accounting.requestCount, 2, JSON.stringify(extra))
+  }
+  const twice = withHelloProbe(harness({ script: { [target]: { records: 2 } } }))
+  const s = await twice.run({ only: ONLY_TTL })
+  assert.equal(s.experiments[TTL].reason, "unexpected_request_count")
+  assert.equal(twice.ledger.requests.filter((r) => r.stepId === target).length, 2, "two POSTs, two paid rows, no probe row")
+  // a query string on the probe path is still the probe
+  const q = withHelloProbe(harness())
+  const qpush = q.proxy.push
+  q.proxy.push = (r) => qpush(r.method === "HEAD" ? { ...r, path: "/api/hello?beta=true" } : r)
+  assert.equal((await q.run({ only: ONLY_TTL })).exitCode, EXIT.OK)
+})
+
 
 test("fold is deterministic and ignores a torn final line", async () => {
   const h = harness()

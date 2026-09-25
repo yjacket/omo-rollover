@@ -648,6 +648,12 @@ const compactCaps = (accounting) => (Array.isArray(accounting?.caps) ? accountin
 
 const emptyResult = (anomalies, late) => ({ record: null, anomalies, ticks: {}, late, meters: {} })
 
+// Appendix B "Transport probes": the CLI's free `HEAD /api/hello` connectivity probe (one per
+// process, before its POST) stays in proxy.jsonl but is never a request - not a row, not counted,
+// not charged, never the step's own record. Only that exact pair is excluded (fail closed): any
+// other method or path, and a record without either field, still counts.
+const isTransportProbe = (r) => r?.method === "HEAD" && typeof r.path === "string" && r.path.split("?")[0] === "/api/hello"
+
 // The requests.jsonl row of a drained proxy record that is not the step's own response: the step's
 // row fields, with the record's own evidence, marked `extra_request`.
 const drainedRow = (base, x) => ({
@@ -756,7 +762,10 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   }
   const drained = await st.deps.proxy.drainSince(cursor)
   st.proxyCursor = drained.cursor ?? cursor
-  const records = Array.isArray(drained.records) ? drained.records : []
+  const drainedAll = Array.isArray(drained.records) ? drained.records : []
+  const records = drainedAll.filter((r) => !isTransportProbe(r))
+  // audit only, and only when present: a run without probes writes byte-identical events
+  const probes = drainedAll.length - records.length ? { transportProbes: drainedAll.length - records.length } : {}
   st.paidRequests += records.length
   const own = records.filter((r) => r?.stepId === step.id || r?.label === step.id)
 
@@ -790,7 +799,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
       anomalies: ["unexpected_request_count"],
     }
     for (const x of records) st.deps.ledger.writeRequestRecord(drainedRow(base, x))
-    emit(st, { ev: "step_void", ...META_OF(step), reason: "unknown_issue_state", inDoubt: true, error: adapterFailure, ...(records.length ? { accounting: { requestCount: records.length } } : {}) })
+    emit(st, { ev: "step_void", ...META_OF(step), reason: "unknown_issue_state", inDoubt: true, error: adapterFailure, ...(records.length ? { accounting: { requestCount: records.length } } : {}), ...probes })
     st.inDoubt.push(step.id)
     return { paid: records.length, fatal: { status: "void", reason: cancelled ? "cancelled" : "unknown_issue_state" }, stop: true, inDoubt: true }
   }
@@ -924,7 +933,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     ts_req: record.ts_req, ts: record.ts, model: record.model, stop_reason: record.stop_reason, status: record.status,
     ticks: applied.ticks,
     accounting: { spentObservedEq: accountingRow.spentObservedEq, spentUpperEq: accountingRow.spentUpperEq, scope: idleKey, predictedTicksForThisCall: accountingRow.predictedTicksForThisCall, requestCount: records.length, unexplainedTicks: unexplained },
-    phase_ledger: phaseLedgerRow, anomalies, exitCode: record.exitCode, late: false,
+    phase_ledger: phaseLedgerRow, anomalies, exitCode: record.exitCode, late: false, ...probes,
   })
 
   const protocolRecord = p || usageRaw ? { ...record, text } : null
@@ -1466,7 +1475,7 @@ async function resumeFromLog(st) {
   const proxyLog = await proxyLogOf(st)
   for (const stepId of folded.inDoubt) {
     const intent = folded.steps[stepId]?.intent ?? null
-    const matches = proxyLog.filter((r) => r?.stepId === stepId || r?.label === stepId)
+    const matches = proxyLog.filter((r) => (r?.stepId === stepId || r?.label === stepId) && !isTransportProbe(r))
     if (matches.length > 0) {
       reconcileStep(st, stepId, intent, matches)
       continue
