@@ -1350,11 +1350,14 @@ const REASON_TEXT = Object.freeze({
   // The output-quota gate floor is proportional to the block's own output target
   // (gateMinOutput * level.target / outputTarget, protocols.mjs:325), not a fixed 6,000 - block
   // 1's floor happens to be 6,000 (the base gateMinOutput) but block 3's is 3,000 (a 4K target).
-  short_output: "이 블록의 목표 출력에 비례해 정해지는 최소 출력 토큰 기준(gateMinOutput 비례식) AND stop_reason이 end_turn 조건을 만족하지 못한 첫 호출이라 이 실험을 중단했다",
-  dial_miss: "dial 읽기가 예상한 캐시 적중(prefix hit)을 보이지 않아 이 실험 전체를 중단했다(finish가 전체 실험을 닫는다)",
-  early_tick: "예비 걷기(pre-walk) 중 너무 이르게 tick이 관측돼 위상을 신뢰할 수 없어 이 실험 전체를 무효로 닫았다(finish가 전체 실험을 닫는다)",
+  // todo 17 (gate st_01a0da3f re-review 2 RRN-b, RRN-c): rewritten in plain Korean - no internal
+  // identifier or English logical word in the rendered sentence, and "다 읽도록" instead of
+  // "넘겨도" since the walk stops at 40 reads rather than exceeding it.
+  short_output: "8K 블록의 최소 출력 토큰 기준은 6,000이고, 그보다 작은 블록은 그 블록의 목표 출력에 비례해 정해진다. 이 기준을 채우지 못했거나, 채웠어도 모델이 끝까지 답하지 않은(stop_reason이 end_turn이 아닌) 첫 호출이라 이 실험을 중단했다",
+  dial_miss: "dial 읽기가 예상한 캐시 적중(prefix hit)을 보이지 않아 이 실험 전체를 중단했다",
+  early_tick: "예비 걷기(pre-walk) 중 너무 이르게 tick이 관측돼 위상을 신뢰할 수 없어 이 실험 전체를 무효로 닫았다",
   no_dial_prefix: "이 블록이 쓸 dial prefix가 없어(직전 쓰기가 없거나 체인이 끊겨서) 중단했다",
-  post_walk_overrun: "post-walk 걷기가 허용된 읽기 횟수(40)를 넘겨도 tick을 보지 못했거나, tick을 보긴 했지만 이상 기준(읽기 38회 이후)보다 늦게 왔다: 두 경우 모두 이 실험을 중단했다",
+  post_walk_overrun: "post-walk 걷기가 허용된 읽기 40회를 다 읽도록 tick을 보지 못했거나, tick을 보긴 했지만 이상 기준(읽기 38회 이후)보다 늦게 왔다: 두 경우 모두 이 실험을 중단했다",
   missing_record: "이 단계의 응답 기록을 읽을 수 없어(proxy 기록 없음) 무효로 닫았다",
   missing_usage: "응답에 이 판정에 필요한 사용량(usage) 필드가 없어 무효로 닫았다",
   missing_ticks: "이 판정에 필요한 게이지 tick 값을 읽을 수 없어 무효로 닫았다",

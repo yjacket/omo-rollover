@@ -1516,21 +1516,25 @@ function explainRecorded(code) {
 // What the doc says for a code nobody gave a text: the generic fallback, derived, never typed here.
 const UNDESCRIBED = explainRecorded("zz_code_nobody_records")
 
-// Todo 15(a) rework 2 (gate st_01a0da3f RB1): every reason code that can land in an
-// experiment_ended/step_void record must have a Korean explanation, not the generic "no
-// description" fallback. Machine-recorded verdicts come from three sources, all scanned live
-// at test time (not pinned literals), so a new code cannot silently fall back:
+// Todo 15(a) rework 2 (gate st_01a0da3f RB1), widened by todo 17 (re-review 2 RRN-a / probe P5):
+// every reason code that can land in an experiment_ended/step_void record must have a Korean
+// explanation, not the generic "no description" fallback. Machine-recorded verdicts come from
+// four literal shapes across three files, all scanned live at test time (not pinned literals),
+// so a new code cannot silently fall back:
 //   - scripts/idle-live/machine.mjs: literal reason: "..." / reason: FALLBACK_MISS
-//     assignments, reason === "..." comparisons, and the DELIVERY_FAILURE / CAMPAIGN_FATAL
-//     sets (their members close an experiment via anomalies.find(...CAMPAIGN_FATAL/
-//     DELIVERY_FAILURE...), machine.mjs:1022-1077, 1447).
+//     assignments, reason === "..." comparisons, the resume-fallback ternary's own-reason arm
+//     (`prior ? prior.reason : "..."`, machine.mjs ~:1885), and the DELIVERY_FAILURE /
+//     CAMPAIGN_FATAL sets (their members close an experiment via anomalies.find(...CAMPAIGN_
+//     FATAL/DELIVERY_FAILURE...), machine.mjs:1022-1077, 1447).
 //   - scripts/idle-live/protocols.mjs: verdict(status, "code") calls and FATAL_ANOMALIES.
 //   - scripts/idle-live/caps.mjs: every gate refusal/warning `code: "..."` literal (these
 //     reach an experiment as a gate-refused step_void/experiment_ended reason via the
 //     machine's gate-refusal path).
 // A code this scan finds that is only ever a run_ended-level reason (never an experiment's
-// own reason) still gets real Korean text below rather than a special-cased exclusion, so
-// there is nothing here that can silently widen without the test catching it.
+// own reason) still gets real Korean text below rather than a special-cased exclusion. This is
+// exactly the four shapes above and nothing else: a code introduced through a different literal
+// shape in one of these three files, or in a fourth file, is not scanned and would silently
+// widen (this is why the comment names the shapes exactly, rather than claiming completeness).
 test("todo 15/a every experiment_ended/step_void reason code has a Korean explanation", () => {
   const machineSrc = readFileSync(path.join("scripts", "idle-live", "machine.mjs"), "utf8")
   const protocolsSrc = readFileSync(path.join("scripts", "idle-live", "protocols.mjs"), "utf8")
@@ -1538,6 +1542,9 @@ test("todo 15/a every experiment_ended/step_void reason code has a Korean explan
   const codes = new Set()
   for (const m of machineSrc.matchAll(/reason:\s*(?:FALLBACK_MISS|"([a-z_]+)")/g)) codes.add(m[1] ?? "fallback_mode_misses")
   for (const m of machineSrc.matchAll(/reason\s*===\s*"([a-z_]+)"/g)) codes.add(m[1])
+  const resumeFallback = machineSrc.match(/prior\s*\?\s*prior\.reason\s*:\s*"([a-z_]+)"/)
+  assert.ok(resumeFallback, "sanity: the scan found machine.mjs's resume-fallback own-reason literal")
+  codes.add(resumeFallback[1])
   for (const setName of ["DELIVERY_FAILURE", "CAMPAIGN_FATAL"]) {
     const m = machineSrc.match(new RegExp(`const ${setName} = new Set\\(\\[([^\\]]+)\\]\\)`))
     assert.ok(m, `sanity: the scan found machine.mjs's ${setName} set`)
@@ -1558,6 +1565,32 @@ test("todo 15/a every experiment_ended/step_void reason code has a Korean explan
     if (!explanation || explanation === UNDESCRIBED) undescribed.push(code)
   }
   assert.deepEqual(undescribed, [], `reason code(s) render the generic fallback line: ${undescribed.join(", ")}`)
+})
+
+// Todo 17 (gate st_01a0da3f re-review 2 RRN-b): the reason texts a reader sees must be plain
+// Korean, not source code dressed up in Korean. Precisely: no string in REASON_TEXT may contain
+// (a) a camelCase token (a lowercase letter immediately followed by an uppercase letter in the
+// same run of letters, e.g. "gateMinOutput" - a plain Korean sentence never produces this shape)
+// or (b) an English logical-operator word ("AND", "OR", "NOT") standing in for a Korean
+// conjunction, or (c) the bare word "finish" naming the code's own function. Established
+// domain vocabulary the reader needs (CLI, HTTP, JSON, dial, tick, arm, preflight, and similar
+// snake_case/lowercase terms already used throughout the doc) is not flagged: this test targets
+// the specific residue named in the gate note, not every English loanword in the file.
+test("todo 17 no rendered reason text carries a code identifier or an English logical word", () => {
+  const src = readFileSync(SCRIPT, "utf8")
+  const m = src.match(/const REASON_TEXT = Object\.freeze\(\{([\s\S]*?)\n\}\)/)
+  assert.ok(m, "sanity: the scan found the REASON_TEXT map")
+  const DENY_WORDS = new Set(["AND", "OR", "NOT", "finish"])
+  const offenders = []
+  for (const entry of m[1].matchAll(/(\w+):\s*"((?:[^"\\]|\\.)*)"/g)) {
+    const [, code, text] = entry
+    for (const tok of text.matchAll(/[A-Za-z][A-Za-z_]*/g)) {
+      const word = tok[0]
+      const isCamelCase = /[a-z][A-Z]/.test(word)
+      if (isCamelCase || DENY_WORDS.has(word)) offenders.push(`${code}: "${word}"`)
+    }
+  }
+  assert.deepEqual(offenders, [], `code identifier or English logical word in rendered text: ${offenders.join(", ")}`)
 })
 
 // Todo 15(b) (Appendix B amended settle rule, todo 13): the fixture's `preflight/settle/<n>`
