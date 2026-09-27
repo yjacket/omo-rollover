@@ -18,6 +18,7 @@ import { RULES, EXPERIMENT_IDS, makeTask, NULLP, BIG_CONTEXT_MODE } from "../scr
 import { cliArgs, SYSTEM_PROMPT_FILE_FLAG } from "../scripts/idle-live/adapters/claude-cli.mjs"
 import { METERS } from "../scripts/idle-live/gauge.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
+import { conflicting as findConflicts } from "../scripts/idle-live/processes.mjs"
 // Read-only: M7 asserts the landed analyzer can resolve ground truth from `experiment_started`.
 import { analyzeRun } from "../scripts/idle-live-analyze.mjs"
 import { proxyLogReader } from "../scripts/idle-live-runner.mjs"
@@ -353,7 +354,7 @@ function fakeAdapter({ proxy, gauge, script = {}, capabilities = { ttlLanes: ["1
 
 // -------------------------------------------------------------------- harness
 
-function harness({ approval = clone(APPROVAL), script = {}, gauge: gaugeOpts = {}, capabilities, conflicts = [], ledger = memoryLedger(), seeds = [], uuids = [], clockStart = EPOCH, opts = {}, tap = null } = {}) {
+function harness({ approval = clone(APPROVAL), script = {}, gauge: gaugeOpts = {}, capabilities, conflicts = [], processRows = null, ledger = memoryLedger(), seeds = [], uuids = [], clockStart = EPOCH, opts = {}, tap = null } = {}) {
   const clock = fakeClock(clockStart)
   const gauge = fakeGauge({ clock, ...gaugeOpts })
   const proxy = memoryProxy({ runId: opts.runId ?? "fake-run" })
@@ -368,7 +369,7 @@ function harness({ approval = clone(APPROVAL), script = {}, gauge: gaugeOpts = {
     adapter,
     proxy,
     ledger,
-    processes: { conflicting: async () => conflicts },
+    processes: { conflicting: async () => processRows === null ? conflicts : findConflicts({ exec: async () => ({ stdout: JSON.stringify(processRows) }), selfPid: 999 }) },
     random: {
       seed: () => (seedN < seeds.length ? seeds[seedN++] : 1000 + seedN++),
       uuid: () => (uuidN < uuids.length ? uuids[uuidN++] : `uuid-${String(++uuidN).padStart(2, "0")}`),
@@ -487,8 +488,8 @@ test("preflight refuses when another claude.exe is running", async () => {
   assert.equal(h.adapter.invoked.length, 0)
 })
 
-test("preflight refuses an idle bun-hosted omo session even without a Claude child", async () => {
-  const h = harness({ conflicts: [{ image: "bun.exe", pid: 96708, parentPid: 71692, commandLine: 'bun.exe C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\@code-yeongyu\\senpi\\dist\\bundle\\cli.js' }] })
+test("preflight refuses an idle bun-hosted omo session through the process matcher", async () => {
+  const h = harness({ processRows: [{ Name: "bun.exe", ProcessId: 96708, ParentProcessId: 71692, CommandLine: 'bun.exe C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\@code-yeongyu\\senpi\\dist\\bundle\\cli.js' }] })
   const p = await h.pre()
   assert.equal(p.ok, false)
   assert.ok(p.issues.includes("conflicting_process"))
@@ -980,16 +981,19 @@ test("a crashed step with a proxy record is reconciled from the proxy and never 
   assert.equal(s.resumable, false)
 })
 
-test("resume folds this run's spend without folding the approval's prior a second time", async () => {
+test("resume keeps seeded prior spend separate so every total counts it exactly once", async () => {
   const fx = await crashFixture({ withProxyRecord: true })
   const a = clone(APPROVAL)
   a.priorSpend = { runId: "old", summarySha256: "a".repeat(64), perMeterUpperEq: Object.fromEntries(METERS.map((m) => [m, 0.01])), perPlanUpperEq: Object.fromEntries(EXPERIMENT_IDS.map((id) => [id, 0.01])) }
   const h = resumeHarness(fx, { approval: a })
   const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
   assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(s.experiments[TTL].spentUpperEq, 0.03, "the seeded prior is not part of this resumed run's rehydrated plan scope")
   assert.equal(s.meters["unified-5h"].totalUpperEq, Math.round((0.01 + s.meters["unified-5h"].cumulativeUpperEq) * 100) / 100)
-  assert.equal(s.experiments[TTL].totalUpperEq, Math.round((0.01 + s.experiments[TTL].spentUpperEq) * 100) / 100)
+  assert.equal(s.experiments[TTL].totalUpperEq, 0.04)
   assert.equal(s.experiments[TTL].priorUpperEq, 0.01)
+  assert.equal(s.meters["unified-5h"].priorUpperEq, 0.01)
+  assert.deepEqual(s.priorSpend, a.priorSpend, "resuming preserves the approval seed rather than folding it into run state")
 })
 
 test("a crashed step without a proxy record is void, in doubt, and exits 4", async () => {

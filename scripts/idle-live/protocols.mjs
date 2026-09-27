@@ -302,13 +302,14 @@ async function* outputQuota(ctx) {
   const s = newSession(ctx, experiment)
   const out = { blocks: [], block3: null, phaseAtEnd: null }
   const cap = num(ctx.approval?.plans?.[experiment]?.limits?.maxTotalExperimentalSpend?.value)
+  const priorSpend = num(ctx.approval?.priorSpend?.perPlanUpperEq?.[experiment]) ?? 0
   let phase = normalizePhase(ctx.phase)
   let chainSource = phase ? "chained_from_ctx" : null
   let ticksSpent = 0
   for (let b = 1; b <= RULES.output.optionalBlock; b++) {
     if (b === RULES.output.optionalBlock) {
-      // Block 3 (1..1000) only if the remaining plan budget covers it; spent = observed + 0.01.
-      const remaining = cap === null ? null : cap - (ticksSpent + 1) * 0.01
+      // Block 3 (1..1700) only if the remaining plan budget covers it; prior and current spend include 0.01 quantization slack.
+      const remaining = cap === null ? null : cap - priorSpend - (ticksSpent + 1) * 0.01
       if (remaining === null || remaining < RULES.output.block3MinRemaining - 1e-12) { out.block3 = "skipped:budget"; break }
       out.block3 = "run"
     }
@@ -704,9 +705,7 @@ export function schedule(experimentId) {
     case "output-quota": {
       const o = RULES.output
       return { experiment: experimentId, unit: "block", maxUnits: o.optionalBlock, timed: false, resetMarginMs: o.resetMarginMs, preWalkMax: o.preWalkMax, loopMax: o.loopMax, targetTicks: o.targetTicks, spacingMs: RULES.spacingMs, holdPings: o.holdPings, holdSpacingMs: o.holdSpacingMs, gateMinOutput: o.gateMinOutput, blocks: [
-        { block: 1, arm: "out-8k", prompt: "OUTP", outputTokensTarget: o.outputTarget, optional: false },
-        { block: 2, arm: "out-8k", prompt: "OUTP", outputTokensTarget: o.outputTarget, optional: false },
-        { block: 3, arm: "out-4k", prompt: `outp(${o.block3.n})`, outputTokensTarget: o.block3.outputTarget, optional: true, minRemainingBudget: o.block3MinRemaining },
+        ...OUTPUT_BLOCKS.map(({ block, arm, n, target, optional }) => ({ block, arm, prompt: `outp(${n})`, outputTokensTarget: target, optional, ...(optional ? { minRemainingBudget: o.block3MinRemaining } : {}) })),
       ], paidCallsMax: o.optionalBlock * (o.preWalkMax + o.loopMax + o.holdPings), expectedDurationMs: 95 * MIN }
     }
     case "ttl-1h-unique-prefix":
