@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { runMachine, fold, manifest, isSmokeLog, EXIT, SUMMARY_VERSION, PREFLIGHT_ID } from "./idle-live/machine.mjs"
 import { loadApproval } from "./idle-live/approval.mjs"
-import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/claude-cli.mjs"
+import { createClaudeCliAdapter, probeCliVersion, cliArgs } from "./idle-live/adapters/claude-cli.mjs"
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
@@ -266,9 +266,11 @@ function printSchedule(write, schedule, skippedArms, freshWindow = false) {
   }
   // how restore-decomposition and policy-effect send their big context (Amendment 2026-09-27)
   const f = BIG_CONTEXT_FORM
+  const prefixLength = cliArgs({ model: "<model>", session: { id: "<P>", mode: "new" } }).length - 2
+  const form = (mode, stdin) => `${cliArgs({ model: "<model>", session: { id: "<P>", mode }, systemPromptPath: "<file>" }).slice(prefixLength).join(" ")} stdin=${stdin}`
   for (const id of Object.keys(f.laterRoles)) {
     if (!schedule.some((r) => r.experiment === id)) continue
-    line([`${id}/big-context`, `mode=${f.mode}`, `file=${f.file}`, `ctx_create=${f.ctxCreate}`, `laterRoles=${f.laterRoles[id].join(",")}`, `later=${f.later}`, `gateMiss=${f.gateMiss}`])
+    line([`${id}/big-context`, `mode=${f.mode}`, `file=${f.file}`, `ctx_create=${form("new", "NULLP")}`, `laterRoles=${f.laterRoles[id].join(",")}`, `later=${form("resume", "<step text>")}`, `gateMiss=${f.gateMiss}`])
   }
 }
 

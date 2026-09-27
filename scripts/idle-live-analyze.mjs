@@ -1376,6 +1376,7 @@ const REASON_TEXT = Object.freeze({
   // deliberately broad - these get real text too rather than special-cased out of it).
   preflight_refused: "preflight 점검이 거부돼 캠페인을 시작하지 않았다: 요청이 없고 측정한 것이 없다",
   window_wait_unbounded: "5시간 창의 재설정까지 대기 시간이 5시간을 넘거나 재설정 시각을 확인할 수 없어 시작하지 않았다",
+  fresh_window_unknown: "첫 사전 점검 응답에서 5시간 창 재설정 시각을 읽지 못해 실험을 시작하지 않았다",
   window_not_fresh: "재설정 후 다시 확인한 5시간 창이 충분히 새 창이 아니어서 실험 전에 중단했다",
   dry_run: "--dry-run으로 실행해 일정만 출력했다: 유료 호출이 없었다",
 })
