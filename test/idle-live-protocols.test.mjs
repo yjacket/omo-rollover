@@ -258,6 +258,24 @@ test("reexplanation requires missing data or inability rather than a negated men
   assert.equal(reexplainNeeded("I can't scan until you send it again."), true)
 })
 
+test("Markdown and prose answer statements cannot conceal a contradictory answer", () => {
+  for (const correction of [
+    "- **Answer:** 12", "### Final answer: 12", "*Final answer:* 12",
+    "__Final answer:__ 12", "1. Final answer: 12", "> Answer: 12",
+    "Answer is 12.", "Final answer is 12.", "Answer = 12", "Final answer - 12",
+  ]) assert.equal(scoreWork(`12, 40\n${correction}`, ["12", "40"]).correct, false, correction)
+  assert.equal(scoreWork("> - **Answer:** 12, 40", ["12", "40"]).correct, true)
+})
+
+test("explanations about record values are not answer corrections", () => {
+  for (const [answer, explanation, truth] of [
+    ["12, 40", "Record 3719 is Cardiff instead of Swansea (17.0 C).", ["12", "40"]],
+    ["none", "Record 591 actually reads -4.5 C, below the threshold.", []],
+    ["12", "Row 40 should be excluded: it reads 16.9 C.", ["12"]],
+    ["12, 40", "The threshold of 17.0 C is correct for this ticket.", ["12", "40"]],
+  ]) assert.equal(scoreWork(`${answer}\n${explanation}`, truth).correct, true, explanation)
+})
+
 // --------------------------------------------------------- (a) fable-write-tick
 
 const fableResponder = ({ preTickAt = 12, postTickAt = { 1: 14, 2: 9 }, writeTicks = 0, delayedOn = null, missAt = null, late = null, nullRecordAt = null } = {}) => (step) => {

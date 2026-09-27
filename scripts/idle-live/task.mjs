@@ -81,15 +81,15 @@ const byNumber = (xs) => [...xs].map(String).sort((a, b) => Number(a) - Number(b
 const ID_LIST = /^(?:\d+(?:\s*,\s*\d+)*|none)\.?$/i
 const ANSWER_LABEL = /^([A-Za-z][A-Za-z ()'-]*?)\s*:\s*(.*)$/
 const ANSWER_CUE = /\b(?:answer|result|correct(?:ion|ed)?|revis(?:ed|ion)|final|updated?|ids?)\b/i
-const CORRECTION_CUE = /\b(?:actually|instead|wait|correct(?:ion|ed)?|should\s+(?:be|read)|also\s+qualif\w*|the\s+(?:correct\s+|matching\s+|right\s+)?(?:ids?|answer)\s+(?:is|are))\b/i
+const CORRECTION_CUE = /\b(?:answers?|correction|corrected|revis(?:ed|ion)|also\s+qualif\w*|(?:the\s+)?(?:correct\s+|matching\s+|right\s+)?ids?\s+(?:is|are))\b/i
 function workAnswer(text) {
   const candidates = []
   for (const line of text.split(/\r?\n/)) {
-    let value = line.trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
-    if (!value || /^```/.test(value)) continue
+    let value = line.trim().replace(/^(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+[.)]\s+)+/, "").replace(/[*_`]/g, "").trim()
+    if (!value) continue
     const label = value.match(ANSWER_LABEL)
     const labeled = label !== null && ANSWER_CUE.test(label[1])
-    if (labeled) value = label[2].trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
+    if (labeled) value = label[2].trim()
     if (labeled && !value) continue // A heading for the answer on the next line.
     if (!labeled && !ID_LIST.test(value)) {
       if (/^(?:\d+\s*,|none\s*,)/i.test(value)) return null
