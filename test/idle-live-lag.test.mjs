@@ -1,4 +1,4 @@
-// Todo 13: gauge attribution under a lagging ratelimit header, and the stop after an rf-emulation
+// Todo 13: gauge attribution under a lagging ratelimit header, and the stop after a big-context
 // fallback miss. The live run 20260925-161302 showed a header that does not carry the call's own
 // charge (the todo-9 D1 fit: lag 0 and lag 2 infeasible, lag 1 feasible; per-call vs time-based
 // settlement NOT established), so every fake here offers BOTH lag models:
@@ -197,6 +197,8 @@ function fakeAdapter({ proxy, gauge, clock, script = {} }) {
       const s = script[step.id] ?? {}
       // the CLI never started: no proxy row, no charge - the call is in doubt
       if (s.throws) throw Object.assign(new Error("spawn failed"), { code: "spawn_failed" })
+      // the landed adapter's refusal before spawn (P file checks): no proxy row, nothing spawned
+      if (s.refuses) throw Object.assign(new Error("refused before spawn"), { code: s.refuses })
       if (step.role === "ctx_create" && Number.isInteger(step.seed)) {
         tasks.set(`${step.experiment}/${step.unit.index}`, makeTask(step.seed, { steps: step.experiment === "policy-effect" ? RULES.policy.workSteps : RULES.restore.workSteps }))
       }
@@ -250,9 +252,10 @@ function harness({ lag = { kind: "call" }, script = {}, acc0 = 0.5, clockStart =
 }
 
 // The live call shape of restore run 1 (requests.jsonl #4-#6 of 20260925-161302): the context
-// write, the `--resume` gate that replayed the whole context (read 3,035 / write 143,423 -> mode
-// rf-emulation), and park_path/2, whose rf-emulation request rewrote the big context again
-// (write 143,444, out 4,238) and closed the run `aborted:big_context_rewrite`.
+// write, the `--resume` gate that replayed the whole context (read 3,035 / write 143,423), and
+// park_path/2, whose rf-emulation request rewrote the big context again (write 143,444, out 4,238).
+// Since Amendment 2026-09-27 (todo 21b) there is no rf-emulation fallback: the same gate reading
+// closes the run `aborted:resume_gate_miss` and park_path/2 is never issued.
 const LIVE_SHAPE = {
   "restore-decomposition/shared/0": { usage: usage({ w1: 143_362, rd: 3035, out: 4 }) },
   "restore-decomposition/shared/1": { usage: usage({ w1: 143_423, rd: 3035, out: 4 }) },
@@ -277,8 +280,8 @@ for (const { name, lag } of LAGS) {
   test(`live replay under a ${name}: fable-write-tick's first read is charged 0 and its WRITE-2400 is admitted`, async () => {
     const h = harness({ lag, script: LIVE_SHAPE })
     await h.run()
-    // restore run 1 closes the way it did live
-    assert.equal(verdicts(h.events)["restore-decomposition#1"], "aborted:big_context_rewrite")
+    // restore run 1 closes at its gate miss (live it went on into the rf-emulation rewrite)
+    assert.equal(verdicts(h.events)["restore-decomposition#1"], "aborted:resume_gate_miss")
     const first = rowOf(h, FABLE_FIRST_READ)
     assert.ok(first, "fable's first read was issued")
     assert.equal(first.accounting.scope, "fable-write-tick/block-1")
@@ -302,7 +305,7 @@ test("the settle reading is charged to the previous scope and the next scope's b
   assert.equal(settle.experiment, "preflight", "a settle PING outside every experiment precedes fable's first call")
   assert.equal(settle.kind, "ping")
   assert.deepEqual(settle.chargeTo, ["restore-decomposition/run-1", "plan:restore-decomposition"])
-  assert.equal(settle.accounting.ticks["unified-5h"], 2, "the settle reading carries park_path/2's two late ticks")
+  assert.equal(settle.accounting.ticks["unified-5h"], 1, "the settle reading carries the gate's late tick")
   const started = h.events.find((e) => e.ev === "experiment_started" && e.experiment === "fable-write-tick")
   assert.equal(started.baselines["unified-5h"].util, settle.meters["unified-5h"].util, "fable's baseline is the settle reading")
   // the settle sleeps past any time-based posting delay before it reads
@@ -391,14 +394,14 @@ test("an explained tick still carries its phase across a quiet settle PING", asy
 
 // ================================================================= (b) fallback miss
 
-test("after an rf-emulation big_context_rewrite, later big-context experiments close with zero paid calls", async () => {
+test("after the live replay's gate miss, later big-context experiments close with zero paid calls", async () => {
   const h = harness({ lag: { kind: "call" }, script: LIVE_SHAPE })
   const s = await h.run()
   const v = verdicts(h.events)
-  assert.equal(v["restore-decomposition#1"], "aborted:big_context_rewrite")
+  assert.equal(v["restore-decomposition#1"], "aborted:resume_gate_miss")
   assert.equal(v["policy-effect#"], "aborted:fallback_mode_misses")
   assert.equal(v["restore-decomposition#2"], "aborted:fallback_mode_misses")
-  const after = h.adapter.invoked.slice(h.adapter.invoked.indexOf("restore-decomposition/park_path/2") + 1)
+  const after = h.adapter.invoked.slice(h.adapter.invoked.indexOf("restore-decomposition/shared/1") + 1)
   assert.deepEqual(after.filter((id) => BIG_CONTEXT.some((x) => id.startsWith(`${x}/`))), [], "no big-context call after the miss")
   for (const e of endedOf(h.events).filter((x) => x.reason === "fallback_mode_misses")) assert.equal(e.paidRequests, 0)
   assert.equal(s.experiments["policy-effect"].status, "aborted")
@@ -424,14 +427,81 @@ test("the analyzer reads the fallback-miss verdicts the machine recorded", async
   assert.ok(!Object.keys(analysis.experiments).includes("preflight"))
 })
 
-test("a big_context_rewrite in real --resume mode does not close later experiments", async () => {
-  // gate passes (real --resume), park_path still rewrites: not an rf-emulation miss
+// ================================================================= (c) resume-sysfile (todo 21b)
+
+const isBig = (id) => BIG_CONTEXT.some((x) => id.startsWith(`${x}/`))
+const GATE_MISS = { "restore-decomposition/shared/1": LIVE_SHAPE["restore-decomposition/shared/1"] }
+
+test("a big_context_rewrite after a passed gate (resume-sysfile) closes the later big-context jobs with zero paid calls", async () => {
   const h = harness({ lag: { kind: "none" }, script: { "restore-decomposition/park_path/2": LIVE_SHAPE["restore-decomposition/park_path/2"] } })
   await h.run({ only: ["restore-decomposition", "policy-effect"] })
   const v = verdicts(h.events)
   assert.equal(v["restore-decomposition#1"], "aborted:big_context_rewrite")
-  assert.notEqual(v["policy-effect#"], "aborted:fallback_mode_misses")
-  assert.ok(h.adapter.invoked.some((id) => id.startsWith("policy-effect/")))
+  assert.equal(v["policy-effect#"], "aborted:fallback_mode_misses")
+  assert.equal(v["restore-decomposition#2"], "aborted:fallback_mode_misses")
+  assert.ok(!h.adapter.invoked.some((id) => id.startsWith("policy-effect/")))
+})
+
+test("resume-sysfile gate FAIL: run 1 closes resume_gate_miss, later big-context jobs close with zero calls; live, fold and analyzer agree", async () => {
+  const h = harness({ lag: { kind: "none" }, script: GATE_MISS })
+  const s = await h.run()
+  const v = verdicts(h.events)
+  assert.equal(v["restore-decomposition#1"], "aborted:resume_gate_miss")
+  assert.equal(v["policy-effect#"], "aborted:fallback_mode_misses")
+  assert.equal(v["restore-decomposition#2"], "aborted:fallback_mode_misses")
+  assert.deepEqual(h.adapter.invoked.filter(isBig), ["restore-decomposition/shared/0", "restore-decomposition/shared/1"], "no big-context call after the gate")
+  for (const e of endedOf(h.events).filter((x) => x.reason === "fallback_mode_misses")) {
+    assert.equal(e.paidRequests, 0)
+    assert.equal(e.decidedBy.experiment, "restore-decomposition")
+  }
+  assert.equal(v["ttl-1h-unique-prefix#"], "valid:", "experiments without the big context still run")
+  assert.equal(s.experiments["policy-effect"].reason, "fallback_mode_misses")
+  assert.equal(s.experiments["policy-effect"].paidRequests, 0)
+  const folded = fold(h.ledger.events)
+  assert.equal(folded.experiments["policy-effect"].reason, "fallback_mode_misses")
+  assert.equal(folded.experiments["restore-decomposition#2"].reason, "fallback_mode_misses")
+  const analysis = analyzeRun(h.ledger.requests, h.ledger.events, { cli: Object.fromEntries(h.ledger.cli), runId: "lag-run" })
+  assert.equal(analysis.experiments["restore-decomposition"].reason, "resume_gate_miss")
+  assert.equal(analysis.experiments["policy-effect"].reason, "fallback_mode_misses")
+})
+
+for (const [label, at] of [
+  ["after the gate's mode_set, before its verdict", (e) => e.ev === "mode_set"],
+  ["after the resume_gate_miss verdict", (e) => e.ev === "experiment_ended" && e.reason === "resume_gate_miss"],
+]) {
+  test(`crash cut ${label}: the resume closes every later big-context job without a call`, async () => {
+    const c = await liveAndCut(at, { lag: { kind: "none" }, script: GATE_MISS })
+    const v = verdicts(c.r.ledger.events)
+    assert.equal(v["policy-effect#"], "aborted:fallback_mode_misses")
+    assert.equal(v["restore-decomposition#2"], "aborted:fallback_mode_misses")
+    assert.deepEqual(c.r.adapter.invoked.filter(isBig), [], "the resume issued no big-context call")
+  })
+}
+
+test("step_intent logs the P file and sha for ctx_create and every later big-context call, never for the child", async () => {
+  const h = harness({ lag: { kind: "none" } })
+  await h.run({ only: ["restore-decomposition"] })
+  const intents = h.events.filter((e) => e.ev === "step_intent" && e.experiment === "restore-decomposition" && e.run === 1)
+  const withP = intents.filter((e) => e.systemPrompt)
+  const roles = withP.map((e) => e.role)
+  assert.deepEqual(roles, ["ctx_create", "gate", "park_parent", "resume_raw", ...Array(RULES.restore.workSteps).fill("work")])
+  const seed = h.events.find((e) => e.ev === "experiment_started" && e.experiment === "restore-decomposition").seeds[0]
+  for (const e of withP) assert.deepEqual(e.systemPrompt, { file: `P-${seed}.txt`, sha256: withP[0].systemPrompt.sha256, bytes: withP[0].systemPrompt.bytes })
+  assert.ok(!intents.some((e) => e.phase === "restore_child" && e.systemPrompt))
+  const ended = endedOf(h.events).find((e) => e.experiment === "restore-decomposition")
+  assert.equal(ended.result.mode, "resume-sysfile")
+})
+
+test("a P file refused before spawn voids the step without doubt: no call, experiment aborted, run not in doubt", async () => {
+  const h = harness({ lag: { kind: "none" }, script: { "restore-decomposition/shared/1": { refuses: "system_prompt_mismatch" } } })
+  const s = await h.run({ only: ["restore-decomposition"] })
+  const voided = h.events.find((e) => e.ev === "step_void" && e.stepId === "restore-decomposition/shared/1")
+  assert.equal(voided.reason, "system_prompt_mismatch")
+  assert.notEqual(voided.inDoubt, true)
+  assert.equal(h.proxy.records.filter((r) => r.stepId === "restore-decomposition/shared/1").length, 0)
+  assert.equal(verdicts(h.events)["restore-decomposition#1"], "aborted:system_prompt_mismatch")
+  assert.notEqual(s.exitCode, EXIT.IN_DOUBT)
+  assert.equal(fold(h.ledger.events).inDoubt.length, 0)
 })
 
 // ================================================================= crash cuts
@@ -518,7 +588,7 @@ test("crash cut after the next experiment_started (before its first call): resum
 })
 
 test("crash cut right after the fallback miss: the resume settles the previous scope first and closes big-context jobs without calls", async () => {
-  const c = await liveAndCut((e) => e.ev === "experiment_ended" && e.reason === "big_context_rewrite")
+  const c = await liveAndCut((e) => e.ev === "experiment_ended" && e.reason === "resume_gate_miss")
   // the log's last paid call was restore run 1's: its late ticks are read before the quiet check
   assert.ok(c.r.adapter.invoked[0].startsWith("preflight/settle-r1/"), c.r.adapter.invoked.slice(0, 3).join(","))
   assertResumedLikeLive(c)
