@@ -522,19 +522,26 @@ test("adapter: abort signal -> error.code aborted (resolves with error field, do
 
 // ---- processes ---------------------------------------------------------------
 
-test("processes.conflicting parses tasklist CSV and ignores the header / no-tasks message", async () => {
+test("processes.conflicting detects recorded v5 hosts, SDK/Desktop Claude and health, excluding own descendants", async () => {
+  const rows = [
+    { Name: "node.exe", ProcessId: 74048, ParentProcessId: 65520, CommandLine: 'node "C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\omo-ai\\bin\\omo.js"' },
+    { Name: "bun.exe", ProcessId: 71692, ParentProcessId: 74048, CommandLine: 'C:\\Users\\yjack\\.bun\\bin\\bun.exe C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\omo-ai\\bin\\omo.js' },
+    { Name: "bun.exe", ProcessId: 96708, ParentProcessId: 71692, CommandLine: 'C:\\Users\\yjack\\.bun\\bin\\bun.exe C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\@code-yeongyu\\senpi\\dist\\bundle\\cli.js --extension C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\omo-ai\\plugin' },
+    { Name: "claude.exe", ProcessId: 77712, ParentProcessId: 96708, CommandLine: 'C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe' },
+    { Name: "claude.exe", ProcessId: 111, ParentProcessId: 1, CommandLine: 'C:\\Program Files\\Claude\\claude.exe' },
+    { Name: "node.exe", ProcessId: 109016, ParentProcessId: 100968, CommandLine: 'C:\\dev\\omo\\omo-health\\bin\\omo-health.mjs daemon' },
+    { Name: "python.exe", ProcessId: 222, ParentProcessId: 1, CommandLine: 'uvicorn searchad --port 8000' },
+    { Name: "bun.exe", ProcessId: 333, ParentProcessId: 1, CommandLine: 'C:\\Aside\\aside.exe' },
+    { Name: "claude.exe", ProcessId: 444, ParentProcessId: 999, CommandLine: 'claude.exe' },
+  ]
   const calls = []
-  const csv = '"Image Name","PID","Session Name","Session#","Mem Usage"\r\n"claude.exe","1234","Console","1","100,000 K"\r\n"claude.exe","5678","Console","1","200,000 K"\r\n'
-  const exec = async (cmd) => { calls.push(cmd); return { stdout: csv, stderr: "" } }
-  assert.deepEqual(await conflicting({ exec }), [{ image: "claude.exe", pid: 1234 }, { image: "claude.exe", pid: 5678 }])
-  assert.equal(calls.length, 1)
-  assert.match(calls[0], /tasklist \/FI "IMAGENAME eq claude.exe" \/FO CSV/)
-
-  const none = async () => ({ stdout: "INFO: No tasks are running which match the specified criteria.\r\n", stderr: "" })
-  assert.deepEqual(await conflicting({ exec: none }), [])
-  const failing = async () => { throw new Error("boom") }
-  await assert.rejects(conflicting({ exec: failing }), /boom/)
-  assert.ok(!existsSync(path.join(os.tmpdir(), "never-created-marker-idle-live")))
+  const exec = async (cmd) => { calls.push(cmd); return { stdout: JSON.stringify(rows) } }
+  const found = await conflicting({ exec, selfPid: 999 })
+  assert.deepEqual(found.map((p) => p.pid), [74048, 71692, 96708, 77712, 111, 109016])
+  assert.match(calls[0], /Get-CimInstance Win32_Process/)
+  assert.deepEqual(await conflicting({ exec: async () => ({ stdout: "" }), selfPid: 999 }), [])
+  await assert.rejects(conflicting({ exec: async () => { throw new Error("boom") } }), /boom/)
+  await assert.rejects(conflicting({ exec: async () => ({ stdout: "bad json" }) }), /JSON/)
 })
 
 // I3: in-doubt reconciliation on --resume needs the HISTORICAL proxy.jsonl (rows a crashed

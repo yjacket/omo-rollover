@@ -455,6 +455,15 @@ test("preflight refuses when another claude.exe is running", async () => {
   assert.equal(h.adapter.invoked.length, 0)
 })
 
+test("preflight refuses an idle bun-hosted omo session even without a Claude child", async () => {
+  const h = harness({ conflicts: [{ image: "bun.exe", pid: 96708, parentPid: 71692, commandLine: 'bun.exe C:\\Users\\yjack\\.bun\\install\\global\\node_modules\\@code-yeongyu\\senpi\\dist\\bundle\\cli.js' }] })
+  const p = await h.pre()
+  assert.equal(p.ok, false)
+  assert.ok(p.issues.includes("conflicting_process"))
+  assert.equal((await h.run()).exitCode, EXIT.PREFLIGHT)
+  assert.equal(h.adapter.invoked.length, 0)
+})
+
 test("the 5m write arm is skipped from adapter capabilities, and no 5m request is ever issued", async () => {
   const h = harness()
   const p = await h.pre()
