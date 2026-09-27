@@ -23,7 +23,7 @@
 //     late === true voids the experiment - a late step is never rescheduled.
 //   ExperimentResult = { experiment, status: valid|void|aborted|upper_bound, reason, steps, anomalies,
 //           paidRequests, ...protocol data for the analyzer }
-import { NULLP, OUTP, outp, filler, SITES, promptOf, fillerPrompt, appendPrompt, FILLER_TOKENS_PER_LINE } from "./filler.mjs"
+import { NULLP, OUTP, outp, filler, SITES, promptOf, fillerPrompt, FILLER_TOKENS_PER_LINE } from "./filler.mjs"
 import { makeTask, scoreWork, scoreGuard, reexplainNeeded, handoffLossy } from "./task.mjs"
 
 export { filler, SITES, NULLP, OUTP, outp, promptOf, fillerPrompt, makeTask, scoreWork, scoreGuard, reexplainNeeded, handoffLossy }
@@ -165,7 +165,7 @@ function newSession(ctx, experiment) {
       return req
     },
     dial({ unit, arm, role, n }) {
-      return s.request({ arm, kind: "dial", phase: "observe", role, n, unit, at: s.now() + (steps.length === 0 ? 0 : RULES.dialSpacingMs), prompt: ctx.dialPrefix.prompt, session: ephemeral(), expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" })
+      return s.request({ arm, kind: "dial", phase: "observe", role, n, unit, at: s.now() + (steps.length === 0 ? 0 : RULES.dialSpacingMs), prompt: ctx.dialPrefix.prompt, ...(ctx.dialPrefix.systemPrompt ? { systemPrompt: ctx.dialPrefix.systemPrompt } : {}), session: ephemeral(), expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" })
     },
     ping({ unit, arm, role, n, at, tolerance }) {
       return s.request({ arm, kind: "ping", phase: "observe", role, n, unit, at, tolerance, prompt: promptOf(NULLP), session: ephemeral(), expect: { ttlLane: "any" }, dominantField: "cacheRead" })
@@ -414,23 +414,58 @@ async function* ttlUniquePrefix(ctx) {
 
 // ------------------------------------------ 4/5 shared: gate, park, raw
 
+// Amendment 2026-09-27 (todo 21b; task-20 capture, form f2r): the big context P (brief + log,
+// without the NULLP suffix) is sent as a system prompt FILE. ctx_create creates the parent session
+// with it and stdin NULLP; every later big-context request resumes that session with the same file,
+// so tools + system (which ends with P and carries the 1h breakpoint) stay byte-identical. The
+// earlier forms - P in the user message under --resume, and rf-emulation - are known misses.
+export const BIG_CONTEXT_MODE = "resume-sysfile"
+const CTX_SUFFIX = "\n\n" + NULLP
+
+/** contextFileOf(task) -> { file, sha256, bytes, text }: P's bytes and file name, a pure function of the seed. */
+export function contextFileOf(task) {
+  const text = task.ctxPrompt.text.slice(0, -CTX_SUFFIX.length)
+  return { file: `P-${task.seed}.txt`, sha256: promptOf(text).sha256, bytes: new TextEncoder().encode(text).length, text }
+}
+// What a request on P carries: the file and its sha (the adapter re-checks both before spawn).
+// Only the context write carries the text, which the adapter writes once.
+const sysRef = ({ file, sha256, bytes }) => ({ file, sha256, bytes })
+// ctx_create's stdin is NULLP, but the call still writes the whole context: it is priced (and
+// planned) as the context prompt it replaces.
+const ctxCreatePrompt = (task) => ({ ...promptOf(NULLP), tokensEst: task.ctxPrompt.tokensEst, fillerLines: task.ctxPrompt.fillerLines })
+/** dialPrefixOf(task, sessionId): the DIAL replays ctx_create's own shape (same file, stdin NULLP) in a fresh session. */
+export const dialPrefixOf = (task, sessionId) => ({ prompt: ctxCreatePrompt(task), systemPrompt: sysRef(contextFileOf(task)), sessionId })
+
 // Resume-hit gate on the parent context: sets ctx.mode for experiments 4 and 5.
-async function* resumeHitGate(s, ctx, { unit, sessionId, at }) {
-  const step = s.request({ arm: "shared", kind: "probe", phase: "resume_raw", role: "gate", unit, at, prompt: promptOf(NULLP), session: { id: sessionId, mode: "resume" }, expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" })
+async function* resumeHitGate(s, ctx, { unit, sessionId, at, systemPrompt }) {
+  const step = s.request({ arm: "shared", kind: "probe", phase: "resume_raw", role: "gate", unit, at, prompt: promptOf(NULLP), session: { id: sessionId, mode: "resume" }, systemPrompt, expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" })
   const c = s.accept(step, yield step, { need: ["cacheRead", "cacheWrite1h"] })
   if (c.fatal) return { fatal: c.fatal }
   const pass = c.u.cacheRead >= RULES.restore.gateMinCacheRead && c.u.cacheWrite1h < RULES.restore.gateMaxWrite1h
   ctx.mode.resumeHit = pass
-  return { fatal: null, gate: { id: step.id, pass, cacheRead: c.u.cacheRead, cacheWrite1h: c.u.cacheWrite1h, mode: pass ? "resume" : "rf-emulation" } }
+  return { fatal: null, gate: { id: step.id, pass, cacheRead: c.u.cacheRead, cacheWrite1h: c.u.cacheWrite1h, mode: BIG_CONTEXT_MODE } }
 }
 
-// Big-context request builder: real --resume, or rf-emulation (fresh session, exact prefix bytes + text).
-const bigContext = (mode, sessionId, ctxPrompt) => (p) => {
+// Big-context request builder: --resume on the parent session with P's system prompt file.
+const bigContext = (sessionId, systemPrompt) => (p) => {
   const prompt = typeof p === "string" ? promptOf(p) : p
-  return mode === "resume"
-    ? { prompt, session: { id: sessionId, mode: "resume" }, expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" }
-    : { prompt: appendPrompt(ctxPrompt, prompt.text), session: ephemeral(), expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" }
+  return { prompt, session: { id: sessionId, mode: "resume" }, systemPrompt, expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" }
 }
+// What each big-context request adds to the adapter's base argv, for --dry-run (adapters/claude-cli.mjs cliArgs).
+export const BIG_CONTEXT_FORM = Object.freeze({
+  mode: BIG_CONTEXT_MODE,
+  file: "<evidence>/<runId>/ctx/P-<seed>.txt",
+  ctxCreate: "--append-system-prompt-file <file> --session-id <P> stdin=NULLP",
+  later: "--append-system-prompt-file <file> --resume <P> stdin=<step text>",
+  gateMiss: "resume_gate_miss",
+  laterRoles: Object.freeze({
+    "restore-decomposition": Object.freeze(["gate", "park_parent", "resume_raw", "work(raw_path)"]),
+    "policy-effect": Object.freeze(["gate", "park_parent", "warm", "resume_raw", "work(current_policy)"]),
+  }),
+})
+// A gate miss is recorded (mode_set resumeHit:false); no fallback form is paid for.
+const GATE_MISS = verdict("aborted", "resume_gate_miss")
+const KNOWN_MISS = verdict("aborted", "fallback_mode_misses")
 
 const newPath = (arm, task) => ({ arm, state: "pending", completed: false, resumeDelayMs: null, quality: { guardCorrect: false, workCorrect: 0, workTotal: task.workSteps.length, reexplainNeeded: 0, handoffLossy: null } })
 
@@ -509,8 +544,8 @@ async function* rawPath(s, { unit, arm, big, task, at, flags, warm }) {
   return { fatal: null, path }
 }
 
-function contextCreate(s, { unit, task, seed, sessionId }) {
-  return s.request({ arm: "shared", kind: "write", phase: "ctx_create", role: "ctx_create", unit, at: s.now() + (s.steps.length === 0 ? 0 : RULES.spacingMs), prompt: task.ctxPrompt, session: { id: sessionId, mode: "new" }, expect: { ttlLane: "1h", hit: false }, dominantField: "cacheWrite1h", seed })
+function contextCreate(s, { unit, task, seed, sessionId, context }) {
+  return s.request({ arm: "shared", kind: "write", phase: "ctx_create", role: "ctx_create", unit, at: s.now() + (s.steps.length === 0 ? 0 : RULES.spacingMs), prompt: ctxCreatePrompt(task), session: { id: sessionId, mode: "new" }, systemPrompt: context, expect: { ttlLane: "1h", hit: false }, dominantField: "cacheWrite1h", seed })
 }
 function endPing(s, { unit }) {
   return s.ping({ unit, arm: "shared", role: "end_ping", at: s.now() + RULES.spacingMs })
@@ -528,27 +563,30 @@ async function* restoreDecomposition(ctx) {
   const task = makeTask(seed, { steps: RULES.restore.workSteps })
   const parentId = ctx.random.uuid()
   const childId = ctx.random.uuid()
-  const out = { run, mode: null, gate: null, task: { seed, ticket: task.ticket, guardAnswer: task.guardAnswer }, sessions: { parent: parentId, child: childId }, sums: {}, paths: { park: null, raw: null }, flags: [], dialPrefix: null }
-  const create = contextCreate(s, { unit, task, seed, sessionId: parentId })
+  const out = { run, mode: BIG_CONTEXT_MODE, gate: null, task: { seed, ticket: task.ticket, guardAnswer: task.guardAnswer }, sessions: { parent: parentId, child: childId }, sums: {}, paths: { park: null, raw: null }, flags: [], dialPrefix: null }
+  if (ctx.mode.resumeHit === false) return s.finish(out, KNOWN_MISS)
+  const context = contextFileOf(task)
+  const create = contextCreate(s, { unit, task, seed, sessionId: parentId, context })
   let c = s.accept(create, yield create, { need: ["cacheWrite1h"] })
   if (c.fatal) return s.finish(out, c.fatal)
-  if (run === 1) out.dialPrefix = { prompt: task.ctxPrompt, sessionId: parentId }
+  const sys = sysRef(context)
+  if (run === 1) out.dialPrefix = dialPrefixOf(task, parentId)
   let next = s.now() + RULES.restore.settleMs
   if (ctx.mode.resumeHit === null) {
-    const g = yield* resumeHitGate(s, ctx, { unit, sessionId: parentId, at: next })
+    const g = yield* resumeHitGate(s, ctx, { unit, sessionId: parentId, at: next, systemPrompt: sys })
     if (g.fatal) return s.finish(out, g.fatal)
     out.gate = g.gate
+    if (!g.gate.pass) return s.finish(out, GATE_MISS)
     next = s.now() + RULES.spacingMs
   }
-  out.mode = ctx.mode.resumeHit ? "resume" : "rf-emulation"
-  const big = bigContext(out.mode, parentId, task.ctxPrompt)
+  const big = bigContext(parentId, sys)
   const park = yield* parkPath(s, { unit, arm: "park_path", big, task, childId, at: next, flags: out.flags })
   out.paths.park = park.path
   if (park.fatal) return s.finish(out, park.fatal)
   const raw = yield* rawPath(s, { unit, arm: "raw_path", big, task, at: s.now() + RULES.spacingMs, flags: out.flags, warm: null })
   out.paths.raw = raw.path
   if (raw.fatal) return s.finish(out, raw.fatal)
-  if (out.mode === "resume") out.flags.push("raw_context_includes_park_turn")
+  out.flags.push("raw_context_includes_park_turn")
   const ping = endPing(s, { unit })
   c = s.accept(ping, yield ping, {})
   if (c.fatal) return s.finish(out, c.fatal)
@@ -561,7 +599,8 @@ async function* restoreDecomposition(ctx) {
 async function* policyEffect(ctx) {
   const experiment = "policy-effect"
   const s = newSession(ctx, experiment)
-  const out = { mode: null, gate: null, pairs: [] }
+  const out = { mode: BIG_CONTEXT_MODE, gate: null, pairs: [] }
+  if (ctx.mode.resumeHit === false) return s.finish(out, KNOWN_MISS)
   for (let i = 1; i <= RULES.policy.pairs; i++) {
     const unit = { kind: "pair", index: i }
     const seed = ctx.random.seed()
@@ -571,19 +610,20 @@ async function* policyEffect(ctx) {
     const pair = { pair: i, seed, ticket: task.ticket, guardAnswer: task.guardAnswer, sessions: { parent: parentId, child: childId }, shared: null, arms: { shadow_candidate_policy: null, current_policy: null }, flags: [] }
     out.pairs.push(pair)
     const armSummary = (path) => ({ ...path, totals: sumUsage(s.steps.filter((x) => x.unit.index === i && x.arm === path.arm)) })
-    const create = contextCreate(s, { unit, task, seed, sessionId: parentId })
+    const context = contextFileOf(task)
+    const sys = sysRef(context)
+    const create = contextCreate(s, { unit, task, seed, sessionId: parentId, context })
     let c = s.accept(create, yield create, { need: ["cacheWrite1h"] })
     if (c.fatal) return s.finish(out, c.fatal)
     let next = s.now() + RULES.restore.settleMs
     if (ctx.mode.resumeHit === null) {
-      const g = yield* resumeHitGate(s, ctx, { unit, sessionId: parentId, at: next })
+      const g = yield* resumeHitGate(s, ctx, { unit, sessionId: parentId, at: next, systemPrompt: sys })
       if (g.fatal) return s.finish(out, g.fatal)
       out.gate = g.gate
+      if (!g.gate.pass) return s.finish(out, GATE_MISS)
       next = s.now() + RULES.spacingMs
     }
-    const mode = ctx.mode.resumeHit ? "resume" : "rf-emulation"
-    out.mode ??= mode
-    const big = bigContext(mode, parentId, task.ctxPrompt)
+    const big = bigContext(parentId, sys)
     // Candidate arm first, then the current policy on the same context.
     const cand = yield* parkPath(s, { unit, arm: "shadow_candidate_policy", big, task, childId, at: next, flags: pair.flags })
     pair.arms.shadow_candidate_policy = armSummary(cand.path)

@@ -14,7 +14,8 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 import { EXIT, SUMMARY_VERSION, campaignStopOf, runMachine, sequence, fold, preflight, manifest } from "../scripts/idle-live/machine.mjs"
-import { RULES, EXPERIMENT_IDS, makeTask } from "../scripts/idle-live/protocols.mjs"
+import { RULES, EXPERIMENT_IDS, makeTask, NULLP, BIG_CONTEXT_MODE } from "../scripts/idle-live/protocols.mjs"
+import { cliArgs, SYSTEM_PROMPT_FILE_FLAG } from "../scripts/idle-live/adapters/claude-cli.mjs"
 import { METERS } from "../scripts/idle-live/gauge.mjs"
 import { openLedger } from "../scripts/idle-live/ledger.mjs"
 // Read-only: M7 asserts the landed analyzer can resolve ground truth from `experiment_started`.
@@ -274,7 +275,10 @@ function fakeAdapter({ proxy, gauge, script = {}, capabilities = { ttlLanes: ["1
     tasks,
     entered,
     async invoke(step, env, signal) {
-      invoked.push({ id: step.id, stepHeader: env?.stepHeader ?? null, baseUrl: env?.baseUrl ?? null, at: clock.now() })
+      // the argv and stdin the landed adapter would spawn for this step (P files under "<ctx>")
+      let argv = null
+      try { argv = cliArgs({ model: MODEL, session: step.session, systemPromptPath: step.systemPrompt ? `<ctx>/${step.systemPrompt.file}` : null }) } catch { /* a malformed session is the adapter's refusal, asserted elsewhere */ }
+      invoked.push({ id: step.id, stepHeader: env?.stepHeader ?? null, baseUrl: env?.baseUrl ?? null, at: clock.now(), argv, stdin: step.prompt?.text ?? null })
       // The landed adapter refuses to spawn once the signal is aborted (adapters/claude-cli.mjs),
       // so a cancelled campaign can never reach the API again. The attempt is still recorded in
       // `invoked`, so a machine that issues after a cancel is visible to a test.
@@ -1519,6 +1523,26 @@ test("the FULL five-experiment run completes under the fake clock and writes the
   ])
   for (const e of h.ev("experiment_ended")) assert.equal(e.parity.ok, true, `${e.experiment} parity: ${JSON.stringify(e.parity.issues)}`)
   for (const e of h.ev("experiment_ended")) assert.equal(e.parity.complete, true, `${e.experiment} incomplete`)
+  // todo 21b: every restore/policy big-context call (and every DIAL on restore run 1's context) is
+  // spawned in the task-20 capture's resume-sysfile shape; the child sessions never carry P
+  const calls = new Map(h.adapter.invoked.map((x) => [x.id, x]))
+  const bigRoles = new Set(["ctx_create", "gate", "park_parent", "resume_raw", "warm"])
+  for (const e of h.ev("step_intent")) {
+    const call = calls.get(e.stepId)
+    const at = call.argv.indexOf(SYSTEM_PROMPT_FILE_FLAG)
+    const onP = ["restore-decomposition", "policy-effect"].includes(e.experiment) && (bigRoles.has(e.role) || (e.role === "work" && ["raw_path", "current_policy"].includes(e.arm)))
+    if (onP || e.kind === "dial") {
+      assert.ok(e.systemPrompt, `${e.stepId} logs its P file`)
+      assert.equal(call.argv[at + 1], `<ctx>/${e.systemPrompt.file}`, e.stepId)
+      const tail = e.kind === "dial" ? ["--no-session-persistence"] : e.role === "ctx_create" ? ["--session-id", e.sessionId] : ["--resume", e.sessionId]
+      assert.deepEqual(call.argv.slice(at + 2), tail, e.stepId)
+      if (e.role === "ctx_create" || e.kind === "dial" || e.role === "gate" || e.role === "warm") assert.equal(call.stdin, NULLP, e.stepId)
+    } else {
+      assert.equal(at, -1, `${e.stepId} carries no P file`)
+      assert.equal(e.systemPrompt, undefined, e.stepId)
+    }
+  }
+  for (const e of h.ev("experiment_ended").filter((x) => ["restore-decomposition", "policy-effect"].includes(x.experiment))) assert.equal(e.result.mode, BIG_CONTEXT_MODE)
   // exp 1 chains its phase from exp 4's delayed tick instead of paying for a pre-walk
   const requests = ledger.readRequests()
   assert.equal(requests.filter((r) => r.role === "pre_walk").length, 0)

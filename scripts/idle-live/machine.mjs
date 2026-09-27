@@ -15,7 +15,7 @@
 // The event log (events.jsonl) is the only checkpoint truth; `fold()` rebuilds the run state
 // from it and ignores a torn final line. A step with `step_intent` and no `step_result` is IN
 // DOUBT and is NEVER re-invoked: it is reconciled against the proxy log or voided.
-import { protocols, schedule, parity, RULES, EXPERIMENT_IDS, makeTask, promptOf, fillerPrompt, NULLP } from "./protocols.mjs"
+import { protocols, schedule, parity, RULES, EXPERIMENT_IDS, makeTask, promptOf, fillerPrompt, NULLP, BIG_CONTEXT_MODE, dialPrefixOf } from "./protocols.mjs"
 import { FILLER_TOKENS_PER_LINE } from "./filler.mjs"
 import { gate, predictedTicks, cumulative, scopeKey, ticks as ticksBetween, RESOLUTION, PRIOR_RANGE_ONLY } from "./caps.mjs"
 import { METERS, metersOf, phaseLedger, DIAL_TICKS, PING_TICKS } from "./gauge.mjs"
@@ -46,10 +46,16 @@ const MAX_WINDOW_WAIT_MS = 5 * 3600_000
 // before it is Appendix A's own 20 s post-write settle; in the live run a call read the previous
 // call's charge 0.45 s after it ended, so any time-based posting delay the data allows is shorter.
 const SETTLE_WAIT_MS = RULES.restore.settleMs
-// An experiment that closed `aborted:big_context_rewrite` in rf-emulation mode showed the fallback
-// shape misses the cache on this CLI; every later big-context job would pay the same ~143K write.
+// An experiment that closed `aborted:big_context_rewrite` in a big-context form (rf-emulation, and
+// since Amendment 2026-09-27 resume-sysfile), or whose resume-hit gate missed in resume-sysfile, showed
+// the form misses the cache on this CLI; every later big-context job would pay the same ~143K write.
 const BIG_CONTEXT = new Set(["restore-decomposition", "policy-effect"])
 const FALLBACK_MISS = "fallback_mode_misses"
+const MISSING_FORMS = new Set(["rf-emulation", BIG_CONTEXT_MODE])
+// Refusals the adapter makes BEFORE it spawns anything (the P file checks): certain, never in doubt.
+const PRE_SPAWN_REFUSALS = new Set(["system_prompt_missing", "system_prompt_mismatch", "bad_system_prompt"])
+// What the log records of a step's system prompt file: its name, sha256 and size, never its text.
+const systemPromptOf = (step) => (isObject(step.systemPrompt) ? { systemPrompt: { file: step.systemPrompt.file, sha256: step.systemPrompt.sha256, bytes: step.systemPrompt.bytes } } : {})
 const SMOKE = Object.freeze({ lines: 2000, writeTokens: 59_400, hitFactor: 0.9, pings: 3, pingSpacingMs: 60_000 })
 
 // Random draws are pre-drawn per experiment and recorded in `experiment_started`, so the analyzer
@@ -784,6 +790,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     sessionId: step.session?.id ?? null, sessionMode: step.session?.mode ?? null,
     promptSha256: step.prompt.sha256, promptChars: step.prompt.chars, promptTokensEst: step.prompt.tokensEst,
     dominantField: step.dominantField, expect: step.expect ?? null, needsText: step.needsText === true,
+    ...systemPromptOf(step),
     predictedTicks: accounting.predictedTicks, gated: !ungated,
   })
 
@@ -816,6 +823,11 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
   // reports failure BOTH ways - a thrown spawn error and the structured
   // `{error:{code:"aborted"},stdoutJson:null,exitCode:null}` it resolves after killing the child
   // (adapters/claude-cli.mjs) - and both leave the same uncertainty.
+  // The adapter refused before spawning (its P file checks): nothing was sent, so nothing is in doubt.
+  if (!cancelled && invokeError && PRE_SPAWN_REFUSALS.has(invokeError.code) && records.length === 0) {
+    emit(st, { ev: "step_void", ...META_OF(step), reason: invokeError.code, error: invokeError, ...probes })
+    return { paid: 0, fatal: { status: "aborted", reason: invokeError.code } }
+  }
   const adapterFailure = invokeError ?? (isObject(res?.error) ? res.error : null)
   if (adapterFailure && own.length === 0) {
     // The cancel, if any, is already recorded above; this call stays in doubt (exit 4) until
@@ -925,6 +937,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     promptSha256: step.prompt.sha256,
     promptChars: step.prompt.chars,
     promptTokensEst: step.prompt.tokensEst,
+    ...(isObject(step.systemPrompt) ? { systemPromptSha256: step.systemPrompt.sha256 } : {}),
     method: p?.method ?? "POST",
     path: p?.path ?? "/v1/messages",
     status: Number.isFinite(p?.status) ? p.status : null,
@@ -1277,7 +1290,7 @@ const stripSteps = (result) => {
   if (!isObject(result)) return null
   const { steps, anomalies, dialPrefix, ...rest } = result
   const out = { ...rest, anomalies: Array.isArray(anomalies) ? anomalies : [] }
-  if (dialPrefix) out.dialPrefix = { sessionId: dialPrefix.sessionId ?? null, promptSha256: dialPrefix.prompt?.sha256 ?? null, promptChars: dialPrefix.prompt?.chars ?? null }
+  if (dialPrefix) out.dialPrefix = { sessionId: dialPrefix.sessionId ?? null, promptSha256: dialPrefix.prompt?.sha256 ?? null, promptChars: dialPrefix.prompt?.chars ?? null, ...(dialPrefix.systemPrompt ? { systemPromptSha256: dialPrefix.systemPrompt.sha256 } : {}) }
   return out
 }
 
@@ -1356,12 +1369,18 @@ async function settleRunEnd(st, recordedStop) {
 }
 
 /**
- * fallbackMissOf(events) -> the experiment_ended that showed the rf-emulation fallback misses, or
- * null. Pure function of the log, so live, fold and resume reach the same verdict.
+ * fallbackMissOf(events) -> the event that showed the big-context form misses, or null: an
+ * experiment_ended `aborted:big_context_rewrite` in rf-emulation or resume-sysfile, an
+ * `aborted:resume_gate_miss`, or a resume-sysfile `mode_set` with resumeHit false (it is written
+ * before the verdict, so a crash between the two still stops every later big-context job). Pure
+ * function of the log, so live, fold and resume reach the same verdict.
  */
 export function fallbackMissOf(events) {
   for (const e of Array.isArray(events) ? events : []) {
-    if (isObject(e) && e.ev === "experiment_ended" && e.status === "aborted" && e.reason === "big_context_rewrite" && e.result?.mode === "rf-emulation") return e
+    if (!isObject(e)) continue
+    if (e.ev === "experiment_ended" && e.status === "aborted" && e.reason === "big_context_rewrite" && MISSING_FORMS.has(e.result?.mode)) return e
+    if (e.ev === "experiment_ended" && e.status === "aborted" && e.reason === "resume_gate_miss") return e
+    if (e.ev === "mode_set" && e.form === BIG_CONTEXT_MODE && e.resumeHit === false) return e
   }
   return null
 }
@@ -1419,7 +1438,7 @@ async function runExperiment(st, job) {
     approval: st.approval,
     random: pooledRandom(st, job, pool),
     mode: st.mode,
-    dialPrefix: st.dialPrefix ? { prompt: st.dialPrefix.prompt, sessionId: st.dialPrefix.sessionId } : null,
+    dialPrefix: st.dialPrefix ? { prompt: st.dialPrefix.prompt, ...(st.dialPrefix.systemPrompt ? { systemPrompt: st.dialPrefix.systemPrompt } : {}), sessionId: st.dialPrefix.sessionId } : null,
     now: () => nowOf(st) - exp.t0,
     priors: st.priors,
     run: job.run ?? 1,
@@ -1464,7 +1483,7 @@ async function runExperiment(st, job) {
   }
   // I13: the mode this run measured about `--resume` is written BEFORE the verdict. A crash in the
   // gap used to lose it, and the next restore/policy run re-measured it with its own paid gate call.
-  if (st.mode.resumeHit !== modeBefore) emit(st, { ev: "mode_set", experiment: id, resumeHit: st.mode.resumeHit })
+  if (st.mode.resumeHit !== modeBefore) emit(st, { ev: "mode_set", experiment: id, resumeHit: st.mode.resumeHit, form: BIG_CONTEXT_MODE })
   emit(st, {
     ev: "experiment_ended", experiment: id, run: job.run ?? null, status, reason,
     paidRequests: exp.paid, parity: { ok: par.ok, complete: par.complete, issues: par.issues },
@@ -1482,7 +1501,7 @@ async function runExperiment(st, job) {
   agg.spentObservedEq = planSpend.observedEq
   agg.spentUpperEq = planSpend.upperEq
   if (isObject(result?.dialPrefix) && result.dialPrefix.prompt) {
-    st.dialPrefix = { prompt: result.dialPrefix.prompt, sessionId: result.dialPrefix.sessionId, seed: pool.seeds[0] ?? null }
+    st.dialPrefix = { prompt: result.dialPrefix.prompt, ...(result.dialPrefix.systemPrompt ? { systemPrompt: result.dialPrefix.systemPrompt } : {}), sessionId: result.dialPrefix.sessionId, seed: pool.seeds[0] ?? null }
     emit(st, { ev: "dial_prefix", experiment: id, run: job.run ?? null, seed: st.dialPrefix.seed, sessionId: st.dialPrefix.sessionId })
   }
   // A phase whose setting tick the ticking call cannot explain (todo 13) is never carried.
@@ -1786,7 +1805,7 @@ function dialPrefixSeedOf(folded) {
 // protocols.mjs gives the context-creating call of the dial-prefix producer this role
 const CTX_CREATE_ROLE = "ctx_create"
 
-const rebuildDialPrefix = (dp) => (isObject(dp) && Number.isInteger(dp.seed) ? { prompt: makeTask(dp.seed).ctxPrompt, sessionId: dp.sessionId ?? null, seed: dp.seed } : null)
+const rebuildDialPrefix = (dp) => (isObject(dp) && Number.isInteger(dp.seed) ? { ...dialPrefixOf(makeTask(dp.seed), dp.sessionId ?? null), seed: dp.seed } : null)
 
 // N3/B1 (todo 12 rework, gate st_01a0d9db). A smoke's own baseline PINGs run under experiment
 // "preflight" (baselineBlock, called from smokeRun BEFORE experiment_started{smoke} is ever

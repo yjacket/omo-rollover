@@ -1638,7 +1638,7 @@ test("todo 15/a every experiment_ended/step_void reason code has a Korean explan
   const resumeFallback = machineSrc.match(/prior\s*\?\s*prior\.reason\s*:\s*"([a-z_]+)"/)
   assert.ok(resumeFallback, "sanity: the scan found machine.mjs's resume-fallback own-reason literal")
   codes.add(resumeFallback[1])
-  for (const setName of ["DELIVERY_FAILURE", "CAMPAIGN_FATAL"]) {
+  for (const setName of ["DELIVERY_FAILURE", "CAMPAIGN_FATAL", "PRE_SPAWN_REFUSALS"]) {
     const m = machineSrc.match(new RegExp(`const ${setName} = new Set\\(\\[([^\\]]+)\\]\\)`))
     assert.ok(m, `sanity: the scan found machine.mjs's ${setName} set`)
     for (const code of m[1].matchAll(/"([a-z_]+)"/g)) codes.add(code[1])

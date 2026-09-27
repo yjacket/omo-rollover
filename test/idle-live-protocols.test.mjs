@@ -8,7 +8,7 @@ import { createHash } from "node:crypto"
 import {
   filler, SITES, NULLP, OUTP, outp, promptOf,
   makeTask, scoreWork, scoreGuard, reexplainNeeded, handoffLossy,
-  protocols, parity, schedule, RULES, EXPERIMENT_IDS,
+  protocols, parity, schedule, RULES, EXPERIMENT_IDS, BIG_CONTEXT_MODE, contextFileOf, dialPrefixOf,
 } from "../scripts/idle-live/protocols.mjs"
 
 const MODEL = "claude-fable-5-1"
@@ -679,7 +679,11 @@ test("restore-decomposition run 1: gate PASS keeps --resume, phase labels on 1+3
   assert.equal(ctxCreate.arm, "shared")
   assert.equal(ctxCreate.seed, 1001)
   assert.deepEqual(ctxCreate.session, { id: "uuid-1", mode: "new" })
-  assert.equal(ctxCreate.prompt.sha256, task.ctxPrompt.sha256)
+  assert.equal(ctxCreate.prompt.text, NULLP)
+  assert.equal(ctxCreate.prompt.tokensEst, task.ctxPrompt.tokensEst, "the context write is priced as the whole context")
+  assert.deepEqual(ctxCreate.systemPrompt, contextFileOf(task))
+  for (const s of [gate, park, requests[12], ...requests.slice(13, 19)]) assert.deepEqual(s.systemPrompt, { file: `P-${task.seed}.txt`, sha256: contextFileOf(task).sha256, bytes: contextFileOf(task).bytes }, s.id)
+  for (const s of requests.slice(3, 12)) assert.equal(s.systemPrompt, undefined, `${s.id}: the child never carries P`)
   assert.equal(ctxCreate.dominantField, "cacheWrite1h")
   assert.equal(ctxCreate.scopeId, "restore-decomposition/run-1")
   assert.equal(gate.atOffsetMs, ctxCreate.atOffsetMs + STEP_MS + RULES.restore.settleMs, "20 s settle after the context write")
@@ -735,11 +739,11 @@ test("restore-decomposition run 1: gate PASS keeps --resume, phase labels on 1+3
 
   assert.equal(r.status, "valid")
   assert.equal(r.run, 1)
-  assert.equal(r.mode, "resume")
+  assert.equal(r.mode, BIG_CONTEXT_MODE)
   assert.equal(r.gate.pass, true)
   assert.equal(r.gate.cacheRead, 145655)
   assert.deepEqual(r.task, { seed: 1001, ticket: task.ticket, guardAnswer: task.guardAnswer })
-  assert.deepEqual(r.dialPrefix, { prompt: task.ctxPrompt, sessionId: "uuid-1" })
+  assert.deepEqual(r.dialPrefix, dialPrefixOf(task, "uuid-1"))
   assert.equal(r.sums.park_path.park_parent.cacheRead, 145700)
   assert.equal(r.sums.park_path.park_parent.billedModelOutput, 1200)
   assert.equal(r.sums.park_path.restore_child.cacheWrite1h, 1800 + 200 + 150)
@@ -760,29 +764,17 @@ test("restore-decomposition run 1: gate PASS keeps --resume, phase labels on 1+3
   assert.equal(p.complete, true)
 })
 
-test("restore-decomposition: gate FAIL switches big-context requests to rf-emulation (identical bytes + suffix), child stays on --resume", async () => {
+test("restore-decomposition: gate FAIL stops the run (resume_gate_miss) - no rf-emulation fallback is paid for", async () => {
   const task = makeTask(1001)
   const { requests, result: r, ctx } = await run("restore-decomposition", { dial: false }, restoreResponder(task, { gatePass: false }))
   assert.equal(ctx.mode.resumeHit, false)
-  assert.equal(r.mode, "rf-emulation")
+  assert.deepEqual(roles(requests), ["ctx_create", "gate"])
+  assert.equal(r.status, "aborted")
+  assert.equal(r.reason, "resume_gate_miss")
+  assert.equal(r.mode, BIG_CONTEXT_MODE)
   assert.equal(r.gate.pass, false)
-  const park = requests[2]
-  assert.deepEqual(park.session, { id: null, mode: "ephemeral" })
-  assert.equal(park.prompt.text, `${task.ctxPrompt.text}\n\n${task.parkPrompt}`)
-  assert.equal(park.prompt.fillerLines, 4800)
-  assert.equal(park.expect.hit, true)
-  assert.equal(park.dominantField, "cacheRead")
-  assert.deepEqual(requests[3].session, { id: "uuid-2", mode: "new" })
-  assert.deepEqual(requests[6].session, { id: "uuid-2", mode: "resume" })
-  const raw = requests[12]
-  assert.deepEqual(raw.session, { id: null, mode: "ephemeral" })
-  assert.equal(raw.prompt.text, `${task.ctxPrompt.text}\n\n${task.guardPromptRaw.text}`)
-  for (const s of requests.slice(13, 19)) {
-    assert.deepEqual(s.session, { id: null, mode: "ephemeral" })
-    assert.equal(s.prompt.text, `${task.ctxPrompt.text}\n\n${task.workSteps[s.k - 1].prompt.text}`)
-  }
-  assert.deepEqual(r.flags, [])
-  assert.equal(r.status, "valid")
+  assert.equal(r.gate.cacheWrite1h, 142681)
+  assert.equal(r.paidRequests, 2)
 })
 
 test("restore-decomposition: handoff_lossy, reexplain, wrong answers, park output range, missing text, big-context rewrite, run 2 offsets", async () => {
@@ -839,7 +831,8 @@ test("policy-effect: 3 pairs, candidate first, 4 warm pings at 60 s, 8 work step
     assert.deepEqual(roles(pair), pairRoles)
     assert.deepEqual(pair.map((s) => s.scopeId), Array(27).fill(`policy-effect/pair-${i}`))
     assert.equal(pair[0].seed, 1000 + i)
-    assert.equal(pair[0].prompt.sha256, tasks[i - 1].ctxPrompt.sha256)
+    assert.equal(pair[0].prompt.text, NULLP)
+    assert.equal(pair[0].systemPrompt.sha256, contextFileOf(tasks[i - 1]).sha256)
     assert.equal(pair[0].arm, "shared")
     assert.equal(pair[1].arm, "shadow_candidate_policy")
     assert.equal(pair[1].atOffsetMs, pair[0].atOffsetMs + STEP_MS + RULES.restore.settleMs)
@@ -875,7 +868,7 @@ test("policy-effect: 3 pairs, candidate first, 4 warm pings at 60 s, 8 work step
   assert.equal(pr.arms.shadow_candidate_policy.quality.workCorrect, 8)
   assert.equal(pr.arms.current_policy.resumeDelayMs, STEP_MS)
   assert.equal(pr.shared.ctx_create.cacheWrite1h, 142620)
-  assert.equal(r.mode, "resume")
+  assert.equal(r.mode, BIG_CONTEXT_MODE)
   const p = parity("policy-effect", requests)
   assert.equal(p.ok, true)
   assert.equal(p.complete, true)
@@ -907,11 +900,9 @@ test("policy-effect: a second warm miss stops the current arm of that pair; the 
   assert.equal(gated.requests[1].role, "gate")
   assert.equal(gated.requests[1].arm, "shared")
   assert.equal(count(gated.requests, (s) => s.role === "gate"), 1, "gate once, on pair 1")
-  assert.equal(gated.result.mode, "rf-emulation")
-  const warm = gated.requests.find((s) => s.role === "warm")
-  assert.deepEqual(warm.session, { id: null, mode: "ephemeral" })
-  assert.equal(warm.prompt.text, `${tasks[0].ctxPrompt.text}\n\n${NULLP}`)
-  assert.equal(gated.result.status, "valid")
+  assert.deepEqual(roles(gated.requests), ["ctx_create", "gate"], "a gate miss stops the pairs: no fallback form")
+  assert.equal(gated.result.status, "aborted")
+  assert.equal(gated.result.reason, "resume_gate_miss")
 })
 
 // ------------------------------------------------------------- parity + schedule

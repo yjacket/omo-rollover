@@ -43,7 +43,7 @@ import path from "node:path"
 import crypto from "node:crypto"
 import { pathToFileURL } from "node:url"
 
-import { RULES, EXPERIMENT_IDS, schedule, makeTask, scoreWork, scoreGuard, reexplainNeeded, handoffLossy } from "./idle-live/protocols.mjs"
+import { RULES, EXPERIMENT_IDS, schedule, makeTask, scoreWork, scoreGuard, reexplainNeeded, handoffLossy, BIG_CONTEXT_MODE } from "./idle-live/protocols.mjs"
 import { METERS, metersOf, sameWindow } from "./idle-live/gauge.mjs"
 import { RESOLUTION, PRIOR_RANGE_ONLY, OUTPUT_RATIO_PRIOR } from "./idle-live/caps.mjs"
 import { normalizeUsage } from "./quota-analysis.mjs"
@@ -803,6 +803,9 @@ export function analyzeRestore(recs, opts = {}) {
     const restoreChild = entries.filter((v) => v.rec.phase === "restore_child").sort(byViewIndex)
     const rawResume = entries.filter((v) => v.rec.phase === "resume_raw" && roleOf(v) !== "gate").sort(byViewIndex)
     const gate = entries.find((v) => roleOf(v) === "gate")
+    // Amendment 2026-09-27: a run whose big-context rows carry a system prompt file hash was sent in
+    // the resume-sysfile form (there is no fallback form); older runs keep the gate-derived mode.
+    const sysfile = entries.some((v) => typeof v.rec.systemPromptSha256 === "string")
     const childMisses = entries
       .filter((v) => v.rec.arm === "park_path" && v.usage.cacheWrite1h >= RULES.restore.bigContextRewriteWrite1h)
       .map((v) => v.rec.stepId)
@@ -816,7 +819,7 @@ export function analyzeRestore(recs, opts = {}) {
     const task = opts.taskOf ? opts.taskOf(index) : null
     runs.push({
       run: index,
-      mode: gate ? (gate.usage.cacheRead >= RULES.restore.gateMinCacheRead && gate.usage.cacheWrite1h < RULES.restore.gateMaxWrite1h ? "resume" : "rf-emulation") : "unknown",
+      mode: sysfile ? BIG_CONTEXT_MODE : gate ? (gate.usage.cacheRead >= RULES.restore.gateMinCacheRead && gate.usage.cacheWrite1h < RULES.restore.gateMaxWrite1h ? "resume" : "rf-emulation") : "unknown",
       gate: gate ? { stepId: gate.rec.stepId, cacheRead: gate.usage.cacheRead, cacheWrite1h: gate.usage.cacheWrite1h } : null,
       phases,
       byArmPhase,
@@ -1337,11 +1340,19 @@ const REASON_TEXT = Object.freeze({
   // threshold, protocols.mjs bigContextRewriteWrite1h), not from a gauge reading or header lag -
   // once one big-context call shows the cache miss, the machine stops issuing further big-context
   // jobs of that kind rather than pay the same ~143K rewrite again.
-  fallback_mode_misses: "이전에 기록된 다른 호출이 대체 모드(rf-emulation)에서 캐시를 놓쳤음(big_context_rewrite)을 보여, 이 작업은 같은 결과를 낼 것으로 보고 호출 없이(0건) 바로 중단했다",
+  fallback_mode_misses: "앞서 기록된 호출이 이 대용량 컨텍스트 전송 방식으로는 캐시를 읽지 못한다는 것을 보였다(첫 재개 확인에서 캐시를 놓쳤거나 대용량 컨텍스트를 처음부터 다시 썼다). 이 작업도 같은 비용을 낼 것으로 보고 호출 없이(0건) 바로 중단했다",
   // Mode-neutral: a big-context rewrite can happen under --resume or under the rf-emulation
   // fallback (both are recorded session modes for this job) - the text must not assert which one
   // ran without reading the event's own `result.mode`.
   big_context_rewrite: "이 호출의 사용량이 캐시를 놓치고 대용량 컨텍스트를 처음부터 다시 썼다(--resume이든 대체 모드 rf-emulation이든, 기록된 세션 모드에서 캐시 적중을 얻지 못했다는 뜻이다): 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다",
+  // Amendment 2026-09-27 (todo 21b): the resume-hit gate of the system-prompt-file form missed.
+  // There is no fallback form any more, so the run stops there and later big-context jobs close
+  // without calls (fallback_mode_misses).
+  resume_gate_miss: "컨텍스트를 만든 뒤 같은 세션을 이어 받은 첫 확인 호출이 캐시를 읽지 못했다. 이 전송 방식이 캐시에 적중하지 않는다는 뜻이라 다른 방식에 비용을 쓰지 않고 이 실행을 중단했고, 이후의 대용량 컨텍스트 작업도 호출 없이 닫았다",
+  // The CLI adapter checks the big-context file before it starts the CLI; these refusals send nothing.
+  system_prompt_mismatch: "대용량 컨텍스트 파일의 내용이 기록된 해시와 달라 호출하지 않고 이 실험을 중단했다",
+  system_prompt_missing: "대용량 컨텍스트 파일이 없어 호출하지 않고 이 실험을 중단했다",
+  bad_system_prompt: "대용량 컨텍스트 파일을 가리키는 기록이 올바르지 않아 호출하지 않고 이 실험을 중단했다",
   skipped_arm: "이 어댑터가 지원하지 않는 arm의 단계라서 발행하지 않고 건너뛰었다",
   run_already_ended: "이전 프로세스가 이미 캠페인을 종료 상태로 기록해 재개가 더 이상 호출하지 않았다",
   smoke_dial_miss: "smoke 모드의 dial 읽기가 예상한 캐시 적중을 보이지 않았다",

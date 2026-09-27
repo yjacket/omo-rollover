@@ -4,6 +4,7 @@
 // the proxy's fallback when the CLI drops ANTHROPIC_CUSTOM_HEADERS.
 import fs from "node:fs"
 import path from "node:path"
+import { createHash } from "node:crypto"
 
 const STDERR_HEAD = 2000
 const STDOUT_HEAD = 2000
@@ -61,22 +62,68 @@ export function probeCliVersion({ cli, spawn, baseEnv = process.env, timer = rea
   })
 }
 
-export function createClaudeCliAdapter({ cli, model, spawn, workDir, labelFile, baseEnv = process.env }) {
+// The system prompt file flag the task-20 capture (claude.exe 2.1.278) showed puts the file's bytes at
+// the end of system[2], under its 1h breakpoint. P is ~204 KB: Windows argv (32,767 chars) cannot carry
+// it as --append-system-prompt text (spawn ENAMETOOLONG).
+export const SYSTEM_PROMPT_FILE_FLAG = "--append-system-prompt-file"
+const SAFE_NAME = /^[A-Za-z0-9._-]+$/
+const sha256 = (buf) => createHash("sha256").update(buf).digest("hex")
+
+/**
+ * prepareSystemPrompt(ref, contextDir) -> absolute path of the verified file, or throws before any
+ * spawn: system_prompt_missing | system_prompt_mismatch | bad_system_prompt. A ref that carries
+ * `text` (the context write) creates the file once - UTF-8, no BOM - and never overwrites a file of
+ * that name holding other bytes. Every call re-reads the file and checks its sha256.
+ */
+export function prepareSystemPrompt(ref, contextDir) {
+  if (!contextDir || typeof ref?.file !== "string" || !SAFE_NAME.test(ref.file) || typeof ref.sha256 !== "string") {
+    throw fail("bad_system_prompt", "system prompt file reference or context dir is invalid")
+  }
+  const file = path.join(contextDir, ref.file)
+  if (typeof ref.text === "string") {
+    const bytes = Buffer.from(ref.text, "utf8")
+    if (sha256(bytes) !== ref.sha256) throw fail("system_prompt_mismatch", `${ref.file}: text does not hash to the recorded sha256`)
+    fs.mkdirSync(contextDir, { recursive: true })
+    try {
+      fs.writeFileSync(file, bytes, { flag: "wx" })
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e
+    }
+  }
+  let onDisk
+  try {
+    onDisk = fs.readFileSync(file)
+  } catch (e) {
+    if (e.code === "ENOENT") throw fail("system_prompt_missing", `${ref.file} is missing`)
+    throw e
+  }
+  if (sha256(onDisk) !== ref.sha256) throw fail("system_prompt_mismatch", `${ref.file} does not hash to the recorded sha256`)
+  return file
+}
+
+/** cliArgs({ model, session, systemPromptPath }) -> the argv of one call (no shell, prompt via stdin). */
+export function cliArgs({ model, session, systemPromptPath = null }) {
+  return ["-p", "--model", model, "--output-format", "json", "--safe-mode", "--strict-mcp-config",
+    "--tools", "", "--disable-slash-commands", "--permission-mode", "dontAsk", "--effort", "low", "--max-turns", "1",
+    "--fallback-model", model, ...(systemPromptPath ? [SYSTEM_PROMPT_FILE_FLAG, systemPromptPath] : []), ...sessionArgs(session)]
+}
+
+function sessionArgs({ id, mode }) {
+  if (mode === "resume") { if (!id) throw fail("bad_session_mode", "resume requires a session id"); return ["--resume", id] }
+  if (mode === "new") { if (!id) throw fail("bad_session_mode", "new requires a session id"); return ["--session-id", id] }
+  if (mode === "ephemeral") return ["--no-session-persistence"]
+  throw fail("bad_session_mode", `unknown session mode: ${mode}`)
+}
+
+export function createClaudeCliAdapter({ cli, model, spawn, workDir, labelFile, contextDir = null, baseEnv = process.env }) {
   const capabilities = { ttlLanes: ["1h"], resume: true, maxOutputTokens: null, model }
 
-  const sessionArgs = ({ id, mode }) => {
-    if (mode === "resume") { if (!id) throw fail("bad_session_mode", "resume requires a session id"); return ["--resume", id] }
-    if (mode === "new") { if (!id) throw fail("bad_session_mode", "new requires a session id"); return ["--session-id", id] }
-    if (mode === "ephemeral") return ["--no-session-persistence"]
-    throw fail("bad_session_mode", `unknown session mode: ${mode}`)
-  }
-
   async function invoke(step, { stepHeader, baseUrl }, signal) {
-    const tail = sessionArgs(step.session)
+    sessionArgs(step.session)
     if (signal?.aborted) throw fail("aborted", "aborted before spawn")
-    const args = ["-p", "--model", model, "--output-format", "json", "--safe-mode", "--strict-mcp-config",
-      "--tools", "", "--disable-slash-commands", "--permission-mode", "dontAsk", "--effort", "low", "--max-turns", "1",
-      "--fallback-model", model, ...tail]
+    // the P file is verified (and, for the context write, created) before anything is spawned
+    const systemPromptPath = step.systemPrompt ? prepareSystemPrompt(step.systemPrompt, contextDir) : null
+    const args = cliArgs({ model, session: step.session, systemPromptPath })
     const env = {
       ...baseEnv,
       ANTHROPIC_BASE_URL: baseUrl,

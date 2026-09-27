@@ -33,7 +33,7 @@ import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/cl
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
-import { EXPERIMENT_IDS, OUTPUT_BLOCKS } from "./idle-live/protocols.mjs"
+import { EXPERIMENT_IDS, OUTPUT_BLOCKS, BIG_CONTEXT_FORM } from "./idle-live/protocols.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, "..")
@@ -264,6 +264,12 @@ function printSchedule(write, schedule, skippedArms, freshWindow = false) {
       line([`output-quota/block-${b.block}`, `arm=${b.arm}`, `prompt=outp(${b.n})`, `target=${b.target}`, `gateMinOutput=${b.gateMinOutput}`, ...(b.optional ? ["optional=true"] : [])])
     }
   }
+  // how restore-decomposition and policy-effect send their big context (Amendment 2026-09-27)
+  const f = BIG_CONTEXT_FORM
+  for (const id of Object.keys(f.laterRoles)) {
+    if (!schedule.some((r) => r.experiment === id)) continue
+    line([`${id}/big-context`, `mode=${f.mode}`, `file=${f.file}`, `ctx_create=${f.ctxCreate}`, `laterRoles=${f.laterRoles[id].join(",")}`, `later=${f.later}`, `gateMiss=${f.gateMiss}`])
+  }
 }
 
 // ---------------------------------------------------------------------- main
@@ -482,7 +488,8 @@ async function run(argv, env, ctx, finish) {
   let summary
   try {
     const ledger = openLedger(evidenceDir)
-    const adapter = env.createAdapter({ cli, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile, baseEnv: env.processEnv })
+    // P files (the restore/policy big context) live beside the run's evidence, one per seed
+    const adapter = env.createAdapter({ cli, model: approval.target.modelId, spawn, workDir: evidenceDir, labelFile, contextDir: path.join(evidenceDir, "ctx"), baseEnv: env.processEnv })
     process.on("SIGINT", onSignal)
     process.on("SIGTERM", onSignal)
 

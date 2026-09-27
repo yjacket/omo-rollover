@@ -949,6 +949,23 @@ test("the dry-run table lists the output-quota prompts outp(3000) / outp(1700) w
   ])
 })
 
+// Plan todo 21b: the dry run states how restore/policy send the big context.
+test("the dry-run table lists the resume-sysfile argv for restore-decomposition and policy-effect", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ runMachine })
+  assert.equal(await main(ARGV.dry(fx), h.io), EXIT.OK)
+  const rows = h.stdout.join("").split("\n").filter((l) => / (restore-decomposition|policy-effect)\/big-context /.test(` ${l.slice(2)} `))
+    .map((l) => { const [id, ...cells] = l.slice(2).split(/\s{2,}/); return [id, Object.fromEntries(cells.map((c) => [c.slice(0, c.indexOf("=")), c.slice(c.indexOf("=") + 1)]))] })
+  assert.deepEqual(rows.map(([id]) => id), ["restore-decomposition/big-context", "policy-effect/big-context"])
+  for (const [, r] of rows) {
+    assert.equal(r.mode, "resume-sysfile")
+    assert.equal(r.gateMiss, "resume_gate_miss")
+    assert.deepEqual(r.ctx_create.split(" ").slice(0, 4), ["--append-system-prompt-file", "<file>", "--session-id", "<P>"])
+    assert.deepEqual(r.later.split(" ").slice(0, 4), ["--append-system-prompt-file", "<file>", "--resume", "<P>"])
+  }
+  assert.ok(rows[1][1].laterRoles.split(",").includes("warm"))
+})
+
 // ------------------------------------------------------------- I28: CLI resolution and --version probe
 
 // npm installs only `claude` / `claude.cmd` shims; node spawn without a shell cannot start them.
@@ -982,6 +999,9 @@ test("I28 IDLE_LIVE_CLI in the injected env is the path probed and the path the 
   assert.equal(await main(ARGV.live(fx), h.io), EXIT.OK)
   assert.deepEqual(h.calls.probeCli.map((c) => c.cli), ["D:/tools/claude.exe"])
   assert.deepEqual(h.calls.createAdapter.map((c) => c.cli), ["D:/tools/claude.exe"])
+  // todo 21b: the adapter writes and checks P files under the run's own evidence dir
+  const runDir = h.calls.createAdapter[0].workDir
+  assert.equal(h.calls.createAdapter[0].contextDir, join(runDir, "ctx"))
 })
 
 const cliFailure = (code) => Object.assign(new Error(`probe failed: ${code}`), { code })
