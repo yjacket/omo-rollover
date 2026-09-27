@@ -791,9 +791,8 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     promptSha256: step.prompt.sha256, promptChars: step.prompt.chars, promptTokensEst: step.prompt.tokensEst,
     dominantField: step.dominantField, expect: step.expect ?? null, needsText: step.needsText === true,
     ...systemPromptOf(step),
-    // The flagged rerun records P's byte size separately from the NULLP stdin chars. Leave
-    // pre-flag evidence byte-identical for runs that do not opt into the fresh-window gate.
-    ...(st.opts.freshWindow === true && step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
+    // ctx_create stdin is NULLP, so record the separately billed P file size on every run.
+    ...(step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
     predictedTicks: accounting.predictedTicks, gated: !ungated,
   })
 
@@ -941,7 +940,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     promptChars: step.prompt.chars,
     promptTokensEst: step.prompt.tokensEst,
     ...(isObject(step.systemPrompt) ? { systemPromptSha256: step.systemPrompt.sha256 } : {}),
-    ...(st.opts.freshWindow === true && step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
+    ...(step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
     method: p?.method ?? "POST",
     path: p?.path ?? "/v1/messages",
     status: Number.isFinite(p?.status) ? p.status : null,

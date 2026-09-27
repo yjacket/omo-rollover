@@ -21,7 +21,7 @@ import { openLedger } from "../scripts/idle-live/ledger.mjs"
 import { conflicting as findConflicts } from "../scripts/idle-live/processes.mjs"
 // Read-only: M7 asserts the landed analyzer can resolve ground truth from `experiment_started`.
 import { analyzeRun } from "../scripts/idle-live-analyze.mjs"
-import { proxyLogReader } from "../scripts/idle-live-runner.mjs"
+import { logState, main, proxyLogReader } from "../scripts/idle-live-runner.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = join(here, "..")
@@ -604,9 +604,37 @@ test("a restarted preflight error is not labelled as an operator cancellation", 
   assert.equal(h.ev("run_ended").length, 0)
 })
 
-test("a fresh-window context write records stdin chars separately from system prompt bytes", async () => {
+test("R1-N2 an operator cancel during the fresh-window wait stops before the restarted preflight", async () => {
+  const controller = new AbortController()
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({
+    gauge: { resets: { "unified-5h": reset } },
+    opts: { signal: controller.signal },
+    tap: (e) => { if (e.ev === "fresh_window_wait") controller.abort() },
+  })
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.stopped, "cancelled")
+  assert.deepEqual(h.ids(), ["preflight/baseline/0", "preflight/baseline/1", "preflight/baseline/2"])
+  const stop = h.ledger.events.findIndex((e) => e.ev === "campaign_stop" && e.reason === "cancelled")
+  assert.ok(stop >= 0)
+  assert.deepEqual(h.ledger.events.slice(stop + 1).map((e) => e.ev), ["run_ended"], "the cancelled wait never starts baseline-w2")
+
+  const resumed = resumeHarness({
+    events: h.ledger.events,
+    requests: h.ledger.requests,
+    cli: h.ledger.cli,
+    proxyRecords: h.proxy.records,
+    crashedAt: Date.parse(h.ledger.events.at(-1).ts),
+  })
+  const again = await resumed.run({ resume: "fake-run", only: ONLY_TTL, freshWindow: true })
+  assert.equal(again.exitCode, EXIT.ABORTED)
+  assert.deepEqual(resumed.ids(), [], "a cancelled fresh-window run is never resumed")
+})
+
+test("R1-N4 every context write records stdin chars separately from system prompt bytes", async () => {
   const h = harness()
-  await h.run({ only: ["restore-decomposition"], freshWindow: true })
+  await h.run({ only: ["restore-decomposition"] })
   const intent = h.ev("step_intent").find((e) => e.role === "ctx_create")
   const row = h.ledger.requests.find((r) => r.role === "ctx_create")
   assert.ok(intent && row)
@@ -988,6 +1016,70 @@ test("the scheduler places the 5h reset between blocks and re-baselines after it
   const ended = h.ev("experiment_ended")[0]
   assert.deepEqual(ended.result.blocks.map((b) => b.status), ["valid", "valid"])
   assert.equal(ended.parity.complete, true)
+})
+
+test("R1-N1 a quiet-retry timer failure is an interrupted crash, not a cancelled stop", async (t) => {
+  const root = tmp("quiet-retry-crash")
+  const dir = join(root, "fake-run")
+  mkdirSync(dir)
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const ledger = openLedger(dir)
+  const h = harness({ ledger, gauge: RESET_GAUGE(60), script: { "preflight/rebaseline/1": { bump: { meter: "unified-5h", eq: 0.01 } } } })
+  const sleep = h.clock.sleep
+  h.clock.sleep = (ms, signal) => h.ev("quiet_retry").length ? Promise.reject(new Error("quiet-retry timer failed")) : sleep(ms, signal)
+  await assert.rejects(h.run({ only: ["fable-write-tick"], dialPrefix: DIAL }), /quiet-retry timer failed/)
+  assert.equal(h.ev("campaign_stop").some((e) => e.reason === "cancelled"), false)
+  assert.equal(h.ev("run_ended").length, 0)
+
+  const state = logState(dir)
+  assert.deepEqual(state.inDoubt, [])
+  assert.deepEqual(state.interrupted, ["fable-write-tick"])
+
+  writeFileSync(join(dir, "run.json"), `${JSON.stringify(manifest({
+    runId: "fake-run",
+    approvalSha256: sha256(readFileSync(APPROVAL_PATH, "utf8")),
+    plannerSha256: SHAS.plannerSha256,
+  }))}\n`)
+  const output = []
+  const code = await main(["--approval", APPROVAL_PATH, "--evidence", root, "--resume", "fake-run"], {
+    stdout: (line) => output.push(line),
+    stderr: () => {},
+    now: () => EPOCH,
+    startProxy: async () => ({ port: 41999, close: async () => {} }),
+    runMachine: async () => { throw new Error("quiet-retry timer failed") },
+    createAdapter: () => ({ capabilities: { ttlLanes: ["1h"], resume: true, maxOutputTokens: null, model: MODEL } }),
+    conflicting: async () => [],
+    fetch: async () => ({ json: async () => ({}) }),
+    timeoutSignal: () => new AbortController().signal,
+    probeCli: async () => "fake-adapter/1",
+    env: { APPDATA: "C:/fake" },
+  })
+  const classified = JSON.parse(output.at(-1))
+  assert.equal(code, EXIT.IN_DOUBT)
+  assert.equal(classified.exitCode, EXIT.IN_DOUBT)
+  assert.equal(classified.resumable, true)
+})
+
+test("R1-N3 fresh-window unknown is only a first preflight failure, never a mid-run rebaseline failure", async () => {
+  const reset = Math.floor((EPOCH + 5 * 3600_000) / 1000)
+  const h = harness({
+    gauge: { resets: { "unified-5h": reset, "unified-7d": RESET_7D, "unified-7d_oi": RESET_7D } },
+    script: { "preflight/rebaseline/0": { dropMeters: ["unified-5h"] } },
+  })
+  const invoke = h.adapter.invoke
+  h.adapter.invoke = async (...args) => {
+    const result = await invoke(...args)
+    if (args[0].id === "preflight/baseline/2") h.clock.set(reset * 1000 - 30 * 60_000)
+    return result
+  }
+  const s = await h.run({ only: ["fable-write-tick"], dialPrefix: DIAL, freshWindow: true })
+  assert.equal(h.ev("fresh_window_wait").length, 0)
+  assert.equal(h.ev("reset_wait").length, 1)
+  assert.ok(h.ids().includes("preflight/rebaseline/0"))
+  assert.ok(h.ids().includes("preflight/rebaseline-2/0"), "the missing rebaseline reading is retried")
+  assert.equal(h.ev("campaign_stop").some((e) => e.reason === "fresh_window_unknown"), false)
+  assert.notEqual(s.stopped, "fresh_window_unknown")
+  assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments))
 })
 
 test("a meter the response never carries is recorded as absent, not as 0", async () => {
