@@ -957,7 +957,12 @@ test("the dry-run table lists the resume-sysfile argv for restore-decomposition 
   const rows = h.stdout.join("").split("\n").filter((l) => / (restore-decomposition|policy-effect)\/big-context /.test(` ${l.slice(2)} `))
     .map((l) => { const [id, ...cells] = l.slice(2).split(/\s{2,}/); return [id, Object.fromEntries(cells.map((c) => [c.slice(0, c.indexOf("=")), c.slice(c.indexOf("=") + 1)]))] })
   assert.deepEqual(rows.map(([id]) => id), ["restore-decomposition/big-context", "policy-effect/big-context"])
+  const { cliArgs } = await import("../scripts/idle-live/adapters/claude-cli.mjs")
+  const prefixLength = cliArgs({ model: "<model>", session: { id: "<P>", mode: "new" } }).length - 2
+  const actual = (mode, stdin) => `${cliArgs({ model: "<model>", session: { id: "<P>", mode }, systemPromptPath: "<file>" }).slice(prefixLength).join(" ")} stdin=${stdin}`
   for (const [, r] of rows) {
+    assert.equal(r.ctx_create, actual("new", "NULLP"))
+    assert.equal(r.later, actual("resume", "<step text>"))
     assert.equal(r.mode, "resume-sysfile")
     assert.equal(r.gateMiss, "resume_gate_miss")
     assert.deepEqual(r.ctx_create.split(" ").slice(0, 4), ["--append-system-prompt-file", "<file>", "--session-id", "<P>"])

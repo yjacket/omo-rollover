@@ -791,6 +791,9 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     promptSha256: step.prompt.sha256, promptChars: step.prompt.chars, promptTokensEst: step.prompt.tokensEst,
     dominantField: step.dominantField, expect: step.expect ?? null, needsText: step.needsText === true,
     ...systemPromptOf(step),
+    // The flagged rerun records P's byte size separately from the NULLP stdin chars. Leave
+    // pre-flag evidence byte-identical for runs that do not opt into the fresh-window gate.
+    ...(st.opts.freshWindow === true && step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
     predictedTicks: accounting.predictedTicks, gated: !ungated,
   })
 
@@ -938,6 +941,7 @@ async function runStep(st, exp, step, { ungated = false } = {}) {
     promptChars: step.prompt.chars,
     promptTokensEst: step.prompt.tokensEst,
     ...(isObject(step.systemPrompt) ? { systemPromptSha256: step.systemPrompt.sha256 } : {}),
+    ...(st.opts.freshWindow === true && step.role === "ctx_create" ? { systemPromptBytes: step.systemPrompt.bytes } : {}),
     method: p?.method ?? "POST",
     path: p?.path ?? "/v1/messages",
     status: Number.isFinite(p?.status) ? p.status : null,
@@ -1199,7 +1203,10 @@ async function baselineBlock(st, { role = "baseline", count = BASELINE_PINGS, sp
       const expectWindowRoll = attempt === 1 && n === 1 && (!firstBlock || st.resumeIndex > 0 || role.endsWith("-w2"))
       const step = pingStep({ role: `${firstBlock ? "baseline" : "rebaseline"}_ping`, arm, index: n - 1, atOffsetMs: (n - 1) * spacingMs, n, expectWindowRoll })
       const r = await runStep(st, exp, step, { ungated: true })
-      if (attempt === 1 && n === 1) firstReading = { reset: r.result?.meters?.[METER_5H]?.reset, util: r.result?.meters?.[METER_5H]?.util, at: Date.parse(r.result?.record?.ts) }
+      if (n === 1) firstReading = { reset: r.result?.meters?.[METER_5H]?.reset, util: r.result?.meters?.[METER_5H]?.util, at: Date.parse(r.result?.record?.ts) }
+      if (st.opts.freshWindow === true && firstBlock && attempt === 1 && n === 1 && !Number.isFinite(firstReading.reset) && !r.fatal) {
+        return { fatal: { reason: "fresh_window_unknown" }, exitCode: EXIT.ABORTED }
+      }
       if (r.fatal) {
         syncCampaignStop(st, { experiment: PREFLIGHT_ID, stepId: step.id })
         return { fatal: r.fatal, stop: true }
@@ -1231,7 +1238,8 @@ async function baselineBlock(st, { role = "baseline", count = BASELINE_PINGS, sp
       emit(st, { ev: "quiet_retry", experiment: PREFLIGHT_ID, arm, attempt, attempts: QUIET_ATTEMPTS, reason: ticks > 0 ? "foreign_tick" : "gauge_moved", ticks, waitMs: QUIET_RETRY_MS })
       try {
         await sleepOf(st, QUIET_RETRY_MS)
-      } catch {
+      } catch (error) {
+        if (!st.signal?.aborted) throw error
         stopCampaign(st, { reason: "cancelled", experiment: PREFLIGHT_ID })
         return { fatal: { status: "aborted", reason: "aborted_in_quiet_wait" }, stop: true }
       }
@@ -1959,17 +1967,22 @@ export async function runMachine(deps, approval, opts = {}) {
       if (!fresh(reading)) {
         const reset = reading?.reset ?? null
         const until = reset === null ? null : reset * 1000 + RESET_SETTLE_MS
-        if (until === null || reset * 1000 - nowOf(st) > MAX_WINDOW_WAIT_MS || until <= nowOf(st)) {
+        if (until === null || reset * 1000 - nowOf(st) > MAX_WINDOW_WAIT_MS) {
           base = { fatal: { reason: "window_wait_unbounded" }, exitCode: EXIT.PREFLIGHT }
         } else {
           emit(st, { ev: "fresh_window_wait", reset, u5: reading.util, until })
-          try {
-            await sleepOf(st, until - nowOf(st))
+          if (until > nowOf(st)) {
+            try {
+              await sleepOf(st, until - nowOf(st))
+            } catch (error) {
+              if (!st.signal?.aborted) throw error
+              stopCampaign(st, { reason: "cancelled", experiment: PREFLIGHT_ID })
+              base = { fatal: { reason: "cancelled" }, exitCode: EXIT.ABORTED }
+            }
+          }
+          if (!base.exitCode) {
             base = await baselineBlock(st, { role: st.resumeIndex ? `baseline-r${st.resumeIndex}-w2` : "baseline-w2" })
             if (!base.fatal && !fresh(base.firstReading)) base = { fatal: { reason: "window_not_fresh" }, exitCode: EXIT.ABORTED }
-          } catch {
-            stopCampaign(st, { reason: "cancelled", experiment: PREFLIGHT_ID })
-            base = { fatal: { reason: "cancelled" }, exitCode: EXIT.ABORTED }
           }
         }
       }

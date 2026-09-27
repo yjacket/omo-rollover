@@ -122,7 +122,6 @@ test("restore-decomposition: ctx_create and every later big-context call spawn t
   const { steps, result } = await drive(ctx, responder([task]))
   assert.equal(result.status, "valid")
   assert.equal(result.mode, BIG_CONTEXT_MODE)
-  assert.equal(BIG_CONTEXT_MODE, "resume-sysfile")
   const { ctxDir, seen } = await spawnAll(t, steps)
   const file = path.join(ctxDir, "P-1001.txt")
   const bytes = readFileSync(file)

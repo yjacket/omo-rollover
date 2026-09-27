@@ -452,12 +452,10 @@ const bigContext = (sessionId, systemPrompt) => (p) => {
   const prompt = typeof p === "string" ? promptOf(p) : p
   return { prompt, session: { id: sessionId, mode: "resume" }, systemPrompt, expect: { ttlLane: "1h", hit: true }, dominantField: "cacheRead" }
 }
-// What each big-context request adds to the adapter's base argv, for --dry-run (adapters/claude-cli.mjs cliArgs).
+// Big-context metadata for --dry-run; argv text comes from the adapter's cliArgs builder.
 export const BIG_CONTEXT_FORM = Object.freeze({
   mode: BIG_CONTEXT_MODE,
   file: "<evidence>/<runId>/ctx/P-<seed>.txt",
-  ctxCreate: "--append-system-prompt-file <file> --session-id <P> stdin=NULLP",
-  later: "--append-system-prompt-file <file> --resume <P> stdin=<step text>",
   gateMiss: "resume_gate_miss",
   laterRoles: Object.freeze({
     "restore-decomposition": Object.freeze(["gate", "park_parent", "resume_raw", "work(raw_path)"]),

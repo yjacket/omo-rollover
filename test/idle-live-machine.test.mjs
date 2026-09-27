@@ -541,6 +541,82 @@ test("--dry-run prints the schedule, issues zero paid requests and exits 0", asy
   assert.deepEqual(fable.skippedArms, { "fable-write-5m": "adapter_capability" })
 })
 
+test("fresh-window judges the quiet attempt that passed after reset under PING 2", async () => {
+  const reset = Math.floor((EPOCH + 30_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(h.ev("quiet_retry")[0]?.reason, "gauge_moved")
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(h.ev("fresh_window_wait").length, 0)
+  assert.equal(h.ev("experiment_started").length, 1)
+  assert.deepEqual(h.ids().slice(0, 6), ["preflight/baseline/0", "preflight/baseline/1", "preflight/baseline/2", "preflight/baseline-2/0", "preflight/baseline-2/1", "preflight/baseline-2/2"])
+})
+
+test("fresh-window restarts without sleeping if reset plus 120 seconds passed during the preflight", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const invoke = h.adapter.invoke
+  h.adapter.invoke = async (...args) => {
+    const result = await invoke(...args)
+    if (args[0].id === "preflight/baseline/2") h.clock.set(reset * 1000 + 121_000)
+    return result
+  }
+  const sleep = h.clock.sleep
+  h.clock.sleep = (ms, signal) => {
+    if (h.ev("fresh_window_wait").length && !h.ids().includes("preflight/baseline-w2/0")) throw new Error("past reset must not sleep")
+    return sleep(ms, signal)
+  }
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(h.ev("fresh_window_wait").length, 1)
+  assert.deepEqual(h.ids().slice(3, 6), ["preflight/baseline-w2/0", "preflight/baseline-w2/1", "preflight/baseline-w2/2"])
+})
+
+test("fresh-window fails closed with an explicit reason when the first reset header is missing", async () => {
+  const h = harness({ script: { "preflight/baseline/0": { dropMeters: ["unified-5h"] } } })
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.stopped, "fresh_window_unknown")
+  assert.equal(h.ev("experiment_started").length, 0)
+  assert.deepEqual(h.ids(), ["preflight/baseline/0"])
+})
+
+test("a failed wait without an operator abort remains a crash, not a cancellation", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const sleep = h.clock.sleep
+  h.clock.sleep = (ms, signal) => h.ev("fresh_window_wait").length ? Promise.reject(new Error("timer failed")) : sleep(ms, signal)
+  await assert.rejects(h.run({ only: ONLY_TTL, freshWindow: true }), /timer failed/)
+  assert.equal(h.ev("campaign_stop").some((e) => e.reason === "cancelled"), false)
+  assert.equal(h.ev("run_ended").length, 0)
+})
+
+test("a restarted preflight error is not labelled as an operator cancellation", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const drain = h.proxy.drainSince
+  h.proxy.drainSince = (cursor) => {
+    if (h.ids().includes("preflight/baseline-w2/0")) throw new Error("disk failed on restarted preflight")
+    return drain(cursor)
+  }
+  await assert.rejects(h.run({ only: ONLY_TTL, freshWindow: true }), /disk failed on restarted preflight/)
+  assert.equal(h.ev("campaign_stop").some((e) => e.reason === "cancelled"), false)
+  assert.equal(h.ev("run_ended").length, 0)
+})
+
+test("a fresh-window context write records stdin chars separately from system prompt bytes", async () => {
+  const h = harness()
+  await h.run({ only: ["restore-decomposition"], freshWindow: true })
+  const intent = h.ev("step_intent").find((e) => e.role === "ctx_create")
+  const row = h.ledger.requests.find((r) => r.role === "ctx_create")
+  assert.ok(intent && row)
+  assert.equal(intent.promptChars, NULLP.length)
+  assert.equal(row.promptChars, NULLP.length)
+  assert.equal(intent.systemPromptBytes, intent.systemPrompt.bytes)
+  assert.equal(row.systemPromptBytes, intent.systemPrompt.bytes)
+  assert.ok(row.systemPromptBytes > row.promptChars)
+})
+
 test("fresh-window accepts a fresh first response without waiting", async () => {
   const h = harness({ gauge: { resets: { "unified-5h": Math.floor((EPOCH + 5 * 3600_000) / 1000) } } })
   const s = await h.run({ only: ONLY_TTL, freshWindow: true })
