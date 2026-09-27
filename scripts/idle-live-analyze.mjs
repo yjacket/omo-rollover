@@ -1438,12 +1438,13 @@ function spendByMeter(records, events) {
       continue
     }
     const windows = []
-    const first = baselines[m] ?? readings[0]
+    const first = baselines[m]?.reset === readings[0].reset ? baselines[m] : readings[0]
     let current = { reset: first.reset, start: first.util, end: first.util }
     for (const r of readings) {
       if (r.reset !== current.reset) {
         windows.push(current)
-        current = { reset: r.reset, start: r.util, end: r.util }
+        const start = baselines[m]?.reset === r.reset ? Math.min(baselines[m].util, r.util) : r.util
+        current = { reset: r.reset, start, end: r.util }
         continue
       }
       current.end = r.util

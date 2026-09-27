@@ -410,11 +410,11 @@ Rerun restore run 2 carries `gauge_moved_without_own_call` on `restore-decomposi
 
 ### Spend per meter
 
-Two accountings exist. The runner's cap accounting is what the approval's caps were enforced against. The analyzer adds 0.01 per observed reset-window segment and also counts the stale window of the pre-wait pings, so its 5h upper bound is 0.01 higher. Both are far below the caps.
+The runner's cap accounting is what the approval's caps were enforced against. The analyzer agrees: it counts the first run's one reset window and the rerun's two observed reset windows, including the stale pre-wait window, once each. Both are below the caps.
 
 | meter | prior run upper | rerun upper (cap accounting) | cumulative upper (cap accounting) | cap | analyzer: observed / upper, merged |
 | --- | --- | --- | --- | --- | --- |
-| `unified-5h` | 0.17 | 0.25 (2 reset windows) | 0.42 | 2.65 | 0.39 / 0.43 |
+| `unified-5h` | 0.17 | 0.25 (2 reset windows) | 0.42 | 2.65 | 0.39 / 0.42 |
 | `unified-7d` | 0.03 | 0.05 | 0.08 | 0.60 | 0.06 / 0.08 |
 | `unified-7d_oi` | 0.05 | 0.08 | 0.13 | 0.60 | 0.11 / 0.13 |
 

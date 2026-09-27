@@ -4022,8 +4022,8 @@
       "runDate": "rerun 2026-09-27T05:20:29.168Z..2026-09-27T12:00:48.057Z UTC",
       "analysis": {
         "file": "docs/idle-live-results.json",
-        "fileSha256": "b158a830ce9868df7c89466ef047507fe13f9e42a7d10f8b724ee90ec5426263",
-        "markdownSha256": "d143007de8ec5e11f10b9ecdc1a1e61121e203df78bb94153f7ef24a9b60bab4",
+        "fileSha256": "2f24d58cdf74051bc6704b4513b213004b2d23be0d4cf49398f286cc804e5798",
+        "markdownSha256": "99167fa424472296cf7d07e39b6c375abf58adcf3323dfa5c082b2d994b217d3",
         "producedBy": "node scripts/idle-live-analyze.mjs <live/20260925-161302> --merge <rerun/20260927-052028> --out docs/idle-live-results.json --md docs/idle-live-results.md",
         "version": "idle-live-analysis/1",
         "merge": {
@@ -5718,13 +5718,6 @@
                   "startUtil": 0
                 },
                 {
-                  "endUtil": 0,
-                  "observedEq": 0,
-                  "resetEpoch": 1790513400,
-                  "runId": "20260927-052028",
-                  "startUtil": 0
-                },
-                {
                   "endUtil": 0.17,
                   "observedEq": 0,
                   "resetEpoch": 1790495400,
@@ -5741,9 +5734,9 @@
               ],
               "present": true,
               "startUtil": 0,
-              "upperEq": 0.43,
+              "upperEq": 0.42,
               "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-              "windows": 4
+              "windows": 3
             },
             "unified-7d": {
               "endUtil": 0.17,
@@ -5856,12 +5849,6 @@
                 "observedEq": 0.23,
                 "perWindow": [
                   {
-                    "endUtil": 0,
-                    "observedEq": 0,
-                    "resetEpoch": 1790513400,
-                    "startUtil": 0
-                  },
-                  {
                     "endUtil": 0.17,
                     "observedEq": 0,
                     "resetEpoch": 1790495400,
@@ -5875,10 +5862,10 @@
                   }
                 ],
                 "present": true,
-                "startUtil": 0,
-                "upperEq": 0.26,
+                "startUtil": 0.17,
+                "upperEq": 0.25,
                 "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-                "windows": 3
+                "windows": 2
               },
               "unified-7d": {
                 "endUtil": 0.17,
@@ -5996,7 +5983,7 @@
             }
           }
         },
-        "note": "the two upper bounds differ on unified-5h because the analyzer adds 0.01 per observed reset-window segment and counts the pre-wait stale window, while the runner's cap accounting counts two windows; both stay below the cap"
+        "note": "runner cap accounting and analyzer upper bounds agree; the rerun counts its two observed reset windows once each, including the stale pre-wait window"
       },
       "policyAnswer": {
         "action": "LET_EXPIRE",

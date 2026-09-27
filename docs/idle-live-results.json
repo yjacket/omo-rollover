@@ -3339,12 +3339,6 @@
           "observedEq": 0.23,
           "perWindow": [
             {
-              "endUtil": 0,
-              "observedEq": 0,
-              "resetEpoch": 1790513400,
-              "startUtil": 0
-            },
-            {
               "endUtil": 0.17,
               "observedEq": 0,
               "resetEpoch": 1790495400,
@@ -3358,10 +3352,10 @@
             }
           ],
           "present": true,
-          "startUtil": 0,
-          "upperEq": 0.26,
+          "startUtil": 0.17,
+          "upperEq": 0.25,
           "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-          "windows": 3
+          "windows": 2
         },
         "unified-7d": {
           "endUtil": 0.17,
@@ -3696,13 +3690,6 @@
           "startUtil": 0
         },
         {
-          "endUtil": 0,
-          "observedEq": 0,
-          "resetEpoch": 1790513400,
-          "runId": "20260927-052028",
-          "startUtil": 0
-        },
-        {
           "endUtil": 0.17,
           "observedEq": 0,
           "resetEpoch": 1790495400,
@@ -3719,9 +3706,9 @@
       ],
       "present": true,
       "startUtil": 0,
-      "upperEq": 0.43,
+      "upperEq": 0.42,
       "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-      "windows": 4
+      "windows": 3
     },
     "unified-7d": {
       "endUtil": 0.17,

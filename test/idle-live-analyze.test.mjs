@@ -85,6 +85,24 @@ test("fresh-window wait events and paid preflight rows stay outside experiment w
   }
 })
 
+test("preflight before a reset does not prepend the later experiment window to spend", () => {
+  const rows = clone()
+  const resetKey = "anthropic-ratelimit-unified-5h-reset"
+  const utilKey = "anthropic-ratelimit-unified-5h-utilization"
+  const oldReset = Number(rows[0].headers[resetKey]) - 18000
+  const ping = {
+    ...rows[0], stepId: "preflight/baseline/0", experiment: "preflight",
+    arm: "baseline", kind: "ping",
+    headers: { ...rows[0].headers, [resetKey]: String(oldReset), [utilKey]: "0.17" },
+  }
+  const spend = run([ping, ...rows]).spend["unified-5h"]
+  assert.equal(spend.windows, 2)
+  assert.deepEqual(spend.perWindow.map((w) => w.resetEpoch), [oldReset, Number(rows[0].headers[resetKey])])
+  near(spend.observedEq, 0.19)
+  near(spend.upperEq, 0.21)
+  near(spend.startUtil, 0.17)
+})
+
 test("fable-write-tick: W/T interval, T range and the H6 verdict come out of the fixture block", () => {
   const f = analyzeFableWriteTick(records.filter((r) => r.experiment === "fable-write-tick"))
   assert.equal(f.blocks.length, 2)
@@ -868,10 +886,10 @@ test("N2 md: a contaminated ttl window's renewal line does not say measured", ()
 
 test("I1 schema: a unit.index that is not an integer >= 1 voids the experiment: schema_incomplete", async (t) => {
   const cases = [
-    ["index 0", (r) => (r.unit.index = 0)],
-    ["index -1", (r) => (r.unit.index = -1)],
-    ["index 1.5", (r) => (r.unit.index = 1.5)],
-    ["index as a string", (r) => (r.unit.index = "1")],
+    ["index 0", (r) => { r.unit.index = 0 }],
+    ["index -1", (r) => { r.unit.index = -1 }],
+    ["index 1.5", (r) => { r.unit.index = 1.5 }],
+    ["index as a string", (r) => { r.unit.index = "1" }],
     ["unit missing", (r) => delete r.unit],
   ]
   for (const [label, mutate] of cases) {
@@ -917,7 +935,7 @@ test("I1 schema: a unit.index that is not an integer >= 1 voids the experiment: 
 
 test("I6 seeds: an experiment_started whose run is null or absent still seeds every unit", async (t) => {
   const cases = [
-    ["run: null", (e) => (e.run = null)],
+    ["run: null", (e) => { e.run = null }],
     ["run absent", (e) => delete e.run],
   ]
   for (const [label, set] of cases) {
@@ -2192,7 +2210,7 @@ function rerunOutputChain() {
       rows.push(row(stepId, { experiment: "output-quota", arm: b.arm, phase: "observe", role, n, index: index++, unit }, usage))
       intents.set(stepId, { ev: "step_intent", stepId, experiment: "output-quota", role, unit, expect })
     }
-    b.out.forEach((out, j) => add(j === 0 ? "gate" : "loop", j + 1, { rd: j === 0 ? b.gate[0] : 4018, w: j === 0 ? b.gate[1] : 0, out, u5: b.u5[j] }, { ttlLane: "any", outputTokensTarget: b.target }))
+    b.out.forEach((out, j) => { add(j === 0 ? "gate" : "loop", j + 1, { rd: j === 0 ? b.gate[0] : 4018, w: j === 0 ? b.gate[1] : 0, out, u5: b.u5[j] }, { ttlLane: "any", outputTokensTarget: b.target }) })
     for (let n = 1; n <= RULES.output.holdPings; n++) add("hold", n, { rd: 4022, out: 4, u5: b.u5.at(-1) }, { ttlLane: "any" })
   })
   return { rows, settle, intents, baseline: { util: 0.05, reset } }
