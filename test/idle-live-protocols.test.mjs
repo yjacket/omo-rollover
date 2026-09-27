@@ -407,7 +407,7 @@ test("output-quota: pre-walk capped at 30, gate, OUT-8K loop until 2 ticks, 4 ho
   assert.equal(gate.role, "gate")
   assert.equal(gate.n, 1)
   assert.equal(gate.kind, "work")
-  assert.equal(gate.prompt.text, OUTP)
+  assert.equal(gate.prompt.text, outp(3000))
   assert.equal(gate.expect.outputTokensTarget, 8000)
   assert.equal(gate.dominantField, "billedModelOutput")
   assert.equal(gate.arm, "out-8k")
@@ -453,18 +453,46 @@ test("output-quota: pre-walk capped at 30, gate, OUT-8K loop until 2 ticks, 4 ho
   assert.equal(p.complete, true)
 })
 
-test("output-quota: block 3 (1..1000, ~4K) runs when the remaining budget allows", async () => {
+test("output-quota: block 3 (1..1700, ~4K) runs when the remaining budget allows", async () => {
   const { requests, result: r } = await run("output-quota", { phase: [0, RHO] }, outputResponder())
   assert.equal(requests[0].role, "gate", "a chained phase from the previous experiment skips the pre-walk")
   const b3 = requests.filter((s) => s.unit.index === 3)
   assert.ok(b3.length > 0, "4 ticks of the 0.08 cap leave >= 0.025")
   assert.equal(b3[0].role, "gate")
   assert.equal(b3[0].arm, "out-4k")
-  assert.equal(b3[0].prompt.text, outp(1000))
+  assert.equal(b3[0].prompt.text, outp(1700))
   assert.equal(b3[0].expect.outputTokensTarget, 4000)
   assert.equal(r.blocks.length, 3)
   assert.equal(r.blocks[2].N, 12)
   assert.equal(r.status, "valid")
+})
+
+// Plan todo 21a (Amendment 2026-09-27): the first run's outp(2000) returned 5,106 output tokens,
+// under the 6,000 gate. The prompts are recalibrated; the targets and the derived gates are not.
+test("output-quota prompts: blocks 1-2 send outp(3000), block 3 outp(1700); gates stay 6000 / 3000", async () => {
+  const gateAt = (outs) => (step) => step.role === "gate" ? result(record(step, usage({ rd: 3800, out: outs[step.unit.index] }))) : outputResponder()(step)
+  const { requests, result: r } = await run("output-quota", { phase: [0, RHO] }, gateAt({ 1: 6000, 2: 6000, 3: 3000 }))
+  assert.equal(r.status, "valid", "an output exactly at each derived gate passes it")
+  assert.equal(r.blocks.length, 3)
+  const work = (b) => requests.filter((s) => s.unit.index === b && s.kind === "work")
+  for (const [b, n, target] of [[1, 3000, 8000], [2, 3000, 8000], [3, 1700, 4000]]) {
+    assert.ok(work(b).length > 0)
+    for (const s of work(b)) {
+      assert.equal(s.prompt.text, outp(n), `block ${b}`)
+      assert.equal(s.prompt.sha256, sha(outp(n)))
+      assert.equal(s.expect.outputTokensTarget, target)
+    }
+  }
+  assert.equal(work(1)[0].arm, "out-8k")
+  assert.equal(work(3)[0].arm, "out-4k")
+
+  const short1 = await run("output-quota", { phase: [0, RHO] }, gateAt({ 1: 5999 }))
+  assert.equal(short1.result.reason, "short_output", "block 1 gate floor is 6000")
+  const short3 = await run("output-quota", { phase: [0, RHO] }, gateAt({ 1: 8000, 2: 8000, 3: 2999 }))
+  assert.equal(short3.result.status, "aborted")
+  assert.equal(short3.result.reason, "short_output", "block 3 gate floor is 3000")
+  assert.deepEqual(short3.requests.at(-1).unit, { kind: "block", index: 3 })
+  assert.equal(short3.requests.at(-1).role, "gate")
 })
 
 test("output-quota: 64 requests without the 2nd tick returns upper_bound; a short gate output aborts", async () => {

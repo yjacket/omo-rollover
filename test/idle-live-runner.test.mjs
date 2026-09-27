@@ -907,6 +907,21 @@ test("the dry-run table labels each per-idle cap with its enforced scope (ttl fr
   assert.equal(cell("restore-decomposition#1"), `${cap("restore-decomposition#1")}/run`)
 })
 
+// Plan todo 21a: the dry run states each output-quota block's prompt and derived gate, so the
+// operator sees what a paid run would send before it sends it.
+test("the dry-run table lists the output-quota prompts outp(3000) / outp(1700) with gates 6000 / 3000", async (t) => {
+  const fx = fixture(t)
+  const h = harness({ runMachine })
+  assert.equal(await main(ARGV.dry(fx), h.io), EXIT.OK)
+  const blocks = h.stdout.join("").split("\n").filter((l) => l.startsWith("# output-quota/block-"))
+    .map((l) => Object.fromEntries(l.slice(2).split(/\s{2,}/).slice(1).map((c) => c.split("="))))
+  assert.deepEqual(blocks, [
+    { arm: "out-8k", prompt: "outp(3000)", target: "8000", gateMinOutput: "6000" },
+    { arm: "out-8k", prompt: "outp(3000)", target: "8000", gateMinOutput: "6000" },
+    { arm: "out-4k", prompt: "outp(1700)", target: "4000", gateMinOutput: "3000", optional: "true" },
+  ])
+})
+
 // ------------------------------------------------------------- I28: CLI resolution and --version probe
 
 // npm installs only `claude` / `claude.cmd` shims; node spawn without a shell cannot start them.

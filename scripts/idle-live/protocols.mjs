@@ -50,7 +50,9 @@ export const RULES = Object.freeze({
   output: {
     blocks: 2, optionalBlock: 3, preWalkMax: 30, loopMax: 64, targetTicks: 2, gateMinOutput: 6000, validOutputShare: 0.9,
     holdPings: 4, holdSpacingMs: 60000, holdToleranceMs: 30000, resetMarginMs: 140 * MIN, block3MinRemaining: 0.025,
-    outputTarget: 8000, block3: { n: 1000, outputTarget: 4000 },
+    // Amendment 2026-09-27: outp(2000) returned 5,106 output tokens (~2 per line up to 999, ~3 per
+    // 4-digit line), so outp(3000) ~ 8,000 and outp(1700) ~ 4,100. Targets and gates are unchanged.
+    n: 3000, outputTarget: 8000, block3: { n: 1700, outputTarget: 4000 },
   },
   ttl: {
     lines: 2000, writeMinWrite1h: 53460, pingMinCacheRead: 56160, pingMaxWrite1h: 2000,
@@ -286,6 +288,15 @@ async function* fableWriteTick(ctx) {
 
 // --------------------------------------------------------- 2. output-quota
 
+// Per block: arm, prompt size n (outp(n)), output target and gate. The 6000-token gate floor is
+// stated for the 8K shape and scales with the block's output target. Block 3 is optional.
+export const OUTPUT_BLOCKS = Object.freeze([1, 2, 3].map((block) => {
+  const optional = block === RULES.output.optionalBlock
+  const { n, outputTarget: target } = optional ? RULES.output.block3 : RULES.output
+  const gateMinOutput = Math.round(RULES.output.gateMinOutput * target / RULES.output.outputTarget)
+  return Object.freeze({ block, arm: optional ? "out-4k" : "out-8k", n, target, gateMinOutput, optional })
+}))
+
 async function* outputQuota(ctx) {
   const experiment = "output-quota"
   const s = newSession(ctx, experiment)
@@ -301,9 +312,7 @@ async function* outputQuota(ctx) {
       if (remaining === null || remaining < RULES.output.block3MinRemaining - 1e-12) { out.block3 = "skipped:budget"; break }
       out.block3 = "run"
     }
-    const level = b === RULES.output.optionalBlock
-      ? { arm: "out-4k", prompt: promptOf(outp(RULES.output.block3.n)), target: RULES.output.block3.outputTarget }
-      : { arm: "out-8k", prompt: promptOf(OUTP), target: RULES.output.outputTarget }
+    const level = { ...OUTPUT_BLOCKS[b - 1], prompt: promptOf(outp(OUTPUT_BLOCKS[b - 1].n)) }
     const unit = { kind: "block", index: b }
     // Block 1 walks unless a phase right after a tick was handed in; later blocks chain from
     // the previous block's last tick, whose bound is that request's (analyzer-derived) cost.
@@ -320,9 +329,8 @@ async function* outputQuota(ctx) {
       }
       block.phi = phase
     }
-    // Gate (N = 1) then the OUT loop at 3 s spacing until 2 ticks or N = 64. The 6000-token
-    // floor is stated for the 8K shape and scales with the block's output target.
-    const minOutput = Math.round(RULES.output.gateMinOutput * level.target / RULES.output.outputTarget)
+    // Gate (N = 1) then the OUT loop at 3 s spacing until 2 ticks or N = 64.
+    const minOutput = level.gateMinOutput
     let valid = 0
     while (block.N < RULES.output.loopMax && block.ticks < RULES.output.targetTicks) {
       const n = block.N + 1

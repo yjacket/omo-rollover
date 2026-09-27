@@ -19,6 +19,9 @@ export { rng, filler }
 
 export const NULLP = "Hi! Quick connectivity check of my CLI setup. Please respond with just the word OK."
 export const outp = (n) => `Please list the integers from 1 to ${n}, one per line, with no other text before or after.`
+// The first live run's (20260925-161302) OUT-8K prompt; its evidence and the resumed-* / cancelled-*
+// fixtures carry this sha256. It returned 5,106 output tokens, so the run now sends
+// outp(RULES.output.n) instead (protocols.mjs, Amendment 2026-09-27).
 export const OUTP = outp(2000)
 
 // Token estimates for the cap gate: 29.4 tokens per filler line (09-19: 142,620 tokens for
