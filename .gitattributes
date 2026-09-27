@@ -4,6 +4,7 @@
 # proposal, so their checkout must not change.
 test/fixtures/idle-live-run/** -text
 docs/idle-experiments-approval-2026-09-23.json -text
+docs/idle-experiments-approval-2026-09-27.json -text
 docs/idle-live-results.json -text
 # The analyzer's markdown is compared as a byte prefix of this doc (todo 18 note 10).
 docs/idle-live-results.md -text

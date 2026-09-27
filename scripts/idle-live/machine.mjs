@@ -203,6 +203,7 @@ export function scheduleTable(approval, jobs, skipped = {}, priors = PRIOR_RANGE
       perIdleCapEq: perIdleCapOf(approval, job.experiment).capEq,
       perIdleScope: perIdleCapOf(approval, job.experiment).scopeType ?? (sch.unit ?? null),
       perPlanCapEq: num(limits.maxTotalExperimentalSpend?.value) ?? 0,
+      ...(approval.priorSpend ? { priorPlanUpperEq: approval.priorSpend.perPlanUpperEq[job.experiment], priorMeterUpperEq: { ...approval.priorSpend.perMeterUpperEq } } : {}),
       largestCall: { label: big.label, tokensEst: pred.tokens, predictedTicks: pred.ticks, predictedEq: pred.ticks === "unpredictable" ? Infinity : eq(pred.ticks * RESOLUTION), tier: pred.tier },
       skippedArms: skipped[job.experiment] ?? {},
     }
@@ -213,7 +214,7 @@ export function scheduleTable(approval, jobs, skipped = {}, priors = PRIOR_RANGE
  * The `run.json` manifest of an evidence directory (Appendix B "Evidence directory"). Pure: the
  * caller supplies every value, so the runner and the fixture test produce identical bytes.
  */
-export function manifest({ runId, evidenceDir = null, startedAt = null, approvalPath = null, approvalSha256 = null, plannerSha256 = null, proposalSha256 = null, adapter = null, cliVersion = null, model = RULES.model, order = EXPERIMENT_IDS, proxyPort = null, resumedFrom = null } = {}) {
+export function manifest({ runId, evidenceDir = null, startedAt = null, approvalPath = null, approvalSha256 = null, plannerSha256 = null, proposalSha256 = null, adapter = null, cliVersion = null, model = RULES.model, order = EXPERIMENT_IDS, proxyPort = null, resumedFrom = null, priorSpend = null } = {}) {
   return {
     v: "idle-live-run/1",
     runId,
@@ -226,6 +227,7 @@ export function manifest({ runId, evidenceDir = null, startedAt = null, approval
     cliVersion,
     proxyPort,
     resumedFrom,
+    ...(priorSpend ? { priorSpend } : {}),
   }
 }
 
@@ -333,12 +335,12 @@ function meterSummary(st) {
   for (const meter of METERS) {
     const m = st.meters[meter]
     if (!m || m.absent) {
-      out[meter] = { windows: 0, cumulativeUpperEq: null, capEq: num(caps[meter]) ?? null, absent: true }
+      out[meter] = { windows: 0, cumulativeUpperEq: null, capEq: num(caps[meter]) ?? null, absent: true, ...(st.approval.priorSpend ? { priorUpperEq: st.approval.priorSpend.perMeterUpperEq[meter], totalUpperEq: null } : {}) }
       continue
     }
     const windows = [...m.closedWindows, { baseline: m.baseline, latest: m.latest }]
     const c = cumulative(windows)
-    out[meter] = { windows: windows.length, cumulativeUpperEq: c.upperEq, capEq: num(caps[meter]) ?? null }
+    out[meter] = { windows: windows.length, cumulativeUpperEq: c.upperEq, capEq: num(caps[meter]) ?? null, ...(st.approval.priorSpend ? { priorUpperEq: st.approval.priorSpend.perMeterUpperEq[meter], totalUpperEq: eq(st.approval.priorSpend.perMeterUpperEq[meter] + c.upperEq) } : {}) }
   }
   return out
 }
@@ -356,6 +358,12 @@ function summaryOf(st, exitCode, extra = {}) {
     experiments[id] = e
       ? { status: e.status, reason: e.reason, paidRequests: e.paidRequests, spentObservedEq: spend.observedEq, spentUpperEq: spend.upperEq, skippedArms: st.skipped[id] ?? {} }
       : { status: "not_run", reason: extra.notRunReason ?? null, paidRequests: 0, spentObservedEq: 0, spentUpperEq: 0, skippedArms: st.skipped[id] ?? {} }
+    if (st.approval.priorSpend) {
+      const prior = st.approval.priorSpend.perPlanUpperEq[id]
+      experiments[id].priorUpperEq = prior
+      experiments[id].totalUpperEq = eq(prior + experiments[id].spentUpperEq)
+      experiments[id].capEq = st.approval.plans[id].limits.maxTotalExperimentalSpend.value
+    }
   }
   return {
     v: SUMMARY_VERSION,
@@ -363,6 +371,7 @@ function summaryOf(st, exitCode, extra = {}) {
     exitCode,
     experiments,
     meters: meterSummary(st),
+    ...(st.approval.priorSpend ? { priorSpend: st.approval.priorSpend } : {}),
     // Appendix B "Resume verdict contract": ONLY exit 4 is resumable. Advertising a resume for
     // an exit-3 stop invites an operator to re-issue calls the stop rule forbade.
     resumable: exitCode === EXIT.IN_DOUBT,

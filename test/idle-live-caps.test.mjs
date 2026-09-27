@@ -220,6 +220,22 @@ test("gate refuses the per-idle scope when observed + predicted exceeds it (manu
   assert.ok(tripped.includes("idle:fable-write-tick/block-1"), JSON.stringify(r.reasons))
 })
 
+test("prior upper spend seeds only cumulative scopes, once on a resumed gate", () => {
+  const a = structuredClone(APPROVAL)
+  a.priorSpend = { perPlanUpperEq: { "fable-write-tick": 0.04 }, perMeterUpperEq: { "unified-5h": 0.52 } }
+  const s = stateFor({ baseline: 0.12, latest: 0.12 })
+  const first = gate(step(), s, a, PRIOR_RANGE_ONLY)
+  const resumed = gate(step(), s, a, PRIOR_RANGE_ONLY)
+  assert.deepEqual(resumed, first)
+  assert.deepEqual(first.reasons.filter((r) => r.code === "cap_exceeded").map((r) => r.scope), ["plan-total:fable-write-tick"])
+  assert.equal(first.accounting.caps.find((c) => c.scope === "plan-total:fable-write-tick").priorUpperEq, 0.04)
+  assert.equal(first.accounting.caps.find((c) => c.scope === "idle:fable-write-tick/block-1").priorUpperEq, undefined)
+  assert.equal(first.accounting.caps.find((c) => c.scope === "campaign-stop:unified-5h").priorUpperEq, undefined)
+  a.priorSpend.perPlanUpperEq["fable-write-tick"] = 0
+  a.priorSpend.perMeterUpperEq["unified-5h"] = 0.53
+  assert.deepEqual(gate(step(), s, a, PRIOR_RANGE_ONLY).reasons.filter((r) => r.code === "cap_exceeded").map((r) => r.scope), ["meter:unified-5h"])
+})
+
 test("gate refuses the plan-total scope independently of the per-idle scope", () => {
   const s = stateFor({ baseline: 0.12, latest: 0.12 })
   s.scopes["plan:fable-write-tick"] = { meter: "unified-5h", baseline: reading(0.1), latest: reading(0.14), closedWindows: [] }
