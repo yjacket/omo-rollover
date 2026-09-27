@@ -37,6 +37,8 @@ const BASELINE_SPACING_MS = 60_000
 const QUIET_RETRY_MS = 10 * 60_000
 const QUIET_ATTEMPTS = 3
 const RESET_SETTLE_MS = 120_000 // Appendix A section 1: sleep to reset + 120 s
+const FRESH_WINDOW_MS = 5 * 3600_000 - 15 * 60_000
+const MAX_WINDOW_WAIT_MS = 5 * 3600_000
 // Todo 13 (gauge header lag, todo-9 D1): a response's ratelimit header does not carry that call's
 // own charge, so the tick a scope's LAST call caused shows up on whatever call comes next. Before
 // a new experiment scope takes its baseline, the machine settles the gauge with one PING outside
@@ -214,7 +216,7 @@ export function scheduleTable(approval, jobs, skipped = {}, priors = PRIOR_RANGE
  * The `run.json` manifest of an evidence directory (Appendix B "Evidence directory"). Pure: the
  * caller supplies every value, so the runner and the fixture test produce identical bytes.
  */
-export function manifest({ runId, evidenceDir = null, startedAt = null, approvalPath = null, approvalSha256 = null, plannerSha256 = null, proposalSha256 = null, adapter = null, cliVersion = null, model = RULES.model, order = EXPERIMENT_IDS, proxyPort = null, resumedFrom = null, priorSpend = null } = {}) {
+export function manifest({ runId, evidenceDir = null, startedAt = null, approvalPath = null, approvalSha256 = null, plannerSha256 = null, proposalSha256 = null, adapter = null, cliVersion = null, model = RULES.model, order = EXPERIMENT_IDS, proxyPort = null, resumedFrom = null, priorSpend = null, freshWindow = false } = {}) {
   return {
     v: "idle-live-run/1",
     runId,
@@ -228,6 +230,7 @@ export function manifest({ runId, evidenceDir = null, startedAt = null, approval
     proxyPort,
     resumedFrom,
     ...(priorSpend ? { priorSpend } : {}),
+    ...(freshWindow ? { freshWindow: true } : {}),
   }
 }
 
@@ -1164,6 +1167,7 @@ function pingStep({ role, arm, index, atOffsetMs, n, expectWindowRoll = false })
  * refuse the run (exit 3 - a stop condition, nothing was measured).
  */
 async function baselineBlock(st, { role = "baseline", count = BASELINE_PINGS, spacingMs = BASELINE_SPACING_MS } = {}) {
+  let firstReading = null
   const firstBlock = role.startsWith("baseline")
   // The re-baseline is the SAME three-PING quiet check as the preflight one (Appendix B "Resume
   // verdict contract"): a single PING cannot tell a foreign tick from this run's own delayed
@@ -1179,9 +1183,10 @@ async function baselineBlock(st, { role = "baseline", count = BASELINE_PINGS, sp
       // re-baseline) or a downtime (a resumed preflight). A retry attempt starts ten minutes later
       // INSIDE the window attempt 1 established, so its first PING is expected to stay there; and
       // a window that moves under PING 2 or 3 is an unreadable delta wherever it happens (v).
-      const expectWindowRoll = attempt === 1 && n === 1 && (!firstBlock || st.resumeIndex > 0)
+      const expectWindowRoll = attempt === 1 && n === 1 && (!firstBlock || st.resumeIndex > 0 || role.endsWith("-w2"))
       const step = pingStep({ role: `${firstBlock ? "baseline" : "rebaseline"}_ping`, arm, index: n - 1, atOffsetMs: (n - 1) * spacingMs, n, expectWindowRoll })
       const r = await runStep(st, exp, step, { ungated: true })
+      if (attempt === 1 && n === 1) firstReading = { reset: r.result?.meters?.[METER_5H]?.reset, util: r.result?.meters?.[METER_5H]?.util, at: Date.parse(r.result?.record?.ts) }
       if (r.fatal) {
         syncCampaignStop(st, { experiment: PREFLIGHT_ID, stepId: step.id })
         return { fatal: r.fatal, stop: true }
@@ -1207,7 +1212,7 @@ async function baselineBlock(st, { role = "baseline", count = BASELINE_PINGS, sp
     }
     if (!moved && ticks === 0) {
       st.carry.phase = null // a paid call outside an experiment breaks the phase chain
-      return { fatal: null, attempts: attempt }
+      return { fatal: null, attempts: attempt, firstReading }
     }
     if (attempt < QUIET_ATTEMPTS) {
       emit(st, { ev: "quiet_retry", experiment: PREFLIGHT_ID, arm, attempt, attempts: QUIET_ATTEMPTS, reason: ticks > 0 ? "foreign_tick" : "gauge_moved", ticks, waitMs: QUIET_RETRY_MS })
@@ -1929,6 +1934,34 @@ export async function runMachine(deps, approval, opts = {}) {
     base = settle.fatal
       ? { fatal: settle.fatal, stopped: settle.inDoubt ? "in_doubt" : (st.campaignStop ? "campaign_stop" : "settle_failed") }
       : await baselineBlock(st, { role: st.resumeIndex ? `baseline-r${st.resumeIndex}` : "baseline" })
+    if (!base.fatal && opts.freshWindow === true) {
+      const reading = base.firstReading
+      const fresh = (r) => Number.isFinite(r?.reset) && Number.isFinite(r?.at) && r.reset * 1000 - r.at >= FRESH_WINDOW_MS
+      if (!fresh(reading)) {
+        const reset = reading?.reset ?? null
+        const until = reset === null ? null : reset * 1000 + RESET_SETTLE_MS
+        if (until === null || reset * 1000 - nowOf(st) > MAX_WINDOW_WAIT_MS || until <= nowOf(st)) {
+          base = { fatal: { reason: "window_wait_unbounded" }, exitCode: EXIT.PREFLIGHT }
+        } else {
+          emit(st, { ev: "fresh_window_wait", reset, u5: reading.util, until })
+          try {
+            await sleepOf(st, until - nowOf(st))
+            base = await baselineBlock(st, { role: st.resumeIndex ? `baseline-r${st.resumeIndex}-w2` : "baseline-w2" })
+            if (!base.fatal && !fresh(base.firstReading)) base = { fatal: { reason: "window_not_fresh" }, exitCode: EXIT.ABORTED }
+          } catch {
+            stopCampaign(st, { reason: "cancelled", experiment: PREFLIGHT_ID })
+            base = { fatal: { reason: "cancelled" }, exitCode: EXIT.ABORTED }
+          }
+        }
+      }
+    }
+  }
+  if (base.exitCode) {
+    const reason = base.fatal.reason
+    const summary = summaryOf(st, base.exitCode, { issues: base.exitCode === EXIT.PREFLIGHT ? [reason] : [], stopped: reason, notRunReason: reason })
+    st.deps.ledger.writeSummary?.(summary)
+    emit(st, { ev: "run_ended", exitCode: base.exitCode, reason, paidRequests: st.paidRequests })
+    return summary
   }
   let stopped = base.fatal ? (base.stopped ?? (st.campaignStop ? "campaign_stopped" : "baseline_failed")) : (st.inDoubt.length ? "in_doubt" : null)
   if (!stopped) {

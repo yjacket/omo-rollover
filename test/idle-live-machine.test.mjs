@@ -536,6 +536,85 @@ test("--dry-run prints the schedule, issues zero paid requests and exits 0", asy
   assert.deepEqual(fable.skippedArms, { "fable-write-5m": "adapter_capability" })
 })
 
+test("fresh-window accepts a fresh first response without waiting", async () => {
+  const h = harness({ gauge: { resets: { "unified-5h": Math.floor((EPOCH + 5 * 3600_000) / 1000) } } })
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(h.ev("fresh_window_wait").length, 0)
+  assert.deepEqual(h.ids().slice(0, 3), ["preflight/baseline/0", "preflight/baseline/1", "preflight/baseline/2"])
+})
+
+test("fresh-window waits exactly until reset plus 120 seconds and repeats the entire paid preflight", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const waits = []
+  const sleep = h.clock.sleep
+  h.clock.sleep = (ms, signal) => { if (ms > 600_000 && h.ev("fresh_window_wait").length && !h.ids().includes("preflight/baseline-w2/0")) waits.push([h.clock.now(), ms]); return sleep(ms, signal) }
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(h.ev("fresh_window_wait").length, 1)
+  assert.equal(h.ev("fresh_window_wait")[0].until, reset * 1000 + 120_000)
+  assert.deepEqual(waits, [[EPOCH + 120_000, reset * 1000 + 120_000 - (EPOCH + 120_000)]])
+  assert.deepEqual(h.ids().slice(0, 6), ["preflight/baseline/0", "preflight/baseline/1", "preflight/baseline/2", "preflight/baseline-w2/0", "preflight/baseline-w2/1", "preflight/baseline-w2/2"])
+  assert.equal(h.ledger.requests.filter((r) => r.experiment === "preflight" && r.stepId.includes("baseline")).length, 6)
+})
+
+test("fresh-window rejects a second stale window without any experiment call", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const sleep = h.clock.sleep
+  h.clock.sleep = (ms, signal) => {
+    const crossing = h.clock.now() < reset * 1000 && h.clock.now() + ms >= reset * 1000
+    const p = sleep(ms, signal)
+    if (crossing) h.gauge.setReset("unified-5h", Math.floor((h.clock.now() + 3600_000) / 1000))
+    return p
+  }
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.equal(s.stopped, "window_not_fresh")
+  assert.equal(h.ev("experiment_started").length, 0)
+  assert.equal(h.ids().length, 6)
+})
+
+test("fresh-window refuses an unbounded reset with exit 2 before experimenting", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const h = harness({ gauge: { resets: { "unified-5h": reset } } })
+  const invoke = h.adapter.invoke
+  h.adapter.invoke = async (...args) => {
+    const result = await invoke(...args)
+    if (args[0].id === "preflight/baseline/2") h.clock.set(EPOCH - 5 * 3600_000)
+    return result
+  }
+  const s = await h.run({ only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.PREFLIGHT)
+  assert.deepEqual(s.issues, ["window_wait_unbounded"])
+  assert.equal(h.ev("experiment_started").length, 0)
+})
+
+test("fresh-window gates a resume with distinct preflight ids", async () => {
+  const h = harness({ gauge: { resets: { "unified-5h": Math.floor((EPOCH + 3600_000) / 1000) } } })
+  h.ledger.events.push({ ev: "run_started", seq: 0, runId: "fake-run" })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.deepEqual(h.ids().slice(0, 6), ["preflight/baseline-r1/0", "preflight/baseline-r1/1", "preflight/baseline-r1/2", "preflight/baseline-r1-w2/0", "preflight/baseline-r1-w2/1", "preflight/baseline-r1-w2/2"])
+})
+
+test("a hard interruption during the wait resumes with new PING ids and no repeated old calls", async () => {
+  const reset = Math.floor((EPOCH + 3600_000) / 1000)
+  const first = harness({ gauge: { resets: { "unified-5h": reset } }, tap: (e) => { if (e.ev === "fresh_window_wait") throw new Error("simulated process crash") } })
+  await assert.rejects(first.run({ only: ONLY_TTL, freshWindow: true }), /simulated process crash/)
+  assert.equal(first.ev("run_ended").length, 0)
+  const ledger = memoryLedger()
+  ledger.events.push(...first.ledger.events)
+  ledger.requests.push(...first.ledger.requests)
+  const resumed = harness({ ledger, clockStart: reset * 1000 + 120_000, gauge: { resets: { "unified-5h": reset } } })
+  for (const record of first.proxy.records) resumed.proxy.seed(record)
+  const s = await resumed.run({ resume: "fake-run", only: ONLY_TTL, freshWindow: true })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.deepEqual(resumed.ids().slice(0, 3), ["preflight/baseline-r1/0", "preflight/baseline-r1/1", "preflight/baseline-r1/2"])
+  assert.equal(resumed.ledger.requests.filter((r) => r.stepId === "preflight/baseline/0").length, 1)
+})
+
 test("a largest call that cannot fit its per-idle cap is a preflight refusal", async () => {
   const tight = clone(APPROVAL)
   tight.plans["restore-decomposition"].limits.maxProactiveSpendPerIdle.value = 0.01

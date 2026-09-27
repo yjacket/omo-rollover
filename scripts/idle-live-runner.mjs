@@ -53,7 +53,7 @@ export function resolveCli(env) {
   return path.join(env.APPDATA, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")
 }
 
-const USAGE = `usage: node scripts/idle-live-runner.mjs --approval <file> --evidence <dir> [--resume <runId>] [--only <id>[,<id>]] [--dry-run] [--smoke] [--port <n>]`
+const USAGE = `usage: node scripts/idle-live-runner.mjs --approval <file> --evidence <dir> [--resume <runId>] [--only <id>[,<id>]] [--dry-run] [--smoke] [--fresh-window] [--port <n>]`
 
 const sha256 = (text) => crypto.createHash("sha256").update(text, "utf8").digest("hex")
 const readText = (file) => fs.readFileSync(file, "utf8")
@@ -74,12 +74,13 @@ const refusal = (issues, extra = {}) => ({
 // ------------------------------------------------------------------ arguments
 
 export function parseArgs(argv) {
-  const opts = { approval: null, evidence: null, resume: null, only: null, dryRun: false, smoke: false, port: 0 }
+  const opts = { approval: null, evidence: null, resume: null, only: null, dryRun: false, smoke: false, freshWindow: false, port: 0 }
   const takes = { "--approval": "approval", "--evidence": "evidence", "--resume": "resume", "--only": "only", "--port": "port" }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === "--dry-run") { opts.dryRun = true; continue }
     if (arg === "--smoke") { opts.smoke = true; continue }
+    if (arg === "--fresh-window") { opts.freshWindow = true; continue }
     if (arg === "--help" || arg === "-h") { opts.help = true; continue }
     const key = takes[arg]
     if (!key) return { error: "unknown_argument", arg }
@@ -233,10 +234,11 @@ function classified(ctx, issues, extra = {}) {
 
 // ------------------------------------------------------------ schedule table
 
-function printSchedule(write, schedule, skippedArms) {
+function printSchedule(write, schedule, skippedArms, freshWindow = false) {
   const ms = (v) => (v >= 3600_000 ? `${(v / 3600_000).toFixed(1)}h` : `${Math.round(v / 60_000)}m`)
   const line = (c) => write(`# ${c.join("  ")}\n`)
   write("# idle-live dry run: preflight only, paidRequestsIssued=0\n")
+  if (freshWindow) write("# fresh-window: true\n")
   line(["ord", "experiment".padEnd(22), "unit ", "n", "calls(exp/max)", "wall  ", "perIdle/scope", "perPlan", "largest call"])
   for (const r of schedule) {
     line([
@@ -384,9 +386,10 @@ async function run(argv, env, ctx, finish) {
       evidenceDir: null,
       dryRun: true,
       only: opts.only,
+      freshWindow: opts.freshWindow,
       ...shas,
     })
-    if (summary.exitCode === EXIT.OK) printSchedule(env.stdout, summary.schedule, summary.experiments && deps.ledger.fold().events.find((e) => e.ev === "preflight")?.skippedArms)
+    if (summary.exitCode === EXIT.OK) printSchedule(env.stdout, summary.schedule, summary.experiments && deps.ledger.fold().events.find((e) => e.ev === "preflight")?.skippedArms, opts.freshWindow)
     return finish({ ...summary, evidenceDirCreated: false })
   }
 
@@ -427,6 +430,7 @@ async function run(argv, env, ctx, finish) {
       return finish(refusal(["resume_approval_drift"], { evidenceDir }))
     }
     if (!opts.port && Number.isInteger(recorded.proxyPort)) opts.port = recorded.proxyPort
+    if (recorded.freshWindow === true) opts.freshWindow = true
     // N3/B1/N4 (todo 12 rework). The smoke-resume refusal is a PURE READ of this evidence dir's
     // own events.jsonl - it must happen before the proxy bind and before run.json is rewritten
     // below, so a refused --resume leaves the evidence dir byte-identical. A smoke evidence dir
@@ -497,6 +501,7 @@ async function run(argv, env, ctx, finish) {
       proxyPort: proxy.port,
       resumedFrom: opts.resume ?? null,
       priorSpend: approval.priorSpend ?? null,
+      freshWindow: opts.freshWindow,
     }), null, 2)}\n`)
 
     // In-doubt reconciliation reads the historical proxy.jsonl through deps.proxy.readLog().
@@ -516,6 +521,7 @@ async function run(argv, env, ctx, finish) {
       resume: opts.resume ? runId : null,
       only: opts.only,
       smoke: opts.smoke,
+      freshWindow: opts.freshWindow,
       baseUrl: `http://127.0.0.1:${proxy.port}`,
       signal: controller.signal,
       ...shas,

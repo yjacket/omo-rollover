@@ -71,6 +71,17 @@ const W_OVER_T_HI = 1 - 13 / 38 - 0.0045 //           0.6533947368421054
 const T_LO = 71300 / W_OVER_T_HI //                   109122.39719682628
 const T_HI = 71300 / W_OVER_T_LO //                   120828.08528179172
 
+test("fresh-window wait events and paid preflight rows stay outside experiment windows", () => {
+  const rows = clone()
+  const ping = { ...rows[0], stepId: "preflight/baseline-w2/0", experiment: "preflight", arm: "baseline-w2", kind: "ping" }
+  rows.unshift(ping)
+  const evs = cloneEvents()
+  evs.push({ ev: "fresh_window_wait", reset: 1790000000, u5: 0.3, until: 1790000120000 })
+  for (const id of ["fable-write-tick", "output-quota", "restore-decomposition", "policy-effect", "ttl-1h-unique-prefix"]) {
+    assert.deepEqual(windowStatus(rows, evs, id), windowStatus(records, events, id))
+  }
+})
+
 test("fable-write-tick: W/T interval, T range and the H6 verdict come out of the fixture block", () => {
   const f = analyzeFableWriteTick(records.filter((r) => r.experiment === "fable-write-tick"))
   assert.equal(f.blocks.length, 2)

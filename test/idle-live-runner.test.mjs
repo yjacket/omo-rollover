@@ -195,6 +195,33 @@ test("B1 the live path hands the machine the injected clock and names the run fr
   assert.equal(JSON.parse(readFileSync(join(fx.evidence, "20260926-000000", "run.json"), "utf8")).startedAt, "2026-09-26T00:00:00.000Z")
 })
 
+test("fresh-window is echoed only when requested and recorded in the live manifest", async (t) => {
+  const fx = fixture(t)
+  const output = () => ({ v: SUMMARY_VERSION, runId: "dry-run", exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: null, paidRequestsIssued: 0, schedule: [] })
+  const plain = harness({ runMachine: async () => output() })
+  assert.equal(await main(["--dry-run", "--approval", fx.approval, "--evidence", fx.evidence], plain.io), EXIT.OK)
+  const flagged = harness({ runMachine: async (deps, approval, opts) => { assert.equal(opts.freshWindow, true); return output() } })
+  assert.equal(await main(["--dry-run", "--fresh-window", "--approval", fx.approval, "--evidence", fx.evidence], flagged.io), EXIT.OK)
+  assert.equal(flagged.stdout.join("").replace("# fresh-window: true\n", ""), plain.stdout.join(""))
+  assert.match(flagged.stdout.join(""), /# fresh-window: true/)
+  const live = harness({ runMachine: async (deps, approval, opts) => { assert.equal(opts.freshWindow, true); return { ...output(), runId: opts.runId, evidenceDir: opts.evidenceDir } } })
+  assert.equal(await main(["--fresh-window", "--approval", fx.approval, "--evidence", fx.evidence], live.io), EXIT.OK)
+  assert.equal(JSON.parse(readFileSync(join(fx.evidence, "20260926-000000", "run.json"), "utf8")).freshWindow, true)
+})
+
+test("resume preserves a recorded fresh-window gate even if the flag is omitted", async (t) => {
+  const fx = fixture(t)
+  const runId = "prior-run"
+  const dir = seedRun(fx, runId, [{ ev: "run_started" }])
+  const file = join(dir, "run.json")
+  writeFileSync(file, `${JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), freshWindow: true }, null, 2)}\n`)
+  let seen = false
+  const h = harness({ runMachine: async (deps, approval, opts) => { seen = opts.freshWindow; return { v: SUMMARY_VERSION, runId, exitCode: EXIT.OK, experiments: {}, meters: {}, resumable: false, evidenceDir: dir, paidRequestsIssued: 0 } } })
+  assert.equal(await main(["--resume", runId, "--approval", fx.approval, "--evidence", fx.evidence], h.io), EXIT.OK)
+  assert.equal(seen, true)
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).freshWindow, true)
+})
+
 test("an evidence path that cannot be created exits 2 with a reason, resumable:false", async (t) => {
   const fx = fixture(t)
   const file = join(fx.dir, "a-file")
