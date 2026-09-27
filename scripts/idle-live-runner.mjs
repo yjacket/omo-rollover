@@ -33,7 +33,7 @@ import { createClaudeCliAdapter, probeCliVersion } from "./idle-live/adapters/cl
 import { startProxy, readProxyLog } from "./idle-live/proxy.mjs"
 import { openLedger } from "./idle-live/ledger.mjs"
 import { conflicting } from "./idle-live/processes.mjs"
-import { EXPERIMENT_IDS } from "./idle-live/protocols.mjs"
+import { EXPERIMENT_IDS, OUTPUT_BLOCKS } from "./idle-live/protocols.mjs"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, "..")
@@ -255,6 +255,12 @@ function printSchedule(write, schedule, skippedArms) {
   }
   for (const [experiment, arms] of Object.entries(skippedArms ?? {})) {
     for (const [arm, reason] of Object.entries(arms)) line(["skipped arm:", `${experiment}/${arm}`, reason])
+  }
+  // what each output-quota block would send and the output its gate requires
+  if (schedule.some((r) => r.experiment === "output-quota")) {
+    for (const b of OUTPUT_BLOCKS) {
+      line([`output-quota/block-${b.block}`, `arm=${b.arm}`, `prompt=outp(${b.n})`, `target=${b.target}`, `gateMinOutput=${b.gateMinOutput}`, ...(b.optional ? ["optional=true"] : [])])
+    }
   }
 }
 
