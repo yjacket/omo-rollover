@@ -390,13 +390,13 @@ Appended by plan todo 25. Everything above this heading is unchanged except the 
 - Total: 270 paid calls over both runs.
 - Both directories are gitignored paid evidence and were read only.
 
-**Analysis.** `node scripts/idle-live-analyze.mjs <live/20260925-161302> --merge <rerun/20260927-052028> --out docs/idle-live-results.json --md docs/idle-live-results.md` (exit 0). Both outputs are committed exactly as generated: JSON sha256 `b158a830ce9868df7c89466ef047507fe13f9e42a7d10f8b724ee90ec5426263`, markdown sha256 `d143007de8ec5e11f10b9ecdc1a1e61121e203df78bb94153f7ef24a9b60bab4`. `liveRuns[1]` in `docs/idle-cost-evidence.json` copies its values from that JSON, from the rerun's `summary.json` and from the rerun's `requests.jsonl`.
+**Analysis.** `node scripts/idle-live-analyze.mjs <live/20260925-161302> --merge <rerun/20260927-052028> --out docs/idle-live-results.json --md docs/idle-live-results.md` (exit 0). Both outputs are committed exactly as generated: JSON sha256 `2f24d58cdf74051bc6704b4513b213004b2d23be0d4cf49398f286cc804e5798`, markdown sha256 `41e72071ec3babbfa07923260b3079a1e1e3eff561826772994d1ff281471320`. `liveRuns[1]` in `docs/idle-cost-evidence.json` copies its values from that JSON, from the rerun's `summary.json` and from the rerun's `requests.jsonl`.
 
 **These figures do not establish any quota saving for any policy.**
 
 ### Attempts and what was pooled
 
-13 attempts are reported. Only clean attempts that ran to the end are pooled, and all of those come from the rerun.
+12 attempts are reported. Only clean attempts that ran to the end are pooled, and all of those come from the rerun.
 
 | experiment | first run `20260925-161302` | rerun `20260927-052028` | pooled |
 | --- | --- | --- | --- |

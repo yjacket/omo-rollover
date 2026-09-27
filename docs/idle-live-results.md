@@ -21,7 +21,7 @@
 - 건너뛴 arm: fable-write-5m (adapter_capability) -> k_write5 미측정
 
 ## 2. output-quota (출력 계수)
-- 판정: upper_bound (blocks_disjoint: 블록마다 구한 k_out 구간이 서로 겹치지 않는다(Appendix A: 블록 2는 블록 1과 겹쳐야 한다). 이 증거에는 모형이 맞지 않으므로 측정값은 발표하지 않고, 블록 상한 중 가장 큰 값만 상한으로 보고한다)
+- 판정: upper_bound (blocks_disjoint: 블록들 전체에 공통으로 겹치는 k_out 구간이 없다(Appendix A: 블록 2는 블록 1과 겹쳐야 한다). 이 증거에는 모형이 맞지 않으므로 측정값은 발표하지 않고, 블록 상한 중 가장 큰 값만 상한으로 보고한다)
 - 시도 20260925-161302#1: aborted (short_output) -> 합산에서 제외
 - 시도 20260927-052028#1: upper_bound (blocks_disjoint) -> 합산에 포함
 - 블록 1 [20260927-052028#1]: 목표 8000 tokens, N=9, tick=2, Sum_out=72778, phi [0, 0.027027], phi 출처 carried_phase_from_events, k_out [0.000026893964, 0.000030698234] ticks/token, 유효 비율 1

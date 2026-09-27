@@ -144,7 +144,7 @@ proposal JSON above. Nothing in this section changes the dry-run planner:
 - Rerun, `idle-experiments-approval-2026-09-27.json` (5x caps, cumulative with the first run):
   runId `20260927-052028`, 2026-09-27 05:20-12:00 UTC, 248 paid calls, exit 0, caps respected.
   All five experiments ended. Restore run 2 is contaminated, so restore has n = 1.
-- Merged analysis of both runs (270 paid calls, 13 attempts, only clean rerun attempts pooled):
+- Merged analysis of both runs (270 paid calls, 12 attempts, only clean rerun attempts pooled):
   a measured 1h write range on the 5h meter, an output coefficient upper bound only, TTL renewal
   at 55 minutes (n = 2), restore phase sums (n = 1) and 3 policy pairs. The engine answers
   `LET_EXPIRE` at both range ends as its default without a calibrated forecast

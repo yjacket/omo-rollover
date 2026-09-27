@@ -2331,7 +2331,7 @@ const ANALYZER_REASON_TEXT = Object.freeze({
   output_target_missing: "OUT 요청의 목표 출력 토큰 수가 그 요청의 step_intent에 없다: 기본값으로 채우지 않았고, 유효 요청 비율도 계산하지 않았다",
   output_target_conflict: "한 OUT 요청 또는 한 블록의 목표 출력 토큰 수 기록이 서로 다르다: 어느 쪽도 고르지 않았고, 유효 요청 비율도 계산하지 않았다",
   invalid_output_share: "목표 출력의 최소 기준(8K 목표는 6,000, 4K 목표는 3,000 토큰)을 채우고 end_turn으로 끝난 요청이 90% 미만이라 유효로 보지 않는다",
-  blocks_disjoint: "블록마다 구한 k_out 구간이 서로 겹치지 않는다(Appendix A: 블록 2는 블록 1과 겹쳐야 한다). 이 증거에는 모형이 맞지 않으므로 측정값은 발표하지 않고, 블록 상한 중 가장 큰 값만 상한으로 보고한다",
+  blocks_disjoint: "블록들 전체에 공통으로 겹치는 k_out 구간이 없다(Appendix A: 블록 2는 블록 1과 겹쳐야 한다). 이 증거에는 모형이 맞지 않으므로 측정값은 발표하지 않고, 블록 상한 중 가장 큰 값만 상한으로 보고한다",
 })
 
 const reasonText = (x) => {
