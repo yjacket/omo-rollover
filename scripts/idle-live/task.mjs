@@ -75,14 +75,35 @@ export function makeTask(seed, { steps = 6 } = {}) {
 
 const byNumber = (xs) => [...xs].map(String).sort((a, b) => Number(a) - Number(b))
 
-// Exact match on the id set: every listed integer token must be a true id and vice versa.
+// A submitted answer is a standalone ID list (or 'none'), optionally set off by a
+// label or Markdown. Prose, tables, window bounds and running totals are not answers.
+// Resolve candidates without consulting truth; conflicting or malformed submissions fail.
+const ID_LIST = /^(?:\d+(?:\s*,\s*\d+)*|none)\.?$/i
+const ANSWER_LABEL = /^(?:answer|result|matching ids|ids)\s*:\s*/i
+function workAnswer(text) {
+  const candidates = []
+  for (const line of text.split(/\r?\n/)) {
+    let value = line.trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
+    if (!value || /^```/.test(value)) continue
+    const labeled = ANSWER_LABEL.test(value)
+    if (labeled) value = value.replace(ANSWER_LABEL, "").trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
+    if (labeled && !value) continue // A heading for the answer on the next line.
+    if (!labeled && !ID_LIST.test(value) && !/^(?:\d+\s*,|none\s*,)/i.test(value)) continue
+    if (!ID_LIST.test(value)) return null
+    const ids = /^none\.?$/i.test(value) ? [] : value.replace(/\.$/, "").split(/\s*,\s*/)
+    if (new Set(ids).size !== ids.length) return null
+    candidates.push(byNumber(ids))
+  }
+  if (!candidates.length || candidates.some((ids) => ids.join(",") !== candidates[0].join(","))) return null
+  return candidates[0]
+}
+
 export function scoreWork(answerText, truth) {
   const expected = Array.isArray(truth) ? byNumber(truth) : []
   if (typeof answerText !== "string" || !Array.isArray(truth)) return { correct: false, answered: [], expected }
-  const text = answerText.trim()
-  const answered = /^\W*none\W*$/i.test(text) ? [] : byNumber(new Set(text.split(/[\s,;]+/).filter((t) => /^\d+$/.test(t))))
-  const correct = answered.length === expected.length && answered.every((v, i) => v === expected[i])
-  return { correct, answered, expected }
+  const extracted = workAnswer(answerText)
+  const answered = extracted ?? []
+  return { correct: extracted !== null && answered.length === expected.length && answered.every((v, i) => v === expected[i]), answered, expected }
 }
 
 const idPattern = (id) => new RegExp(`(^|[^\\d])${String(id)}([^\\d]|$)`)
@@ -103,9 +124,10 @@ const REEXPLAIN = [
   /\b(?:could|can|would|will|please)\s+you\s+(?:re-?send|send|share|provide|paste|attach|forward|give|show)\b/i,
   /\b(?:please|kindly)\s+(?:re-?send|send|share|provide|paste|attach|forward)\b/i,
   /\bi\s+(?:would\s+|will\s+|'d\s+)?need\s+you\s+to\s+(?:re-?send|send|share|provide|paste|attach|forward)\b/i,
-  new RegExp(`\\b(?:i\\s+(?:would\\s+|will\\s+|'d\\s+)?need|i\\s+am\\s+missing|i'm\\s+missing|missing)\\s+${DATA}\\b`, "i"),
+  new RegExp(`\\b(?:i\\s+(?:would\\s+|will\\s+|'d\\s+)?need|i\\s+am\\s+missing|i'm\\s+missing|missing)(?:\\s+is|\\s*:\\s*(?:[-*]\\s*)?)?\\s+(?:\\*\\*)?${DATA}\\b`, "i"),
   new RegExp(`\\b(?:do\\s+not|don't|no\\s+longer|never)\\s+have\\s+(?:access\\s+to\\s+)?${DATA}\\b`, "i"),
-  new RegExp(`\\b(?:need|require)\\s+(?:access\\s+to\\s+)?${DATA}\\b`, "i"),
+  new RegExp(`(?<!do not )(?<!don't )\\b(?:need|require)\\s+(?:access\\s+to\\s+)?${DATA}\\b`, "i"),
+  /\b(?:window|log|data)\b[\s\S]{0,180}\buntil you resend\b/i,
 ]
 export function reexplainNeeded(text) {
   if (typeof text !== "string") return false

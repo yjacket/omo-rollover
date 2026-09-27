@@ -200,6 +200,36 @@ test("scorers are exact-match and never throw on odd input", () => {
   assert.equal(handoffLossy(null, g), true)
 })
 
+test("work answers exclude explanatory numbers but reject ambiguous or invalid submissions", () => {
+  const cases = [
+    ["Result:\n```\n12, 40\n```\nRow 41 is below 17.0 C; record 591 is elsewhere.", ["12", "40"], true, ["12", "40"]],
+    ["Rows 41 (9.2 C) and 43 (4.1 C) are below threshold.\n\n**none**", [], true, []],
+    ["none\n\nRecord 41 reads 9.2 C, below threshold.", [], true, []],
+    ["Answer: 12, 40\nWindow 10..49; row 41 below threshold.", ["12", "40"], true, ["12", "40"]],
+    ["12, 40\nRunning total across windows: 9, 12, 40.", ["12", "40"], true, ["12", "40"]],
+    ["12, 41\nRow 41 is below threshold.", ["12", "40"], false, ["12", "41"]],
+    ["12, 40, 41\nRow 41 is below threshold.", ["12", "40"], false, ["12", "40", "41"]],
+    ["12\nRow 40 is above threshold.", ["12", "40"], false, ["12"]],
+    ["none\nAnswer: 12", [], false, []],
+    ["12, 40\nAnswer: 12, 41", ["12", "40"], false, []],
+    ["Answer: 12, unknown\n12", ["12"], false, []],
+    ["12, 12", ["12"], false, []],
+    ["12.0", ["12"], false, []],
+    ["Rows 12 and 40 exceed 17.0 C.", ["12", "40"], false, []],
+    ["", [], false, []],
+  ]
+  for (const [text, truth, correct, answered] of cases) {
+    const scored = scoreWork(text, truth)
+    assert.equal(scored.correct, correct, text)
+    assert.deepEqual(scored.answered, answered, text)
+  }
+  assert.equal(reexplainNeeded("What I am missing is the log data itself. I need one of the following from you: Paste the first log window, or point me at a file path."), true)
+  assert.equal(reexplainNeeded("The window did not survive the handoff. I cannot scan until you resend it or save it to a file and give me the path."), true)
+  assert.equal(reexplainNeeded("Nothing is missing; send the windows when you are ready."), false)
+  assert.equal(reexplainNeeded("I do not need the log; nothing is missing."), false)
+  assert.equal(reexplainNeeded("I will scan the windows you send next."), false)
+})
+
 // --------------------------------------------------------- (a) fable-write-tick
 
 const fableResponder = ({ preTickAt = 12, postTickAt = { 1: 14, 2: 9 }, writeTicks = 0, delayedOn = null, missAt = null, late = null, nullRecordAt = null } = {}) => (step) => {
