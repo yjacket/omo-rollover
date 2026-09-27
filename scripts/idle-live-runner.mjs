@@ -249,6 +249,7 @@ function printSchedule(write, schedule, skippedArms) {
       // the scope the cap is enforced on (the JSON row's perIdleScope): ttl's 0.06 is per frame
       `${r.perIdleCapEq.toFixed(2)}/${r.perIdleScope}`.padEnd(13),
       r.perPlanCapEq.toFixed(2).padEnd(7),
+      ...(r.priorPlanUpperEq === undefined ? [] : [`priorPlan=${r.priorPlanUpperEq.toFixed(2)}`, `priorMeters=${JSON.stringify(r.priorMeterUpperEq)}`]),
       `${r.largestCall.label} ~${r.largestCall.predictedEq.toFixed(2)} eq (tier ${r.largestCall.tier})`,
     ])
   }
@@ -353,7 +354,12 @@ async function run(argv, env, ctx, finish) {
   }
   const plannerSource = readText(PLANNER)
   const proposalJson = readText(PROPOSAL)
-  const check = loadApproval(approvalJson, { now: env.now(), plannerSource, proposalJson })
+  let capBasisBytes
+  if (approvalJson.capMultiplier !== undefined) {
+    try { capBasisBytes = readText(path.join(repo, "docs/idle-experiments-approval-2026-09-23.json")) }
+    catch { return finish(refusal(["cap_basis_sha_drift"])) }
+  }
+  const check = loadApproval(approvalJson, { now: env.now(), plannerSource, proposalJson, capBasisBytes })
   if (!check.ok) return finish(refusal(check.issues, { approvalPath: opts.approval }))
   const approval = check.approval
   const shas = { plannerSha256: sha256(plannerSource), proposalSha256: sha256(proposalJson) }
@@ -484,6 +490,7 @@ async function run(argv, env, ctx, finish) {
       order: approval.order,
       proxyPort: proxy.port,
       resumedFrom: opts.resume ?? null,
+      priorSpend: approval.priorSpend ?? null,
     }), null, 2)}\n`)
 
     // In-doubt reconciliation reads the historical proxy.jsonl through deps.proxy.readLog().

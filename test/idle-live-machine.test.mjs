@@ -444,6 +444,34 @@ test("preflight passes on the signed approval and refuses every broken approval 
   }
 })
 
+test("a fake campaign seeds the plan cap, keeps per-run spend separate and does not issue a blocked experiment step", async () => {
+  const a = clone(APPROVAL)
+  a.priorSpend = { runId: "old", summarySha256: "a".repeat(64), perMeterUpperEq: Object.fromEntries(METERS.map((m) => [m, 0])), perPlanUpperEq: Object.fromEntries(EXPERIMENT_IDS.map((id) => [id, id === "ttl-1h-unique-prefix" ? 0.06 : 0])) }
+  const h = harness({ approval: a })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  assert.ok(h.ev("gate_refused").some((e) => e.reasons?.some((r) => r.scope === "plan-total:ttl-1h-unique-prefix")), JSON.stringify({ issues: s.issues, stopped: s.stopped, events: h.events.map((e) => [e.ev, e.reasons, e.reason]) }))
+  assert.equal(h.ids().some((id) => id.startsWith("ttl-1h-unique-prefix/")), false)
+  assert.equal(s.experiments["ttl-1h-unique-prefix"].priorUpperEq, 0.06)
+  assert.equal(s.experiments["ttl-1h-unique-prefix"].totalUpperEq, 0.07)
+  assert.equal(s.experiments["ttl-1h-unique-prefix"].capEq, 0.06)
+  assert.deepEqual(s.priorSpend, a.priorSpend)
+})
+
+test("a fake campaign refuses a meter cumulative cap seeded from the prior run without seeding campaign-stop", async () => {
+  const a = clone(APPROVAL)
+  a.priorSpend = { runId: "old", summarySha256: "a".repeat(64), perMeterUpperEq: Object.fromEntries(METERS.map((m) => [m, m === "unified-5h" ? 0.53 : 0])), perPlanUpperEq: Object.fromEntries(EXPERIMENT_IDS.map((id) => [id, 0])) }
+  const h = harness({ approval: a })
+  const s = await h.run({ only: ["ttl-1h-unique-prefix"] })
+  assert.equal(s.exitCode, EXIT.ABORTED)
+  const refusal = h.ev("gate_refused").find((e) => e.reasons?.some((r) => r.scope === "meter:unified-5h"))
+  assert.ok(refusal)
+  assert.equal(refusal.reasons.some((r) => r.scope === "campaign-stop:unified-5h"), false)
+  assert.equal(h.ids().some((id) => id.startsWith("ttl-1h-unique-prefix/")), false)
+  assert.equal(s.meters["unified-5h"].priorUpperEq, 0.53)
+  assert.equal(s.meters["unified-5h"].totalUpperEq, 0.53 + s.meters["unified-5h"].cumulativeUpperEq)
+})
+
 test("preflight refuses when another claude.exe is running", async () => {
   const h = harness({ conflicts: [{ image: "claude.exe", pid: 4242 }] })
   const p = await h.pre()
@@ -867,6 +895,18 @@ test("a crashed step with a proxy record is reconciled from the proxy and never 
   assert.equal(s.experiments[TTL].reason, "interrupted_by_crash")
   assert.equal(s.exitCode, EXIT.OK, JSON.stringify(s.experiments[TTL]))
   assert.equal(s.resumable, false)
+})
+
+test("resume folds this run's spend without folding the approval's prior a second time", async () => {
+  const fx = await crashFixture({ withProxyRecord: true })
+  const a = clone(APPROVAL)
+  a.priorSpend = { runId: "old", summarySha256: "a".repeat(64), perMeterUpperEq: Object.fromEntries(METERS.map((m) => [m, 0.01])), perPlanUpperEq: Object.fromEntries(EXPERIMENT_IDS.map((id) => [id, 0.01])) }
+  const h = resumeHarness(fx, { approval: a })
+  const s = await h.run({ resume: "fake-run", only: ONLY_TTL })
+  assert.equal(s.exitCode, EXIT.OK)
+  assert.equal(s.meters["unified-5h"].totalUpperEq, Math.round((0.01 + s.meters["unified-5h"].cumulativeUpperEq) * 100) / 100)
+  assert.equal(s.experiments[TTL].totalUpperEq, Math.round((0.01 + s.experiments[TTL].spentUpperEq) * 100) / 100)
+  assert.equal(s.experiments[TTL].priorUpperEq, 0.01)
 })
 
 test("a crashed step without a proxy record is void, in doubt, and exits 4", async () => {

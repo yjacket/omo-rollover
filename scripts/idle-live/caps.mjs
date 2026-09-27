@@ -218,8 +218,8 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
   const scopes = state.scopes && typeof state.scopes === "object" ? state.scopes : {}
   const meters = state.meters && typeof state.meters === "object" ? state.meters : {}
 
-  const check = (scopeName, scope, capEq, extra = {}) => {
-    const entry = { scope: scopeName, capEq, ...extra }
+  const check = (scopeName, scope, capEq, extra = {}, priorUpperEq = 0) => {
+    const entry = { scope: scopeName, capEq, ...extra, ...(priorUpperEq ? { priorUpperEq } : {}) }
     if (!Number.isFinite(capEq)) {
       reasons.push({ code: "invalid_cap", scope: scopeName })
       caps.push(entry)
@@ -237,15 +237,15 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
       caps.push({ ...entry, issue: spend.issue.code })
       return
     }
-    entry.spentObservedEq = spend.spentObservedEq
-    entry.spentUpperEq = spend.spentUpperEq
+    entry.spentObservedEq = roundEq(priorUpperEq + spend.spentObservedEq)
+    entry.spentUpperEq = roundEq(priorUpperEq + spend.spentUpperEq)
     entry.closedWindowsUpperEq = spend.closedWindowsUpperEq
-    entry.remainingUpperEq = roundEq(capEq - spend.spentUpperEq)
+    entry.remainingUpperEq = roundEq(capEq - entry.spentUpperEq)
     if (predictedEq !== null) {
-      entry.projectedEq = roundEq(spend.spentObservedEq + predictedEq)
+      entry.projectedEq = roundEq(entry.spentObservedEq + predictedEq)
       if (entry.projectedEq > capEq + 1e-9) {
         entry.tripped = true
-        reasons.push({ code: "cap_exceeded", scope: scopeName, capEq, spentObservedEq: spend.spentObservedEq, spentUpperEq: spend.spentUpperEq, predictedEq, projectedEq: entry.projectedEq, ...(extra.meter ? { meter: extra.meter } : {}) })
+        reasons.push({ code: "cap_exceeded", scope: scopeName, capEq, spentObservedEq: entry.spentObservedEq, spentUpperEq: entry.spentUpperEq, predictedEq, projectedEq: entry.projectedEq, ...(extra.meter ? { meter: extra.meter } : {}) })
       }
     }
     caps.push(entry)
@@ -255,7 +255,7 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
     const limits = plan.limits ?? {}
     if (idleKey === null) reasons.push({ code: "invalid_scope", experiment: step.experiment })
     else check(`idle:${idleKey}`, scopes[idleKey], limits.maxProactiveSpendPerIdle?.value, { name: "maxProactiveSpendPerIdle", scopeType: approval.perIdleScope?.[step.experiment] ?? null })
-    check(`plan-total:${step.experiment}`, scopes[`plan:${step.experiment}`], limits.maxTotalExperimentalSpend?.value, { name: "maxTotalExperimentalSpend" })
+    check(`plan-total:${step.experiment}`, scopes[`plan:${step.experiment}`], limits.maxTotalExperimentalSpend?.value, { name: "maxTotalExperimentalSpend" }, approval.priorSpend?.perPlanUpperEq?.[step.experiment] ?? 0)
   }
 
   const meterCaps = approval.perMeterCumulativeCaps && typeof approval.perMeterCumulativeCaps === "object" ? approval.perMeterCumulativeCaps : {}
@@ -274,7 +274,7 @@ export function gate(step, state, approval, priors = PRIOR_RANGE_ONLY) {
       warnings.push({ code: "meter_absent", meter })
       continue
     }
-    if (hasCap) check(`meter:${meter}`, scope, meterCaps[meter], { name: "perMeterCumulativeCap", meter })
+    if (hasCap) check(`meter:${meter}`, scope, meterCaps[meter], { name: "perMeterCumulativeCap", meter }, approval.priorSpend?.perMeterUpperEq?.[meter] ?? 0)
     if (hasStop) check(`campaign-stop:${meter}`, scope, stops[meter], { name: "campaignStop", meter })
   }
 

@@ -34,7 +34,7 @@ const configuredPlan = (plan, approval) => ({
 
 // Validates an approval artifact supplied by the caller. Inputs are injected so this module
 // remains pure and the approval can bind the exact planner and proposal bytes it authorizes.
-export function loadApproval(json, { now = Date.now(), plannerSource, proposalJson } = {}) {
+export function loadApproval(json, { now = Date.now(), plannerSource, proposalJson, capBasisBytes } = {}) {
   const issues = []
   const add = (issue) => { if (!issues.includes(issue)) issues.push(issue) }
   if (!isObject(json)) return { ok: false, issues: ["not_an_approval_object"] }
@@ -58,10 +58,40 @@ export function loadApproval(json, { now = Date.now(), plannerSource, proposalJs
 
   let proposal = null
   try { proposal = JSON.parse(proposalJson) } catch { add("malformed_proposal") }
+  const scaled = Object.hasOwn(json, "capMultiplier")
+  const multiplier = json.capMultiplier
+  if (scaled && (!Number.isInteger(multiplier) || multiplier <= 0)) add("cap_multiplier_invalid")
+  if (scaled) {
+    if (!isObject(json.capBasis) || json.capBasis.file !== "docs/idle-experiments-approval-2026-09-23.json" || !/^[a-f0-9]{64}$/.test(json.capBasis.sha256 ?? "") || (capBasisBytes !== undefined && json.capBasis.sha256 !== sha256(capBasisBytes))) add("cap_basis_sha_drift")
+    if (capBasisBytes !== undefined && json.capBasis?.sha256 === sha256(capBasisBytes)) {
+      try {
+        const basis = JSON.parse(capBasisBytes)
+        for (const key of ["target", "order", "campaignStop", "perIdleScope", "unpricedCallMaxTokens", "skippedArms", "capSemantics"]) {
+          if (!equal(json[key], basis[key])) add("approval_scope_mismatch")
+        }
+      } catch { add("cap_basis_sha_drift") }
+    }
+    const prior = json.priorSpend
+    const validAmounts = (values, keys) => isObject(values) && equal(Object.keys(values).sort(), [...keys].sort()) && keys.every((key) => typeof values[key] === "number" && Number.isFinite(values[key]) && values[key] >= 0)
+    if (!isObject(prior) || typeof prior.runId !== "string" || !prior.runId || !/^[a-f0-9]{64}$/.test(prior.summarySha256 ?? "") || !validAmounts(prior.perMeterUpperEq, Object.keys(proposal?.perMeterCumulativeCaps ?? {})) || !validAmounts(prior.perPlanUpperEq, PLAN_IDS)) add("prior_spend_invalid")
+  }
   if (!isObject(proposal) || !isObject(proposal.plans)) add("limits_mismatch")
   else {
+    const spendKeys = ["maxProactiveSpendPerIdle", "maxTotalExperimentalSpend"]
+    const scale = (value) => Math.round(value * multiplier * 100) / 100
+    if (scaled && Number.isInteger(multiplier) && multiplier > 0) {
+      if (!equal(json.perMeterCumulativeCaps, Object.fromEntries(Object.entries(proposal.perMeterCumulativeCaps).map(([key, value]) => [key, scale(value)])))) add("cap_multiplier_mismatch")
+    }
     for (const plan of PLANS) {
-      if (!equal(json.plans?.[plan.id]?.limits, proposal.plans[plan.id]?.limits)) add("limits_mismatch")
+      const expected = proposal.plans[plan.id]?.limits
+      const actual = json.plans?.[plan.id]?.limits
+      if (scaled && Number.isInteger(multiplier) && multiplier > 0 && isObject(expected) && isObject(actual)) {
+        const scaledLimits = Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, spendKeys.includes(key) ? { ...value, value: scale(value.value) } : value]))
+        if (spendKeys.some((key) => !equal(actual[key], scaledLimits[key]))) add("cap_multiplier_mismatch")
+        if (!equal(Object.fromEntries(Object.entries(actual).filter(([key]) => !spendKeys.includes(key))), Object.fromEntries(Object.entries(expected).filter(([key]) => !spendKeys.includes(key))))) add("limits_mismatch")
+        if (!equal(Object.keys(actual).sort(), Object.keys(expected).sort())) add("limits_mismatch")
+      } else if (!scaled && !equal(actual, expected)) add("limits_mismatch")
+      else if (scaled && (!isObject(expected) || !isObject(actual))) add("cap_multiplier_mismatch")
       for (const issue of validatePlan(configuredPlan(plan, json), { now })) add(issue)
     }
   }
