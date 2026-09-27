@@ -230,6 +230,34 @@ test("work answers exclude explanatory numbers but reject ambiguous or invalid s
   assert.equal(reexplainNeeded("I will scan the windows you send next."), false)
 })
 
+test("answer corrections cannot hide conflicting ID sets in labels or prose", () => {
+  for (const [text, truth] of [
+    ["Answer: 12\nCorrection: 40", ["12"]],
+    ["none\nActually, the answer is 12.", []],
+    ["Answer: 12\nThe correct IDs are 40.", ["12"]],
+    ["12, 40\nFinal answer: 12", ["12", "40"]],
+    ["12, 40\nCorrected answer: 12", ["12", "40"]],
+    ["12, 40\n**Revised:** 12", ["12", "40"]],
+    ["Answer: 12\nUpdated IDs: 12, 40", ["12"]],
+    ["Answer: 12\nWait, 40 also qualifies.", ["12"]],
+    ["12, 40\nSo the matching ids: 12", ["12", "40"]],
+    ["12, 40\n591, the record under investigation, is elsewhere.", ["12", "40"]],
+  ]) {
+    assert.equal(scoreWork(text, truth).correct, false, text)
+  }
+  assert.deepEqual(scoreWork("Answer: 12, unknown", ["12"]).answered, [])
+  assert.equal(scoreWork("IDs above threshold: 12, 40", ["12", "40"]).correct, true)
+})
+
+test("reexplanation requires missing data or inability rather than a negated mention", () => {
+  for (const text of [
+    "Nothing is missing: the log data from the brief is enough.",
+    "The only thing not missing is the log data.",
+    "The log is complete, so there is no reason to wait until you resend it.",
+  ]) assert.equal(reexplainNeeded(text), false, text)
+  assert.equal(reexplainNeeded("I can't scan until you send it again."), true)
+})
+
 // --------------------------------------------------------- (a) fable-write-tick
 
 const fableResponder = ({ preTickAt = 12, postTickAt = { 1: 14, 2: 9 }, writeTicks = 0, delayedOn = null, missAt = null, late = null, nullRecordAt = null } = {}) => (step) => {
