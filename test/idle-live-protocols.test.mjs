@@ -21,12 +21,12 @@ const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex")
 // ---------------------------------------------------------------- fixtures
 
 // ctx per the todo: injected random, injected offset clock, mode carried across experiments.
-function fakeCtx({ experiment, dial = true, resumeHit = null, run = 1, phase = null } = {}) {
+function fakeCtx({ experiment, dial = true, resumeHit = null, run = 1, phase = null, approval: suppliedApproval = approval } = {}) {
   let uuids = 0
   let seeds = 0
   const ctx = {
     experiment,
-    approval,
+    approval: suppliedApproval,
     random: { uuid: () => `uuid-${++uuids}`, seed: () => 1000 + ++seeds },
     mode: { resumeHit },
     dialPrefix: dial ? { prompt: makeTask(77).ctxPrompt, sessionId: "P-dial" } : null,
@@ -465,6 +465,15 @@ test("output-quota: block 3 (1..1700, ~4K) runs when the remaining budget allows
   assert.equal(r.blocks.length, 3)
   assert.equal(r.blocks[2].N, 12)
   assert.equal(r.status, "valid")
+})
+
+test("output-quota: prior plan spend can be the only reason block 3 is out of budget", async () => {
+  const rerunApproval = structuredClone(approval)
+  rerunApproval.plans["output-quota"].limits.maxTotalExperimentalSpend.value = 0.075
+  rerunApproval.priorSpend = { perPlanUpperEq: { "output-quota": 0.01 } }
+  const { requests, result: r } = await run("output-quota", { phase: [0, RHO], approval: rerunApproval }, outputResponder())
+  assert.equal(r.block3, "skipped:budget", "four current ticks plus the prior leave 0.015, below the 0.025 block-3 reserve")
+  assert.equal(requests.some((step) => step.unit.index === 3), false)
 })
 
 // Plan todo 21a (Amendment 2026-09-27): the first run's outp(2000) returned 5,106 output tokens,
@@ -906,6 +915,11 @@ test("policy-effect: a second warm miss stops the current arm of that pair; the 
 })
 
 // ------------------------------------------------------------- parity + schedule
+
+test("output-quota schedule labels each block with the prompt actually sent", () => {
+  const blocks = schedule("output-quota").blocks
+  assert.deepEqual(blocks.map(({ prompt }) => prompt), ["outp(3000)", "outp(3000)", "outp(1700)"])
+})
 
 test("parity tables cover every experiment and reject unknown steps", () => {
   assert.deepEqual(EXPERIMENT_IDS, ["fable-write-tick", "output-quota", "ttl-1h-unique-prefix", "restore-decomposition", "policy-effect"])
