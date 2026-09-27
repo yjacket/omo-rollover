@@ -79,16 +79,23 @@ const byNumber = (xs) => [...xs].map(String).sort((a, b) => Number(a) - Number(b
 // label or Markdown. Prose, tables, window bounds and running totals are not answers.
 // Resolve candidates without consulting truth; conflicting or malformed submissions fail.
 const ID_LIST = /^(?:\d+(?:\s*,\s*\d+)*|none)\.?$/i
-const ANSWER_LABEL = /^(?:answer|result|matching ids|ids)\s*:\s*/i
+const ANSWER_LABEL = /^([A-Za-z][A-Za-z ()'-]*?)\s*:\s*(.*)$/
+const ANSWER_CUE = /\b(?:answer|result|correct(?:ion|ed)?|revis(?:ed|ion)|final|updated?|ids?)\b/i
+const CORRECTION_CUE = /\b(?:actually|instead|wait|correct(?:ion|ed)?|should\s+(?:be|read)|also\s+qualif\w*|the\s+(?:correct\s+|matching\s+|right\s+)?(?:ids?|answer)\s+(?:is|are))\b/i
 function workAnswer(text) {
   const candidates = []
   for (const line of text.split(/\r?\n/)) {
     let value = line.trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
     if (!value || /^```/.test(value)) continue
-    const labeled = ANSWER_LABEL.test(value)
-    if (labeled) value = value.replace(ANSWER_LABEL, "").trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
+    const label = value.match(ANSWER_LABEL)
+    const labeled = label !== null && ANSWER_CUE.test(label[1])
+    if (labeled) value = label[2].trim().replace(/^(?:\*\*|`)+|(?:\*\*|`)+$/g, "").trim()
     if (labeled && !value) continue // A heading for the answer on the next line.
-    if (!labeled && !ID_LIST.test(value) && !/^(?:\d+\s*,|none\s*,)/i.test(value)) continue
+    if (!labeled && !ID_LIST.test(value)) {
+      if (/^(?:\d+\s*,|none\s*,)/i.test(value)) return null
+      if (CORRECTION_CUE.test(value) && (/\d/.test(value) || /\bnone\b/i.test(value))) return null
+      continue
+    }
     if (!ID_LIST.test(value)) return null
     const ids = /^none\.?$/i.test(value) ? [] : value.replace(/\.$/, "").split(/\s*,\s*/)
     if (new Set(ids).size !== ids.length) return null
@@ -124,10 +131,11 @@ const REEXPLAIN = [
   /\b(?:could|can|would|will|please)\s+you\s+(?:re-?send|send|share|provide|paste|attach|forward|give|show)\b/i,
   /\b(?:please|kindly)\s+(?:re-?send|send|share|provide|paste|attach|forward)\b/i,
   /\bi\s+(?:would\s+|will\s+|'d\s+)?need\s+you\s+to\s+(?:re-?send|send|share|provide|paste|attach|forward)\b/i,
-  new RegExp(`\\b(?:i\\s+(?:would\\s+|will\\s+|'d\\s+)?need|i\\s+am\\s+missing|i'm\\s+missing|missing)(?:\\s+is|\\s*:\\s*(?:[-*]\\s*)?)?\\s+(?:\\*\\*)?${DATA}\\b`, "i"),
+  new RegExp(`\\b(?:i\\s+(?:would\\s+|will\\s+|'d\\s+)?need|i\\s+am\\s+missing|i'm\\s+missing|missing)\\s+${DATA}\\b`, "i"),
+  new RegExp(`\\b(?:what|things?)\\s+i(?:\\s+am|'m)\\s+missing(?:\\s+is|\\s*:\\s*(?:[-*]\\s*)?)\\s+(?:\\*\\*)?${DATA}\\b`, "i"),
   new RegExp(`\\b(?:do\\s+not|don't|no\\s+longer|never)\\s+have\\s+(?:access\\s+to\\s+)?${DATA}\\b`, "i"),
   new RegExp(`(?<!do not )(?<!don't )\\b(?:need|require)\\s+(?:access\\s+to\\s+)?${DATA}\\b`, "i"),
-  /\b(?:window|log|data)\b[\s\S]{0,180}\buntil you resend\b/i,
+  /\b(?:cannot|can't|can\s+not|unable\s+to)\b[^.\n]*\buntil\s+you\s+(?:re-?send|send|paste|share|provide)\b/i,
 ]
 export function reexplainNeeded(text) {
   if (typeof text !== "string") return false
