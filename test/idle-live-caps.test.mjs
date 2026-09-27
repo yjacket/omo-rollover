@@ -220,8 +220,19 @@ test("gate refuses the per-idle scope when observed + predicted exceeds it (manu
   assert.ok(tripped.includes("idle:fable-write-tick/block-1"), JSON.stringify(r.reasons))
 })
 
-// Resume accounting is stateful, so its prior-spend behavior belongs in the seeded fake campaign
-// regression in idle-live-machine.test.mjs rather than a tautological pair of pure gate() calls.
+test("prior upper spend seeds only plan-total and meter scopes", () => {
+  const a = structuredClone(APPROVAL)
+  a.priorSpend = { perPlanUpperEq: { "fable-write-tick": 0.04 }, perMeterUpperEq: { "unified-5h": 0.52 } }
+  const s = stateFor({ baseline: 0.12, latest: 0.12 })
+  const result = gate(step(), s, a, PRIOR_RANGE_ONLY)
+  assert.deepEqual(result.reasons.filter((r) => r.code === "cap_exceeded").map((r) => r.scope), ["plan-total:fable-write-tick"])
+  assert.equal(result.accounting.caps.find((c) => c.scope === "plan-total:fable-write-tick").priorUpperEq, 0.04)
+  assert.equal(result.accounting.caps.find((c) => c.scope === "idle:fable-write-tick/block-1").priorUpperEq, undefined)
+  assert.equal(result.accounting.caps.find((c) => c.scope === "campaign-stop:unified-5h").priorUpperEq, undefined)
+  a.priorSpend.perPlanUpperEq["fable-write-tick"] = 0
+  a.priorSpend.perMeterUpperEq["unified-5h"] = 0.53
+  assert.deepEqual(gate(step(), s, a, PRIOR_RANGE_ONLY).reasons.filter((r) => r.code === "cap_exceeded").map((r) => r.scope), ["meter:unified-5h"])
+})
 
 test("gate refuses the plan-total scope independently of the per-idle scope", () => {
   const s = stateFor({ baseline: 0.12, latest: 0.12 })
