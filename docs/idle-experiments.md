@@ -133,15 +133,28 @@ The [approval proposal](idle-experiments-approval-proposal.md) (Korean, signable
 
 ## Live run
 
-One live run has since happened under a separate signed approval file
-(`idle-experiments-approval-2026-09-23.json`, distinct from the proposal JSON above): runId
-`20260925-161302`, 2026-09-26 01:13-03:14 KST, 22 paid calls, exit 3, caps respected. Four of the
-five experiments aborted and the TTL experiment is contaminated, so no coefficient was
-identified and the engine's policy answer is `NO_DECISION`. Nothing in this section changes the
-dry-run planner: `scripts/idle-experiments.mjs --execute` still exits 2.
+Two live runs have happened, each under its own signed approval file, distinct from the
+proposal JSON above. Nothing in this section changes the dry-run planner:
+`scripts/idle-experiments.mjs --execute` still exits 2.
 
-- Per-experiment verdicts, root causes and the gauge-lag analysis: [idle-live-results.md](idle-live-results.md) (`idle-live-results.json` is the machine copy).
-- Coefficient records and raw usage of the run: [idle-cost-evidence.md](idle-cost-evidence.md), section "2026-09-26 live run".
+- First run, `idle-experiments-approval-2026-09-23.json`: runId `20260925-161302`, 2026-09-26
+  01:13-03:14 KST, 22 paid calls, exit 3, caps respected. Four of the five experiments aborted
+  and the TTL experiment is contaminated. On its own it identified no coefficient. It is kept as
+  history.
+- Rerun, `idle-experiments-approval-2026-09-27.json` (5x caps, cumulative with the first run):
+  runId `20260927-052028`, 2026-09-27 05:20-12:00 UTC, 248 paid calls, exit 0, caps respected.
+  All five experiments ended. Restore run 2 is contaminated, so restore has n = 1.
+- Merged analysis of both runs (270 paid calls, 13 attempts, only clean rerun attempts pooled):
+  a measured 1h write range on the 5h meter, an output coefficient upper bound only, TTL renewal
+  at 55 minutes (n = 2), restore phase sums (n = 1) and 3 policy pairs. The engine answers
+  `LET_EXPIRE` at both range ends as its default without a calibrated forecast
+  (`no_calibrated_forecast`). That is not a measured comparison of the three strategies, and no
+  saving is claimed.
+
+Where to read:
+
+- Every attempt's verdict and the merged numbers, exactly as the analyzer wrote them: [idle-live-results.md](idle-live-results.md) (`idle-live-results.json` is the machine copy).
+- Coefficient records, raw usage and phase sums: [idle-cost-evidence.md](idle-cost-evidence.md), sections "2026-09-26 live run" (first run, historical) and "2026-09-27 merged result".
 - Final report in AGENT_TASK section-9 order, incl. what must be approved next: [idle-cost-report.md](idle-cost-report.md).
 
 ## Contamination and stop conditions that apply to all five

@@ -1,49 +1,101 @@
-# 유휴 비용 실측 결과 (20260925-161302)
+# 유휴 비용 실측 결과 (20260925-161302+20260927-052028)
 
-증거: requests.jsonl sha256 `05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886`, events.jsonl sha256 `0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84`.
+합친 실행 2개(오래된 순, 시간이 겹치지 않음): 20260925-161302, 20260927-052028. 실험마다 모든 시도(attempt)를 판정과 함께 적고, 끝까지 기록되고 창이 깨끗한 시도(valid 또는 upper_bound)만 합산했다. 제외한 시도의 행은 합산 결과, 계수, 정책 답 어디에도 들어가지 않는다.
+20260925-161302 증거: requests.jsonl sha256 `05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886`, events.jsonl sha256 `0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84`.
+20260927-052028 증거: requests.jsonl sha256 `df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df`, events.jsonl sha256 `7e6d17dad7b5f847d8b70799c3cb864b09bae50bff0327842730ee449808fb8e`.
 게이지 해상도는 0.01이므로 모든 계수는 양자화 구간으로만 보고한다. 이 구간은 신뢰구간이 아니며 점추정값은 발표하지 않는다(발표하는 점은 구간의 상단이라고 명시한다).
-증거 무결성: 해석 불가 요청 행 0개 -> 없음.
+20260925-161302 증거 무결성: 해석 불가 요청 행 0개 -> 없음.
+20260927-052028 증거 무결성: 해석 불가 요청 행 0개 -> 없음.
 
 ## 1. fable-write-tick (쓰기 tick)
-- 판정: aborted (cap_exceeded: 다음 호출이 지출 한도를 넘을 것으로 예측되어 게이트가 거부했다: 이 실험만 중단했다)
+- 판정: valid
+- 시도 20260925-161302#1: aborted (cap_exceeded) -> 합산에서 제외
+- 시도 20260927-052028#1: valid -> 합산에 포함
+- 블록 1 [20260927-052028#1]: W=71572 tokens, n=0, m=16, phi=[0, 0.027] -> W/T [0.536041, 0.600763], T [119135.1, 133519.8] tokens/tick
+  - hold: 7/7개, 규정 오프셋 충족 예 (허용오차 30000 ms)
+- 블록 2 [20260927-052028#1]: W=71639 tokens, n=0, m=16, phi=[0, 0.027] -> W/T [0.536041, 0.600763], T [119246.7, 133644.7] tokens/tick
+  - hold: 7/7개, 규정 오프셋 충족 예 (허용오차 30000 ms)
+- 블록 교집합 T: [119246.7, 133519.8] tokens/tick
+- 가설: H6 (근거 interval_below_h6_threshold, 경계 0.645/0.755, 지연 tick 0개)
+- 사전값과의 pooled T: [122387.3, 171342.2] (prior 6/8 tick은 reported_unverified)
+- 건너뛴 arm: fable-write-5m (adapter_capability) -> k_write5 미측정
 
 ## 2. output-quota (출력 계수)
-- 판정: aborted (short_output: 8K 블록의 최소 출력 토큰 기준은 6,000이고, 그보다 작은 블록은 그 블록의 목표 출력에 비례해 정해진다. 이 기준을 채우지 못했거나, 채웠어도 모델이 끝까지 답하지 않은(stop_reason이 end_turn이 아닌) 첫 호출이라 이 실험을 중단했다)
+- 판정: upper_bound (blocks_disjoint: 블록마다 구한 k_out 구간이 서로 겹치지 않는다(Appendix A: 블록 2는 블록 1과 겹쳐야 한다). 이 증거에는 모형이 맞지 않으므로 측정값은 발표하지 않고, 블록 상한 중 가장 큰 값만 상한으로 보고한다)
+- 시도 20260925-161302#1: aborted (short_output) -> 합산에서 제외
+- 시도 20260927-052028#1: upper_bound (blocks_disjoint) -> 합산에 포함
+- 블록 1 [20260927-052028#1]: 목표 8000 tokens, N=9, tick=2, Sum_out=72778, phi [0, 0.027027], phi 출처 carried_phase_from_events, k_out [0.000026893964, 0.000030698234] ticks/token, 유효 비율 1
+- 블록 2 [20260927-052028#1]: 목표 8000 tokens, N=7, tick=2, Sum_out=56728, phi [0, 0.24862], phi 출처 chained_residual_of_block_1, k_out [0.00003072544, 0.000040969521] ticks/token, 유효 비율 1
+- 블록 3 [20260927-052028#1]: 목표 4000 tokens, N=13, tick=2, Sum_out=54106, phi [0, 0.332124], phi 출처 chained_residual_of_block_2, k_out [0.000030437556, 0.000039688073] ticks/token, 유효 비율 1
+- 위상 근거: 블록 1의 위상은 experiment_started.carryPhase(기계가 기록한 직전 tick 이후 위상)이고, 그 사이의 조용한 settle PING은 블록 1의 합에 넣었다. 다음 블록의 위상은 직전 블록의 두 번째 tick이 남긴 잔여 구간이다: 0 이상이고, 그 tick을 낸 OUT 호출의 비용보다 작으며, 직전 블록의 k_out 구간으로 제한한다. 직전 블록의 hold PING은 그 사이의 비용으로 합에 넣었다. DIAL 읽기의 rho는 가정하지 않는다. hold PING에서 tick이 나오면 연쇄가 끊기고, 그 다음 블록의 위상은 미관측(상한만)이다.
+- k_out: 상한만 < 0.000040969521 ticks/token, 블록 겹침 아니오 (블록 구간이 서로 겹치지 않아 측정값은 없다. 상한은 블록 상한 중 가장 큰 값이다)
+- 읽기 비용 차감에 쓴 사전 범위: 5390000-5550000 tokens/tick (quota-test/2026-09-19/REPORT.md, reported_unverified)
+- 쓰기 대비 비율 r = k_out * T: 미측정
+- 유효 요청 비율: 1 (기준 0.9)
 
 ## 3. ttl-1h-unique-prefix (1h TTL 갱신)
-- 판정: contaminated (anomalies_present)
-- run 1: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
-- run 2: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
-- 결론: renews_at_55min (55분 읽기가 TTL을 갱신함, n=2, 사용량 기준 HIT/MISS - 창 오염으로 measured 아님)
+- 판정: valid
+- 시도 20260925-161302#1: contaminated (anomalies_present) -> 합산에서 제외
+- 시도 20260927-052028#1: valid -> 합산에 포함
+- run 1 [20260927-052028#1]: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
+- run 2 [20260927-052028#1]: 처치 ping HIT, 처치 check HIT, 대조 check MISS (valid, 일정 준수 예)
+- 결론: renews_at_55min (55분 읽기가 TTL을 갱신함, n=2, measured)
 
 ## 4. restore-decomposition (복원 분해)
-- 판정: aborted (big_context_rewrite: 이 호출의 사용량이 캐시를 놓치고 대용량 컨텍스트를 처음부터 다시 썼다(--resume이든 대체 모드 rf-emulation이든, 기록된 세션 모드에서 캐시 적중을 얻지 못했다는 뜻이다): 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
+- 판정: valid
+- 시도 20260925-161302#1 (run 1): aborted (big_context_rewrite) -> 합산에서 제외
+- 시도 20260925-161302#2 (run 2): aborted (big_context_rewrite) -> 합산에서 제외
+- 시도 20260927-052028#1 (run 1): valid -> 합산에 포함
+- 시도 20260927-052028#2 (run 2): contaminated (anomalies_present) -> 합산에서 제외
+- run 1 [20260927-052028#1] (resume-sysfile): 파킹 경로 [0.00443, 0.00599] / 원문 경로 [0.0026, 0.00276] (unified-5h 환산, 구간)
+  - 복원 지연: 파킹 18835 ms, 원문 3200 ms
+  - phase별 요청 수: ctx_create=1, observe=1, park_parent=1, restore_child=3, resume_raw=2, useful_work=12
+  - 품질(park_path): guard true, 정답 6/6, 재설명 요청 1, handoff 유실 false
+  - 품질(raw_path): guard true, 정답 6/6, 재설명 요청 미상(not_applicable), handoff 유실 미상(not_applicable)
 
 ## 5. policy-effect (정책 효과)
-- 판정: aborted (big_context_rewrite: 이 호출의 사용량이 캐시를 놓치고 대용량 컨텍스트를 처음부터 다시 썼다(--resume이든 대체 모드 rf-emulation이든, 기록된 세션 모드에서 캐시 적중을 얻지 못했다는 뜻이다): 이후 같은 종류의 작업은 같은 비용을 낼 것으로 보고 중단했다)
+- 판정: valid
+- 시도 20260925-161302#1: aborted (big_context_rewrite) -> 합산에서 제외
+- 시도 20260927-052028#1: valid -> 합산에 포함
+- 쌍 수 n=3 (평균과 범위만, 구간 추정 주장 없음)
+  - unified-5h: 평균 차이 [0.00146, 0.0035], 최소 0.0013, 최대 0.00372 (후보 - 현행)
+  - unified-7d: 평균 차이 [-0.001, 0.00239], 최소 -0.00104, 최대 0.00247 (후보 - 현행)
+  - unified-7d_oi: 평균 차이 [-0.00135, 0.00356], 최소 -0.00142, 최대 0.00368 (후보 - 현행)
+  - 품질 차이(정답 수 평균): 0
+  - 상태: complete
 
 ## 6. 지출 (meter별)
 
 | meter | 관측 | 상한 | 창 수 |
 | --- | --- | --- | --- |
-| `unified-5h` | 0.16 | 0.17 | 1 |
-| `unified-7d` | 0.02 | 0.03 | 1 |
-| `unified-7d_oi` | 0.04 | 0.05 | 1 |
+| `unified-5h` | 0.39 | 0.43 | 4 |
+| `unified-7d` | 0.06 | 0.08 | 2 |
+| `unified-7d_oi` | 0.11 | 0.13 | 2 |
+| `unified-5h` (20260925-161302) | 0.16 | 0.17 | 1 |
+| `unified-7d` (20260925-161302) | 0.02 | 0.03 | 1 |
+| `unified-7d_oi` (20260925-161302) | 0.04 | 0.05 | 1 |
+| `unified-5h` (20260927-052028) | 0.23 | 0.26 | 3 |
+| `unified-7d` (20260927-052028) | 0.04 | 0.05 | 1 |
+| `unified-7d_oi` (20260927-052028) | 0.07 | 0.08 | 1 |
 
 ## 7. 계수 레코드
 
 | meter | sourceKind | cacheWrite1h 구간 | 발표값(상단) | 출력 계수 |
 | --- | --- | --- | --- | --- |
-| `unified-5h-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: experiment_not_valid:short_output) |
-| `unified-7d-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
-| `unified-7d_oi-utilization-fraction` | unknown | 미측정 | 없음 | 없음 (unidentified: no_output_observation_on_this_meter) |
+| `unified-5h-utilization-fraction` | measured | [7.4895e-8, 8.3860e-8] | 8.3860e-8 | 없음 (upper_bound: blocks_disjoint) |
+| `unified-7d-utilization-fraction` | reported_unverified | [9.3619e-9, 3.1059e-8] | 3.1059e-8 | 없음 (unidentified: no_output_observation_on_this_meter) |
+| `unified-7d_oi-utilization-fraction` | reported_unverified | [1.6643e-8, 4.7920e-8] | 4.7920e-8 | 없음 (unidentified: no_output_observation_on_this_meter) |
 
 측정하지 않은 필드는 null로 두었다(0으로 채우지 않았다). evidenceRef는 문자열이며 구조화된 출처는 `coefficientProvenance`에 따로 둔다.
 
 ## 8. 정책 답 (범위 양 끝)
-- 결론: **NO_DECISION** (evidence_incomplete)
-- 엔진: evaluateIdleCost, 예측 분포는 측정하지 않았다(no_calibrated_forecast: q를 지어내지 않는다). V=0 기준.
-- 범위 하단/상단 평가 없음: 증거가 불완전하여 엔진을 돌리지 않았다.
+- 결론: **LET_EXPIRE** (both_range_ends_agree)
+- 엔진: evaluateIdleCost, 예측 분포는 측정하지 않았다(no_calibrated_forecast: q를 지어내지 않는다. 아래 가정 시나리오는 라벨을 붙인 가정일 뿐이다). V=0 기준.
+- 엔진에 넣은 출력 계수(unified-5h, 출력 토큰당 사용률): 하단 3.7448e-8, 상단 4.0970e-7 (prior_ratio_0.5_to_2.5_x_write_high_end_raised_to_evidence_upper_bound)
+- 범위 하단: LET_EXPIRE (no_calibrated_forecast, 증거 uncertain)
+- 범위 상단: LET_EXPIRE (no_calibrated_forecast, 증거 uncertain)
+- 가정 시나리오 `q1_return_after_2h` (라벨: hypothetical, 채택 아니오): 범위 하단 WAIT / 범위 상단 WAIT -> WAIT (both_range_ends_agree)
+- 가정 시나리오 `q0.5_return_after_2h` (라벨: hypothetical, 채택 아니오): 범위 하단 WAIT / 범위 상단 WAIT -> WAIT (both_range_ends_agree)
 
 ## 9. 모르는 것
 
@@ -52,136 +104,16 @@
 - cacheRead 계수: tick당 5390000-5550000 토큰이라는 값은 quota-test/2026-09-19/REPORT.md에 보고된 검증 전 사전 범위(reported_unverified)이며, 이 실행에서 측정하지 않았다
 - 복귀 예측 q: 측정하지 않았다. 계획기의 항목은 가정 시나리오라는 라벨을 붙였을 뿐 사실로 쓰지 않는다
 - skillRestoreEq / sharedLossEq / parkQualityEq: 측정하지 않았다. 엔진 모델에는 0 기준값으로 넣었다
-- T(5h 쓰기 tick당 토큰 수): 이 증거로는 정하지 못했다. 사전 범위 102K-143K는 검증 전 값(reported_unverified)이다
-- k_out(출력 토큰당 tick): 이 증거로는 정하지 못했다(experiment_not_valid:short_output)
-- fable-write-tick: aborted (cap_exceeded)
-- output-quota: aborted (short_output)
-- ttl-1h-unique-prefix: contaminated (anomalies_present)
-- restore-decomposition: aborted (big_context_rewrite)
-- policy-effect: aborted (big_context_rewrite)
+- k_out(출력 토큰당 tick): 이 증거로는 정하지 못했다(blocks_disjoint)
+- output-quota: upper_bound (blocks_disjoint)
+- fable-write-tick 시도 20260925-161302#1: aborted (cap_exceeded) - 합산 분석에서 제외했다
+- output-quota 시도 20260925-161302#1: aborted (short_output) - 합산 분석에서 제외했다
+- ttl-1h-unique-prefix 시도 20260925-161302#1: contaminated (anomalies_present) - 합산 분석에서 제외했다
+- restore-decomposition 시도 20260925-161302#1 (run 1): aborted (big_context_rewrite) - 합산 분석에서 제외했다
+- restore-decomposition 시도 20260925-161302#2 (run 2): aborted (big_context_rewrite) - 합산 분석에서 제외했다
+- restore-decomposition 시도 20260927-052028#2 (run 2): contaminated (anomalies_present) - 합산 분석에서 제외했다
+- policy-effect 시도 20260925-161302#1: aborted (big_context_rewrite) - 합산 분석에서 제외했다
+- 복원 1@20260927-052028회차 raw_path handoffLossy: not_applicable
+- 복원 1@20260927-052028회차 raw_path reexplainNeeded: not_applicable
 
-이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행은 계획한 3쌍 중 0쌍을 마쳤고, 마친 쌍의 차이는 평균과 범위로만 보고한다.
-
----
-
-<!-- 이 아래는 손으로 쓴 부분이다 (plan todo 9, D1-D3). 위의 1-9절은 분석기가 생성했다. 분석기를 `--md docs/idle-live-results.md`로 다시 돌리면 이 부분이 지워진다. F3은 JSON(docs/idle-live-results.json)만 바이트 단위로 비교한다. -->
-
-## 10. 중단 원인과 판정 근거 (손으로 작성, todo 9)
-
-모든 수치는 아래 파일로 직접 검증했다.
-
-- 원시 기록: `requests.jsonl`(요청 행 번호 #1-#22), `events.jsonl`(seq), 코드 file:line.
-- 독립 재계산: `verify.mjs` 257개 MATCH, `d1-lag.mjs`. 둘 다 `.omo/ulw-execute/evidence/idle-live-run/task-9/`에 있다.
-- 읽기 전용 진단(task-9/diagnosis)은 가설을 얻는 데만 썼다. 결론은 위 스크립트의 출력으로 다시 확인했다.
-
-### 10.1 D1: 게이지 헤더 지연
-
-모델(Appendix A 0절): 5h 헤더는 floor(누적/0.01)이고, 사용량에 선형이다. 호출 N의 헤더가 호출 1..N-L까지를 반영한다고 두고 L = 0, 1, 2를 검사했다. 탐색 범위는 다음과 같다.
-
-- T(0.01당 1h 쓰기 토큰): 60K-200K
-- 읽기: 0.01당 5.39M-5.55M
-- 출력 가중: 쓰기의 0.5-12배
-
-| 가정 | 사전 범위 T 102K-143K | 넓힌 범위 T 79K-102K | 전체 60K-200K |
-| --- | --- | --- | --- |
-| lag 0 (자기 호출에 반영) | 불가능 | 불가능 | 불가능 (첫 위반: #4) |
-| lag 1 (다음 호출에 반영) | 불가능 (첫 위반: #7) | T 80.5K-82.75K, 출력 비 1.55-2.5에서만 가능 | T 80.5K-89.5K, 출력 비 1.55 이상에서만 가능 |
-| lag 2 | 불가능 | 불가능 | 불가능 (첫 위반: #5) |
-
-- 직접 반례(적합 없이 확인): #4 `restore-decomposition/shared/0`은 1h 143,362를 썼는데 자기 헤더는 0.00 그대로였고, 다음 호출 #5에서 0.02가 됐다. lag 0에서 이 관측이 성립하려면 T > 147,418이어야 한다.
-- **판정:**
-  - 데이터는 "사전 가격에서 lag 0"을 기각한다.
-  - lag 1은 T가 사전 범위보다 낮을 때(80.5K-89.5K, 09-19 H8 구간 안)만 허용된다.
-  - floor·선형 가정 아래 호출 단위 지연 L = 0, 1, 2 중 남는 것은 lag 1뿐이다. 그러나 시간 기반 정산 모델은 검사하지 않았으므로 lag 1을 확정하지는 않는다.
-  - T는 오염된 창에서 모델에 의존해 얻은 적합이므로 `unknown`으로 둔다.
-- **두 모델에서 달라지는 게이지 파생 수치** (5h, tick = 0.01):
-  - 실험별 지출:
-
-    | 실험 | lag 0 | lag 1 |
-    | --- | --- | --- |
-    | restore run 1 | 3 | 5 |
-    | fable | 2 | 0 |
-    | output | 0 | 1 |
-    | policy | 2 | 3 |
-    | restore run 2 | 4 | 4 |
-    | ttl | 5 | 3 + 마지막 호출(#22)의 미표시분 |
-
-  - 미터 상한: lag 0에서 5h 0.17 / 7d 0.03 / 7d_oi 0.05, lag 1에서 각각 최대 +0.01 (5h 0.18). 모두 한도 안이다.
-  - 계수 구간: 분석기가 하나도 내지 않았으므로 달라지는 것이 없다.
-  - **판정이 바뀌는 것:**
-    - fable의 `cap_exceeded` 중단: lag 1에서는 발생하지 않는다. 투영치가 0 + 1 ≤ 2가 된다.
-    - ttl 오염 이상의 귀속: lag 1에서는 restore run 2의 꼬리다.
-  - **바뀌지 않는 것:** output-quota·restore·policy의 중단, TTL HIT/MISS(사용량 기반), 정책 답 NO_DECISION.
-
-### 10.2 D2: TTL 판정 (규정대로)
-
-- ttl-1h-unique-prefix는 **contaminated** (`anomalies_present`)로 보고한다.
-  - 기계는 `valid`로 닫았다(events seq 60).
-  - 그러나 #13 `ttl-1h-unique-prefix/treatment/0`에 `gauge_moved_without_own_call`이 있다. 헤더가 +2 tick 움직였는데, 이 호출은 59.6K 쓰기로 약 0.4-0.75 tick이다.
-  - Appendix B는 창 청결 판정의 권한을 분석기에 둔다. 따라서 더 엄격한 판정이 이긴다(todo-8 게이트 st_01a0d9d1 Q3 규정).
-- 이 상태 아래 사용량 기반 결과(n = 2, 일정 ±90 s 준수):
-  - run 1: A 55분 읽기 HIT (read 62,637) → 110분 A HIT (read 62,637, write 0). B MISS (재쓰기 59,703).
-  - run 2: C HIT (62,662) → C HIT (62,662, write 0). D MISS (59,723).
-  - 분석기 결론: `renews_at_55min`. `measured` 기록으로 승격하려면 Appendix B 개정과 테스트가 필요하다(계획에 없음).
-
-### 10.3 D3: 네 중단의 근본 원인
-
-| 실험 | 중단 사유 | 분류 | 근거 |
-| --- | --- | --- | --- |
-| fable-write-tick | `cap_exceeded` (seq 21-22) | **러너 코드 결함** (게이지 귀속) | 아래 (1) |
-| output-quota | `short_output` (seq 26) | **프로토콜 전제** (OUT-8K 형태를 실측한 적 없음) | 아래 (2) |
-| restore-decomposition run 1·2 | `big_context_rewrite` (seq 16, 38) | **CLI/프로토콜 전제**. 러너가 알려진 실패 모드로 계속 진행한 것은 코드 결함 | 아래 (3) |
-| policy-effect | `big_context_rewrite` (seq 32) | (3)과 같음 | 아래 (3) |
-
-**(1) fable-write-tick.**
-
-- 블록의 유일한 호출 #7(DIAL):
-  - 사용량: `cache_read` 146,397 = 3,035 + 143,362, 1h 쓰기 0, 출력 4. 즉 HIT였다.
-  - 자기 비용은 146,397 / 5.39M-5.55M = 0.0264-0.0272 tick이다.
-  - 그런데 헤더는 0.03 → 0.05로 +2 tick을 보였다.
-- 러너가 이 2 tick을 fable 블록에 넣은 경로:
-  - 블록 기준값은 직전 호출 #6(restore `park_path/2`, 1h 143,444, 출력 4,238)의 헤더에서 가져왔다. `snapshotBaselines`, scripts/idle-live/machine.mjs:1261.
-  - 2 tick 전부를 블록에 청구했다. `attribute`, machine.mjs:812.
-  - 설명되지 않은 움직임은 "spend로 계산"한다. machine.mjs:832-839 주석과 플래그.
-- 그 결과: 다음 WRITE-2400은 예측 1 tick(caps.mjs:113 `Math.max(1, ...)`)으로 투영치 0.02 + 0.01 > 0.02가 되어 거부됐다(caps.mjs:245-247).
-- D1에서 lag 0이 기각되므로, 이 청구는 기각된 모델에 기대고 있다. lag 1에서 그 2 tick은 #6의 비용이다.
-- 부수 결함: #7의 위상 [0, 0.027]이 output-quota로 이월됐다(machine.mjs:1345-1346, seq 23 `carryPhase`). 이 tick은 dial tick이 아니었다.
-- 수정은 todo 13(a)의 몫이다.
-
-**(2) output-quota.**
-
-- #8 `output-quota/out-8k/0`: `output_tokens` 5,106(thinking 104), `stop_reason` `end_turn`, read 3,035, 1h 1,009.
-- 게이트 조건은 6,000 이상 AND `end_turn`이다(scripts/idle-live/protocols.mjs:51 `gateMinOutput`, :325·:332-333).
-- CLI가 출력을 자른 것이 아니다. 잘렸다면 `max_tokens`였을 것이다. 어댑터 run.json에도 `maxOutputTokens: null`로 기록돼 있다.
-- Appendix A 0절의 "out ~8K"는 기대값이었다. 09-19 Ot 블록은 0 시행이었다. 즉 이 형태는 한 번도 측정된 적이 없다.
-- 추정(검증 안 됨): 보이는 출력 5,002(= 5,106 − 104)가 999×2 + 1,001×3 = 5,001과 거의 같으므로 1..2000 목록 전체가 약 5K 토큰일 가능성이 높다. 답변 텍스트는 저장되지 않았다(`needsText: false`라 cli/ 파일이 없다).
-
-**(3) restore-decomposition과 policy-effect.**
-
-- 큰 컨텍스트 쓰기 이후의 모든 큰 컨텍스트 요청이 전체 재쓰기였다. 각 요청은 시스템 프롬프트 3,035만 읽었다.
-
-  | 호출 | 방식 | read | 1h write | 비고 |
-  | --- | --- | --- | --- | --- |
-  | #5 | `--resume` a1d34673, NULLP | 3,035 | 143,423 | 게이트 기준 read ≥ 131,040 실패, protocols.mjs:414 |
-  | #6 | rf-emulation | 3,035 | 143,444 | |
-  | #10 | rf-emulation | 3,035 | 143,424 | |
-  | #12 | rf-emulation | 3,035 | 143,486 | |
-
-  #6·#10·#12는 `cacheWrite1h >= 100000` 규칙으로 중단됐다(protocols.mjs:61, :435).
-- #4가 쓴 캐시가 살아 있었다는 증거: #7이 #4와 바이트가 같은 프롬프트(sha `d27fe235`, 204,457자)를 새 세션으로 #4 응답 뒤 73.2초(#4 요청 시각 기준 76.4초) 뒤에 보내 146,397을 읽었다.
-- rf-emulation이 맞지 않는 이유:
-  - #6의 프롬프트는 `c0720691`, 204,711자다. #4 프롬프트에 `"\n\n"`과 park 텍스트를 **같은 텍스트 블록 안에** 붙인 것이다(filler.mjs:49-50 `appendPrompt`, protocols.mjs:420-424 `bigContext`). 어댑터는 이것을 하나의 stdin 프롬프트로 보낸다(adapters/claude-cli.mjs:113).
-  - 캐시 적중에 필요한 블록 경계가 시스템 프롬프트 뒤에 없다. 그래서 읽기가 정확히 3,035에 머문다.
-  - 이것은 Appendix A 4절 2단계("정확한 prefix 바이트 + 접미사")의 전제가 문자 수준에서는 맞지만 캐시 키 수준에서는 틀렸음을 뜻한다.
-- `--resume`이 왜 재쓰기인지:
-  - 입력 합계는 #4 146,399 대비 #5 146,460으로 비슷하다. 크기가 아니라 바이트가 다르다는 뜻이다.
-  - 09-19 로그의 `fable.WR.r.*`에서도 같은 현상이 있었다.
-- 러너 코드 결함: restore run 1이 rf-emulation에서 `big_context_rewrite`로 끝난 뒤에도 policy-effect(#9-#10)와 restore run 2(#11-#12)가 같은 방식으로 실행됐다. 143K 쓰기 4회가 더 들었고, lag 0 기준 5h 0.06이다(seq 27 `mode: {resumeHit:false}` 이월). 수정은 todo 13(b)의 몫이다.
-
-### 10.4 모르는 채로 남는 것
-
-- `--resume` 재생의 첫 턴이 원래 요청과 **어떤 바이트에서** 다른지. 요청 본문을 캡처하지 않았다. 진단의 가설(첨부 `<system-reminder>`의 순서 차이)은 검증되지 않았다.
-- 게이지 지연이 호출 단위인지 시간 기반 정산인지, floor인지 round인지, 미터가 토큰에 선형인지.
-- out-8k 답변 텍스트. 저장되지 않아서 "1..2000 전체 출력"은 토큰 산술에서 나온 추정이다.
-- stream-json 두 메시지 형태로 ctx 캐시를 재사용할 수 있는지(시험하지 않음).
-- T, k_out, 읽기/쓰기 비, 복원 비용 Rw/Rr, 파킹 분해. 이 실행은 이 중 어느 것도 측정하지 못했다.
+이 문서는 측정된 범위를 넘는 절감 주장을 하지 않는다. 쌍 실행은 계획한 3쌍 중 3쌍을 마쳤고, 마친 쌍의 차이는 평균과 범위로만 보고한다.

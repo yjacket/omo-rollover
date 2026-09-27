@@ -238,6 +238,8 @@ Every claim below was re-checked against the raw capture rather than carried ove
 
 Hand-appended by plan todo 9. Sections 1-10 above are the unchanged 2026-09-19 output of `scripts/quota-analysis.mjs`. Re-running the reproduce command at the top of this file rewrites both files and would drop this section and the appended records. If you regenerate, merge by hand.
 
+**Historical.** This section records the first run as it was analyzed on its own. It is kept unchanged. That run identified no coefficient, and none of its rows enter the merged result. The merged result of both runs is in "2026-09-27 merged result" at the end of this file. Where this section says `docs/idle-live-results.json`, it means the file as it was before the merge; the file now holds the merged analysis.
+
 **Source.**
 
 - Run: `.omo/ulw-execute/evidence/idle-live-run/live/20260925-161302`. The directory is gitignored and stays untracked in worktree w2.
@@ -376,3 +378,155 @@ What changes under lag 1 (task-9 `d1-lag-output.txt`):
 ### Unknown after this run
 
 `cacheWrite5m` (skipped by adapter capability), `uncachedInput`, `cacheRead` (prior only), T, k_out, the return forecast q, skillRestoreEq / sharedLossEq / parkQualityEq, the restore and park decomposition, and the exact bytes by which a `--resume` replay differs (no request bodies were captured).
+
+## 2026-09-27 merged result (runIds 20260925-161302 + 20260927-052028)
+
+Appended by plan todo 25. Everything above this heading is unchanged except the one "Historical" note. The 2026-09-19 records (indices 0-20) and the first run's records (indices 21-23, all `unknown`) stay as they were. Re-running the reproduce command at the top of this file would drop this section too.
+
+**Source.**
+
+- First run: `live/20260925-161302`, 22 paid calls, exit 3. Hashes are in the section above.
+- Rerun: `rerun/20260927-052028`, UTC 2026-09-27 05:20:29-12:00:48, exit 0, 248 paid calls. `requests.jsonl` has 248 rows (sha256 `df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df`) and `events.jsonl` has 514 rows (sha256 `7e6d17dad7b5f847d8b70799c3cb864b09bae50bff0327842730ee449808fb8e`). Model `claude-fable-5-1`, claude CLI 2.1.278, 1h TTL lane only.
+- Total: 270 paid calls over both runs.
+- Both directories are gitignored paid evidence and were read only.
+
+**Analysis.** `node scripts/idle-live-analyze.mjs <live/20260925-161302> --merge <rerun/20260927-052028> --out docs/idle-live-results.json --md docs/idle-live-results.md` (exit 0). Both outputs are committed exactly as generated: JSON sha256 `b158a830ce9868df7c89466ef047507fe13f9e42a7d10f8b724ee90ec5426263`, markdown sha256 `d143007de8ec5e11f10b9ecdc1a1e61121e203df78bb94153f7ef24a9b60bab4`. `liveRuns[1]` in `docs/idle-cost-evidence.json` copies its values from that JSON, from the rerun's `summary.json` and from the rerun's `requests.jsonl`.
+
+**These figures do not establish any quota saving for any policy.**
+
+### Attempts and what was pooled
+
+13 attempts are reported. Only clean attempts that ran to the end are pooled, and all of those come from the rerun.
+
+| experiment | first run `20260925-161302` | rerun `20260927-052028` | pooled |
+| --- | --- | --- | --- |
+| `fable-write-tick` | aborted (`cap_exceeded`) | valid | rerun #1 |
+| `output-quota` | aborted (`short_output`) | upper_bound (`blocks_disjoint`) | rerun #1 |
+| `ttl-1h-unique-prefix` | contaminated (`anomalies_present`) | valid | rerun #1 |
+| `restore-decomposition` | run 1 and run 2 aborted (`big_context_rewrite`) | run 1 valid; run 2 contaminated (`anomalies_present`) | rerun run 1 only, n = 1 |
+| `policy-effect` | aborted (`big_context_rewrite`) | valid, 3 pairs | rerun #1 |
+
+Rerun restore run 2 carries `gauge_moved_without_own_call` on `restore-decomposition/park_path/101`. The runner closed it `valid`; the analyzer's stricter verdict stands, so restore has n = 1, not 2.
+
+### Spend per meter
+
+Two accountings exist. The runner's cap accounting is what the approval's caps were enforced against. The analyzer adds 0.01 per observed reset-window segment and also counts the stale window of the pre-wait pings, so its 5h upper bound is 0.01 higher. Both are far below the caps.
+
+| meter | prior run upper | rerun upper (cap accounting) | cumulative upper (cap accounting) | cap | analyzer: observed / upper, merged |
+| --- | --- | --- | --- | --- | --- |
+| `unified-5h` | 0.17 | 0.25 (2 reset windows) | 0.42 | 2.65 | 0.39 / 0.43 |
+| `unified-7d` | 0.03 | 0.05 | 0.08 | 0.60 | 0.06 / 0.08 |
+| `unified-7d_oi` | 0.05 | 0.08 | 0.13 | 0.60 | 0.11 / 0.13 |
+
+The 0.02 that the first run charged to `fable-write-tick` by mistake was not credited back.
+
+### Raw usage of the rerun (sourceKind: measured tokens; never modified)
+
+| group | calls | input | cacheRead | cacheWrite1h | cacheWrite5m | output |
+| --- | --- | --- | --- | --- | --- | --- |
+| preflight pings before the wait (stale window) | 3 | 6 | 8,044 | 4,022 | 0 | 12 |
+| preflight pings after the wait | 3 | 6 | 8,044 | 4,022 | 0 | 12 |
+| settle pings between experiments | 6 | 12 | 23,145 | 987 | 0 | 24 |
+| `fable-write-tick` | 65 | 130 | 7,240,682 | 143,211 | 0 | 260 |
+| `output-quota` | 41 | 82 | 162,820 | 1,966 | 0 | 183,624 |
+| `restore-decomposition` run 1 | 20 | 40 | 1,376,877 | 210,336 | 0 | 2,944 |
+| `restore-decomposition` run 2 (contaminated, not pooled) | 19 | 38 | 1,270,299 | 167,532 | 0 | 2,651 |
+| `policy-effect` pair 1 | 27 | 54 | 2,144,244 | 236,106 | 0 | 2,951 |
+| `policy-effect` pair 2 | 27 | 54 | 2,140,175 | 236,162 | 0 | 2,577 |
+| `policy-effect` pair 3 | 27 | 54 | 2,141,198 | 237,586 | 0 | 3,513 |
+| `ttl-1h-unique-prefix` runs 1 and 2 | 10 | 20 | 269,198 | 358,070 | 0 | 40 |
+| **total** | 248 | 496 | 16,784,726 | 1,600,000 | 0 | 198,608 |
+
+`liveRuns[1].rawUsage.groups` splits these rows further by phase.
+
+### Coefficient records appended
+
+Three records were appended to `coefficientRecords` at indices 24-26, copied unchanged from the merged analysis. Same schema and version (`idle-live-analysis/1`) as indices 21-23.
+
+| index | meter | sourceKind | `cacheWrite1h` range | published value (upper end) | other fields |
+| --- | --- | --- | --- | --- | --- |
+| 24 | `unified-5h-utilization-fraction` | measured | 7.489528594150515e-8 to 8.385979116050432e-8 | 8.385979116050432e-8 | `null` |
+| 25 | `unified-7d-utilization-fraction` | reported_unverified | 9.361910742688144e-9 to 3.1059181911297895e-8 | 3.1059181911297895e-8 | `null` |
+| 26 | `unified-7d_oi-utilization-fraction` | reported_unverified | 1.6643396875890036e-8 to 4.791988066314533e-8 | 4.791988066314533e-8 | `null` |
+
+- The ranges are quantization bounds, not confidence intervals. The published value is the upper end by rule (`upper_quantization_bound`); it is not a point estimate.
+- Only the 5h write range is measured. The 7d and 7d_oi ranges are the 5h range scaled by meter multipliers taken from a reported log (2.7-8 and 1.75-4.5), so they are `reported_unverified`.
+- `billedModelOutput` is `null` on every record. See the next heading.
+- `cacheWrite5m`: skipped (`adapter_capability`). `cacheRead`: prior only. `uncachedInput`: bounded above by `cacheWrite1h`.
+
+### Fable write tick
+
+Two blocks, 0 delayed ticks, 7 of 7 holds each. W/T = 0.5360405405405406 to 0.6007631578947369, which is below the 0.645 threshold, so the verdict is H6. T = 119,246.66 to 133,519.75 1h-write tokens per 5h tick. This answers the 6/8 question for this run's conditions only: one model, one lane, one day.
+
+### Output coefficient: upper bound only
+
+| block | target | N | output tokens | k_out interval (ticks per output token) |
+| --- | --- | --- | --- | --- |
+| 1 | 8,000 | 9 | 72,778 | 2.6893964e-5 to 3.0698234e-5 |
+| 2 | 8,000 | 7 | 56,728 | 3.0725440e-5 to 4.0969521e-5 |
+| 3 | 4,000 | 13 | 54,106 | 3.0437556e-5 to 3.9688073e-5 |
+
+Blocks 1 and 2 do not overlap, so the model behind the intervals does not fit this evidence and **no measured k_out is published**. The only output figure is the largest block upper end: k_out < 4.0969520507349455e-5 ticks per output token, which is 4.0969520507349455e-7 of the 5h meter per output token. The engine uses that as the high end of its output range and keeps the prior's low end (3.7447642970752575e-8). Every OUT request met its own gate (valid share 1).
+
+### TTL renewal
+
+Rerun, clean window, read from usage: in both runs the 55-minute read hit, the 110-minute check of the treated prefix hit, and the control prefix missed. Verdict `renews_at_55min`, n = 2, `measured`. The first run's same result stays listed as contaminated and is not counted.
+
+### Restore phase sums (rerun run 1, n = 1)
+
+| path and phase | calls | input | cacheRead | cacheWrite1h | output |
+| --- | --- | --- | --- | --- | --- |
+| shared `ctx_create` | 1 | 2 | 0 | 146,496 | 4 |
+| shared resume gate | 1 | 2 | 145,509 | 1,048 | 4 |
+| park path `park_parent` | 1 | 2 | 145,509 | 1,159 | 1,251 |
+| park path `restore_child` | 3 | 6 | 9,105 | 6,633 | 661 |
+| park path `useful_work` | 6 | 12 | 18,210 | 45,728 | 965 |
+| raw path `resume_raw` | 1 | 2 | 146,668 | 1,326 | 20 |
+| raw path `useful_work` | 6 | 12 | 907,854 | 7,946 | 35 |
+
+- Converted to the 5h meter: park path 0.004427527167010805 to 0.0059891845426537785, raw path 0.0025965283512526666 to 0.002757696815437044.
+- Resume delay: park path 18,835 ms, raw path 3,200 ms.
+- These sums replace the old `Rw` 6K / `Rr` 125K estimates for this one task only. One unit is not a distribution.
+
+### Policy pairs (n = 3)
+
+Difference = candidate (park) minus current (keep warm), per pair, same context and the same 8 work steps.
+
+| meter | mean difference | smallest | largest |
+| --- | --- | --- | --- |
+| `unified-5h` | 0.001456837851442466 to 0.0035027392104894257 | 0.0012969357557846665 | 0.0037156252737795374 |
+| `unified-7d` | -0.0009973387739277578 to 0.0023906178937985584 | -0.001039054529401722 | 0.002471450813688514 |
+| `unified-7d_oi` | -0.0013548193625909618 to 0.003557538674598139 | -0.001421276020323706 | 0.003682014617300746 |
+
+On the 5h meter the park arm cost more in all three pairs. On both weekly meters the range crosses 0, so the sign is not determined. Resume-delay difference: mean 19,760.67 ms, range 16,984 to 23,433 ms. Three pairs give a mean and a range, not an interval estimate.
+
+### Quality
+
+Scored from the saved replies by the corrected scorer (exact ID sets).
+
+- Pooled restore run 1: guard correct and work 6 of 6 on both paths. Policy pairs: guard correct and work 8 of 8 in every arm of all three pairs.
+- Over all saved rerun replies: 72 of 72 work answers correct and 10 guards correct. The earlier strict score of 17 of 72 came from counting numbers inside explanations as submitted IDs. It was a scoring artifact; the model's answers did not change.
+- Re-explanation: all 5 saved R2 replies ask for the log again. 4 of them are in pooled units (restore run 1's park path and the candidate arm of each pair). That burden is real and is not priced.
+- Equal scores on a synthetic task are not evidence of equal quality in production use. The scorer matches answers against a fixed list of cue words, so it is not claimed to be accurate for every answer shape.
+
+### Policy answer
+
+**LET_EXPIRE** at both ends of the coefficient range (`both_range_ends_agree`), and it is conditional.
+
+- It is the engine's default when no calibrated return forecast exists: `reasonCode` `no_calibrated_forecast` at both ends, V = 0, q unknown, `candidateCosts` all `null`.
+- It is **not** the cheapest of three measured strategies, and no LET_EXPIRE trial was run.
+- The two labelled hypothetical scenarios (return after 2 h with q = 1 and q = 0.5) give WAIT at both ends. They are not adopted.
+- Inputs: restore n = 1, 3 policy pairs, 5h write range measured, output as an upper bound, read from the unverified prior.
+
+### AGENT_TASK A3 items after the merge
+
+- **Fable write tick 6/8:** H6 on this run, T 119,246.66 to 133,519.75. The 2026-09-19 H6/H8 record above is unchanged.
+- **Output quota:** upper bound only, as above.
+- **Fable read/write ratio:** not measured by these runs. The 2026-09-19 range stands.
+- **Restore cost Rw/Rr:** measured phase sums for one unit, as above.
+- **System/skill overlap:** unresolved.
+- **Park generation:** in the pooled units each `park_parent` call read the big context from cache (145,391 to 145,509 read, 1,098 to 1,159 written) and produced 1,059 to 1,251 output tokens.
+
+### Unknown after the merge
+
+`cacheWrite5m`, `uncachedInput`, `cacheRead` (prior only), a measured k_out, the return forecast q, skillRestoreEq / sharedLossEq / parkQualityEq, restore variation (n = 1), and why the gauge moved on restore run 2. The analyzer has known test gaps on some defensive paths; its behaviour on those paths was checked directly by the gate review, not by the shipped tests.

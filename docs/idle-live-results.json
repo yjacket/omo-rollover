@@ -1,13 +1,13 @@
 {
   "coefficientProvenance": [
     {
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
       "fields": {
         "billedModelOutput": {
           "range": null,
-          "reason": "experiment_not_valid:short_output",
+          "reason": "blocks_disjoint",
           "sourceKind": "unknown",
-          "status": "unidentified"
+          "status": "upper_bound"
         },
         "cacheRead": {
           "range": null,
@@ -16,10 +16,13 @@
           "status": "prior_only"
         },
         "cacheWrite1h": {
-          "range": null,
-          "reason": "no_clean_fable_window",
-          "sourceKind": "unknown",
-          "status": "unidentified"
+          "range": [
+            7.489528594150515e-8,
+            8.385979116050432e-8
+          ],
+          "reason": null,
+          "sourceKind": "measured",
+          "status": "range_only"
         },
         "cacheWrite5m": {
           "range": null,
@@ -66,23 +69,21 @@
       },
       "quotaMeterOrCostUnit": "unified-5h-utilization-fraction",
       "rangeKind": "quantization_bounds",
-      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
-      "runId": "20260925-161302",
+      "requestsSha256": "df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df",
+      "runId": "20260927-052028",
       "statisticalConfidenceInterval": false,
-      "status": "unidentified",
+      "status": "range_only",
       "window": {
         "experiment": "fable-write-tick",
-        "reasons": [
-          "anomalies_present"
-        ],
-        "requests": 1,
+        "reasons": [],
+        "requests": 65,
         "resetEpochs": [
-          1790370600
+          1790513400
         ]
       }
     },
     {
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
       "fields": {
         "billedModelOutput": {
           "range": null,
@@ -97,10 +98,13 @@
           "status": "prior_only"
         },
         "cacheWrite1h": {
-          "range": null,
-          "reason": "no_clean_fable_window",
-          "sourceKind": "unknown",
-          "status": "unidentified"
+          "range": [
+            9.361910742688144e-9,
+            3.1059181911297895e-8
+          ],
+          "reason": null,
+          "sourceKind": "reported_unverified",
+          "status": "range_only"
         },
         "cacheWrite5m": {
           "range": null,
@@ -150,23 +154,21 @@
       },
       "quotaMeterOrCostUnit": "unified-7d-utilization-fraction",
       "rangeKind": "quantization_bounds",
-      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
-      "runId": "20260925-161302",
+      "requestsSha256": "df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df",
+      "runId": "20260927-052028",
       "statisticalConfidenceInterval": false,
-      "status": "unidentified",
+      "status": "range_only",
       "window": {
         "experiment": "fable-write-tick",
-        "reasons": [
-          "anomalies_present"
-        ],
-        "requests": 1,
+        "reasons": [],
+        "requests": 65,
         "resetEpochs": [
-          1790370600
+          1790513400
         ]
       }
     },
     {
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
       "fields": {
         "billedModelOutput": {
           "range": null,
@@ -181,10 +183,13 @@
           "status": "prior_only"
         },
         "cacheWrite1h": {
-          "range": null,
-          "reason": "no_clean_fable_window",
-          "sourceKind": "unknown",
-          "status": "unidentified"
+          "range": [
+            1.6643396875890036e-8,
+            4.791988066314533e-8
+          ],
+          "reason": null,
+          "sourceKind": "reported_unverified",
+          "status": "range_only"
         },
         "cacheWrite5m": {
           "range": null,
@@ -234,18 +239,16 @@
       },
       "quotaMeterOrCostUnit": "unified-7d_oi-utilization-fraction",
       "rangeKind": "quantization_bounds",
-      "requestsSha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
-      "runId": "20260925-161302",
+      "requestsSha256": "df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df",
+      "runId": "20260927-052028",
       "statisticalConfidenceInterval": false,
-      "status": "unidentified",
+      "status": "range_only",
       "window": {
         "experiment": "fable-write-tick",
-        "reasons": [
-          "anomalies_present"
-        ],
-        "requests": 1,
+        "reasons": [],
+        "requests": 65,
         "resetEpochs": [
-          1790370600
+          1790513400
         ]
       }
     }
@@ -256,21 +259,26 @@
       "coefficients": {
         "billedModelOutput": null,
         "cacheRead": null,
-        "cacheWrite1h": null,
+        "cacheWrite1h": 8.385979116050432e-8,
         "cacheWrite5m": null,
         "uncachedInput": null
       },
       "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
-      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
+      "measuredAt": "2026-09-27T12:00:48.057Z",
       "modelId": "claude-fable-5-1",
-      "observedRangeOrUncertainty": {},
+      "observedRangeOrUncertainty": {
+        "cacheWrite1h": [
+          7.489528594150515e-8,
+          8.385979116050432e-8
+        ]
+      },
       "provider": "firstParty",
       "quotaMeterOrCostUnit": "unified-5h-utilization-fraction",
-      "sampleCount": 1,
-      "sourceKind": "unknown",
+      "sampleCount": 65,
+      "sourceKind": "measured",
       "ttlLane": "1h",
-      "validFrom": "2026-09-25T16:13:02.789Z",
+      "validFrom": "2026-09-27T05:20:29.168Z",
       "version": "idle-live-analysis/1"
     },
     {
@@ -278,21 +286,26 @@
       "coefficients": {
         "billedModelOutput": null,
         "cacheRead": null,
-        "cacheWrite1h": null,
+        "cacheWrite1h": 3.1059181911297895e-8,
         "cacheWrite5m": null,
         "uncachedInput": null
       },
       "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
-      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
+      "measuredAt": "2026-09-27T12:00:48.057Z",
       "modelId": "claude-fable-5-1",
-      "observedRangeOrUncertainty": {},
+      "observedRangeOrUncertainty": {
+        "cacheWrite1h": [
+          9.361910742688144e-9,
+          3.1059181911297895e-8
+        ]
+      },
       "provider": "firstParty",
       "quotaMeterOrCostUnit": "unified-7d-utilization-fraction",
-      "sampleCount": 1,
-      "sourceKind": "unknown",
+      "sampleCount": 65,
+      "sourceKind": "reported_unverified",
       "ttlLane": "1h",
-      "validFrom": "2026-09-25T16:13:02.789Z",
+      "validFrom": "2026-09-27T05:20:29.168Z",
       "version": "idle-live-analysis/1"
     },
     {
@@ -300,195 +313,2665 @@
       "coefficients": {
         "billedModelOutput": null,
         "cacheRead": null,
-        "cacheWrite1h": null,
+        "cacheWrite1h": 4.791988066314533e-8,
         "cacheWrite5m": null,
         "uncachedInput": null
       },
       "effortOrConfigIdentity": "effort:low|thinking:0|tools:none|max_turns:1|tier:standard",
-      "evidenceRef": "idle-live-run/20260925-161302/fable-write-tick#status=unknown",
-      "measuredAt": "2026-09-25T18:14:37.034Z",
+      "evidenceRef": "idle-live-run/20260927-052028/fable-write-tick#pointRule=upper_quantization_bound",
+      "measuredAt": "2026-09-27T12:00:48.057Z",
       "modelId": "claude-fable-5-1",
-      "observedRangeOrUncertainty": {},
+      "observedRangeOrUncertainty": {
+        "cacheWrite1h": [
+          1.6643396875890036e-8,
+          4.791988066314533e-8
+        ]
+      },
       "provider": "firstParty",
       "quotaMeterOrCostUnit": "unified-7d_oi-utilization-fraction",
-      "sampleCount": 1,
-      "sourceKind": "unknown",
+      "sampleCount": 65,
+      "sourceKind": "reported_unverified",
       "ttlLane": "1h",
-      "validFrom": "2026-09-25T16:13:02.789Z",
+      "validFrom": "2026-09-27T05:20:29.168Z",
       "version": "idle-live-analysis/1"
     }
   ],
   "experiments": {
     "fable-write-tick": {
-      "findings": null,
-      "hypotheses": [],
-      "reason": "cap_exceeded",
+      "attempts": [
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": "cap_exceeded",
+            "status": "aborted"
+          },
+          "pooled": false,
+          "reason": "cap_exceeded",
+          "recordedVerdict": {
+            "reason": "cap_exceeded",
+            "run": null,
+            "seq": 22,
+            "source": "live",
+            "status": "aborted"
+          },
+          "run": null,
+          "runId": "20260925-161302",
+          "status": "aborted",
+          "units": [
+            {
+              "clean": false,
+              "reasons": [
+                "anomalies_present"
+              ],
+              "requests": 1,
+              "unit": 1
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": false,
+            "experiment": "fable-write-tick",
+            "reasons": [
+              "anomalies_present"
+            ],
+            "requests": 1,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "unknown",
+            "stepParity": {
+              "intents": 1,
+              "missingRequest": [],
+              "requests": 1,
+              "results": 1,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": true,
+          "reason": null,
+          "run": null,
+          "runId": "20260927-052028",
+          "status": "valid",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 41,
+              "unit": 1
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 24,
+              "unit": 2
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": true,
+            "experiment": "fable-write-tick",
+            "reasons": [],
+            "requests": 65,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 65,
+              "missingRequest": [],
+              "requests": 65,
+              "results": 65,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        }
+      ],
+      "findings": {
+        "blocks": [
+          {
+            "T": {
+              "hi": 133519.75193485766,
+              "lo": 119135.13513513513
+            },
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "block": 1,
+            "chained": false,
+            "delayedTicks": 0,
+            "holdPings": 7,
+            "holdTiming": {
+              "complete": true,
+              "samples": [
+                {
+                  "deltaMs": 459,
+                  "n": 1,
+                  "offsetMs": 5000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 462,
+                  "n": 2,
+                  "offsetMs": 15000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 466,
+                  "n": 3,
+                  "offsetMs": 30000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 467,
+                  "n": 4,
+                  "offsetMs": 60000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 483,
+                  "n": 5,
+                  "offsetMs": 180000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 463,
+                  "n": 6,
+                  "offsetMs": 600000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 496,
+                  "n": 7,
+                  "offsetMs": 1800000,
+                  "present": true,
+                  "withinTolerance": true
+                }
+              ],
+              "spanMs": 1800000,
+              "toleranceMs": 30000
+            },
+            "holdsComplete": true,
+            "kWrite60": {
+              "hi": 8.39382940108893e-8,
+              "lo": 7.489528594150515e-8
+            },
+            "m": 16,
+            "n": 0,
+            "phi": {
+              "hi": 0.02702702702702703,
+              "lo": 0
+            },
+            "phiSource": "pre_walk_tick",
+            "postWalkReads": 16,
+            "preWalkReads": 17,
+            "status": "valid",
+            "writeOverT": {
+              "hi": 0.6007631578947369,
+              "hiInclusive": true,
+              "lo": 0.5360405405405406,
+              "loExclusive": true
+            },
+            "writeTicks": 0,
+            "writeTokens": 71572
+          },
+          {
+            "T": {
+              "hi": 133644.7424811556,
+              "lo": 119246.6599500635
+            },
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "block": 2,
+            "chained": true,
+            "delayedTicks": 0,
+            "holdPings": 7,
+            "holdTiming": {
+              "complete": true,
+              "samples": [
+                {
+                  "deltaMs": 478,
+                  "n": 1,
+                  "offsetMs": 5000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 490,
+                  "n": 2,
+                  "offsetMs": 15000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 493,
+                  "n": 3,
+                  "offsetMs": 30000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 483,
+                  "n": 4,
+                  "offsetMs": 60000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 509,
+                  "n": 5,
+                  "offsetMs": 180000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 466,
+                  "n": 6,
+                  "offsetMs": 600000,
+                  "present": true,
+                  "withinTolerance": true
+                },
+                {
+                  "deltaMs": 472,
+                  "n": 7,
+                  "offsetMs": 1800000,
+                  "present": true,
+                  "withinTolerance": true
+                }
+              ],
+              "spanMs": 1800000,
+              "toleranceMs": 30000
+            },
+            "holdsComplete": true,
+            "kWrite60": {
+              "hi": 8.385979116050432e-8,
+              "lo": 7.482524051711227e-8
+            },
+            "m": 16,
+            "n": 0,
+            "phi": {
+              "hi": 0.02702702702702703,
+              "lo": 0
+            },
+            "phiSource": "chained_from_previous_block",
+            "postWalkReads": 16,
+            "preWalkReads": 0,
+            "status": "valid",
+            "writeOverT": {
+              "hi": 0.6007631578947369,
+              "hiInclusive": true,
+              "lo": 0.5360405405405406,
+              "loExclusive": true
+            },
+            "writeTicks": 0,
+            "writeTokens": 71639
+          }
+        ],
+        "blocksDisjoint": false,
+        "delayedTicksTotal": 0,
+        "experiment": "fable-write-tick",
+        "flags": [],
+        "holdOffsetsMs": [
+          5000,
+          15000,
+          30000,
+          60000,
+          180000,
+          600000,
+          1800000
+        ],
+        "holdToleranceMs": 30000,
+        "holdsPerBlock": [
+          7,
+          7
+        ],
+        "holdsUsable": true,
+        "hypotheses": [
+          {
+            "basis": "interval_below_h6_threshold",
+            "id": "H6",
+            "supported": true,
+            "ticksForFiveWrites": 6,
+            "tokensPerTick": 118916.66666666667
+          },
+          {
+            "basis": "interval_below_h6_threshold",
+            "id": "H8",
+            "supported": false,
+            "ticksForFiveWrites": 8,
+            "tokensPerTick": 89187.5
+          }
+        ],
+        "intersectedT": {
+          "empty": false,
+          "hi": 133519.75193485766,
+          "lo": 119246.6599500635
+        },
+        "intersectedWriteOverT": {
+          "empty": false,
+          "hi": 0.6007631578947369,
+          "lo": 0.5360405405405406
+        },
+        "kWrite60": {
+          "hi": 8.385979116050432e-8,
+          "lo": 7.489528594150515e-8
+        },
+        "pooledT": {
+          "hi": 171342.2,
+          "lo": 122387.28571428571,
+          "phasePlusMinusTicks": 1,
+          "priorSourceKind": "reported_unverified",
+          "ticksAssumed": 6
+        },
+        "skippedArms": {
+          "fable-write-5m": "adapter_capability"
+        },
+        "status": "valid",
+        "verdict": {
+          "basis": "interval_below_h6_threshold",
+          "hypothesis": "H6",
+          "straddles": false,
+          "thresholds": {
+            "h6Below": 0.645,
+            "h8Above": 0.755
+          }
+        }
+      },
+      "hypotheses": [
+        {
+          "basis": "interval_below_h6_threshold",
+          "id": "H6",
+          "supported": true,
+          "ticksForFiveWrites": 6,
+          "tokensPerTick": 118916.66666666667
+        },
+        {
+          "basis": "interval_below_h6_threshold",
+          "id": "H8",
+          "supported": false,
+          "ticksForFiveWrites": 8,
+          "tokensPerTick": 89187.5
+        }
+      ],
+      "pool": {
+        "excluded": [
+          "20260925-161302#1"
+        ],
+        "included": [
+          "20260927-052028#1"
+        ]
+      },
+      "reason": null,
       "recordedMachineVerdict": {
-        "reason": "cap_exceeded",
-        "status": "aborted"
+        "reason": null,
+        "status": "valid"
       },
-      "recordedVerdict": {
-        "reason": "cap_exceeded",
-        "run": null,
-        "seq": 22,
-        "source": "live",
-        "status": "aborted"
-      },
-      "status": "aborted",
+      "status": "valid",
       "window": {
         "baselineResets": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "clean": false,
         "experiment": "fable-write-tick",
         "reasons": [
           "anomalies_present"
         ],
-        "requests": 1,
+        "requests": 66,
         "resetEpochs": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "sourceKind": "unknown",
         "stepParity": {
-          "intents": 1,
+          "intents": 66,
           "missingRequest": [],
-          "requests": 1,
-          "results": 1,
+          "requests": 66,
+          "results": 66,
           "unannounced": []
         },
-        "unknownUsageFields": []
+        "unknownUsageFields": [],
+        "windows": 2
       }
     },
     "output-quota": {
-      "findings": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": "short_output",
+            "status": "aborted"
+          },
+          "pooled": false,
+          "reason": "short_output",
+          "recordedVerdict": {
+            "reason": "short_output",
+            "run": null,
+            "seq": 26,
+            "source": "live",
+            "status": "aborted"
+          },
+          "run": null,
+          "runId": "20260925-161302",
+          "status": "aborted",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 1,
+              "unit": 1
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": true,
+            "experiment": "output-quota",
+            "reasons": [],
+            "requests": 1,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 1,
+              "missingRequest": [],
+              "requests": 1,
+              "results": 1,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": true,
+          "reason": "blocks_disjoint",
+          "run": null,
+          "runId": "20260927-052028",
+          "status": "upper_bound",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 13,
+              "unit": 1
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 11,
+              "unit": 2
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 17,
+              "unit": 3
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": true,
+            "experiment": "output-quota",
+            "reasons": [],
+            "requests": 41,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 41,
+              "missingRequest": [],
+              "requests": 41,
+              "results": 41,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        }
+      ],
+      "findings": {
+        "blocks": [
+          {
+            "N": 9,
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "block": 1,
+            "delayedTicks": 0,
+            "fixed": {
+              "hi": 0.01568404985488281,
+              "lo": 0.014425449851293196,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "fixedPrev": {
+              "hi": 0.014921823351196163,
+              "lo": 0.013701485887329232,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "kOut": {
+              "hi": 0.00003069823371217654,
+              "hiExclusive": true,
+              "lo": 0.000026893964152877106,
+              "loInclusive": true
+            },
+            "kOutUpperBound": 0.00003069823371217654,
+            "outputTokensTarget": 8000,
+            "phaseObserved": true,
+            "phi": {
+              "hi": 0.02702702702702703,
+              "lo": 0
+            },
+            "phiSource": "carried_phase_from_events",
+            "preBlock": {
+              "requests": 1,
+              "sumOut": 4
+            },
+            "reason": null,
+            "residualAfter": {
+              "hi": 0.24861976549580003,
+              "lo": 0
+            },
+            "status": "identified",
+            "sumOut": 72778,
+            "sumOutPrev": 64704,
+            "ticks": 2,
+            "validShare": 1,
+            "validShareReason": null
+          },
+          {
+            "N": 7,
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "block": 2,
+            "delayedTicks": 0,
+            "fixed": {
+              "hi": 0.008387460000664428,
+              "lo": 0.007966486486486485,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "fixedPrev": {
+              "hi": 0.007625233496977781,
+              "lo": 0.007242522522522521,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "kOut": {
+              "hi": 0.000040969520507349455,
+              "hiExclusive": true,
+              "lo": 0.00003072544025002707,
+              "loInclusive": true
+            },
+            "kOutUpperBound": 0.000040969520507349455,
+            "outputTokensTarget": 8000,
+            "phaseObserved": true,
+            "phi": {
+              "hi": 0.24861976549580003,
+              "lo": 0
+            },
+            "phiSource": "chained_residual_of_block_1",
+            "preBlock": {
+              "requests": 4,
+              "sumOut": 16
+            },
+            "reason": null,
+            "residualAfter": {
+              "hi": 0.332123708367129,
+              "lo": 0
+            },
+            "status": "identified",
+            "sumOut": 56728,
+            "sumOutPrev": 48640,
+            "ticks": 2,
+            "validShare": 1,
+            "validShareReason": null
+          },
+          {
+            "N": 13,
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "block": 3,
+            "delayedTicks": 0,
+            "fixed": {
+              "hi": 0.02102186172577282,
+              "lo": 0.01949535976120311,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "fixedPrev": {
+              "hi": 0.020259635222086174,
+              "lo": 0.018771395797239146,
+              "priorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "priorRange": [
+                5390000,
+                5550000
+              ],
+              "sourceKind": "reported_unverified",
+              "writeCoefficient": "T_measured_this_run"
+            },
+            "kOut": {
+              "hi": 0.00003968807300085659,
+              "hiExclusive": true,
+              "lo": 0.00003043755646152179,
+              "loInclusive": true
+            },
+            "kOutUpperBound": 0.00003968807300085659,
+            "outputTokensTarget": 4000,
+            "phaseObserved": true,
+            "phi": {
+              "hi": 0.332123708367129,
+              "lo": 0
+            },
+            "phiSource": "chained_residual_of_block_2",
+            "preBlock": {
+              "requests": 4,
+              "sumOut": 16
+            },
+            "reason": null,
+            "residualAfter": {
+              "hi": 0.16689650008527235,
+              "lo": 0
+            },
+            "status": "identified",
+            "sumOut": 54106,
+            "sumOutPrev": 49920,
+            "ticks": 2,
+            "validShare": 1,
+            "validShareReason": null
+          }
+        ],
+        "blocksOverlap": false,
+        "blocksWithoutPhase": [],
+        "experiment": "output-quota",
+        "kOut": null,
+        "kOutUpperBound": 0.000040969520507349455,
+        "kOutUpperBoundRule": "max_over_disjoint_blocks",
+        "overlap": false,
+        "phaseObserved": true,
+        "ratio": null,
+        "readPrior": {
+          "evidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "range": [
+            5390000,
+            5550000
+          ],
+          "sourceKind": "reported_unverified",
+          "unit": "tokens_per_5h_tick"
+        },
+        "reason": "blocks_disjoint",
+        "status": "upper_bound",
+        "validShare": 1,
+        "validShareThreshold": 0.9
+      },
       "hypotheses": [],
-      "reason": "short_output",
+      "pool": {
+        "excluded": [
+          "20260925-161302#1"
+        ],
+        "included": [
+          "20260927-052028#1"
+        ]
+      },
+      "reason": "blocks_disjoint",
       "recordedMachineVerdict": {
-        "reason": "short_output",
-        "status": "aborted"
+        "reason": null,
+        "status": "valid"
       },
-      "recordedVerdict": {
-        "reason": "short_output",
-        "run": null,
-        "seq": 26,
-        "source": "live",
-        "status": "aborted"
-      },
-      "status": "aborted",
+      "status": "upper_bound",
       "window": {
         "baselineResets": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "clean": true,
         "experiment": "output-quota",
         "reasons": [],
-        "requests": 1,
+        "requests": 42,
         "resetEpochs": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "sourceKind": "measured",
         "stepParity": {
-          "intents": 1,
+          "intents": 42,
           "missingRequest": [],
-          "requests": 1,
-          "results": 1,
+          "requests": 42,
+          "results": 42,
           "unannounced": []
         },
-        "unknownUsageFields": []
+        "unknownUsageFields": [],
+        "windows": 2
       }
     },
     "policy-effect": {
-      "findings": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": "big_context_rewrite",
+            "status": "aborted"
+          },
+          "pooled": false,
+          "reason": "big_context_rewrite",
+          "recordedVerdict": {
+            "reason": "big_context_rewrite",
+            "run": null,
+            "seq": 32,
+            "source": "live",
+            "status": "aborted"
+          },
+          "run": null,
+          "runId": "20260925-161302",
+          "status": "aborted",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 2,
+              "unit": 1
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": true,
+            "experiment": "policy-effect",
+            "reasons": [],
+            "requests": 2,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 2,
+              "missingRequest": [],
+              "requests": 2,
+              "results": 2,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": true,
+          "reason": null,
+          "run": null,
+          "runId": "20260927-052028",
+          "status": "valid",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 27,
+              "unit": 1
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 27,
+              "unit": 2
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 27,
+              "unit": 3
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": true,
+            "experiment": "policy-effect",
+            "reasons": [],
+            "requests": 81,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 81,
+              "missingRequest": [],
+              "requests": 81,
+              "results": 81,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        }
+      ],
+      "findings": {
+        "experiment": "policy-effect",
+        "pairedDifferences": {
+          "definition": "candidate (park) minus current (keep warm), per pair, same context and same 8 work steps",
+          "intervalClaim": false,
+          "n": 3,
+          "note": "n = 3 paired runs: a mean and a range, never a confidence interval",
+          "perMeter": {
+            "unified-5h": {
+              "max": {
+                "hi": 0.0037156252737795374
+              },
+              "mean": {
+                "hi": 0.0035027392104894257,
+                "lo": 0.001456837851442466
+              },
+              "min": {
+                "lo": 0.0012969357557846665
+              },
+              "perPair": [
+                {
+                  "hi": 0.003314487837188308,
+                  "lo": 0.0012969357557846665
+                },
+                {
+                  "hi": 0.003478104520500432,
+                  "lo": 0.0015984846240354863
+                },
+                {
+                  "hi": 0.0037156252737795374,
+                  "lo": 0.0014750931745072448
+                }
+              ]
+            },
+            "unified-7d": {
+              "max": {
+                "hi": 0.002471450813688514
+              },
+              "mean": {
+                "hi": 0.0023906178937985584,
+                "lo": -0.0009973387739277578
+              },
+              "min": {
+                "lo": -0.001039054529401722
+              },
+              "perPair": [
+                {
+                  "hi": 0.002328320553269966,
+                  "lo": -0.001039054529401722
+                },
+                {
+                  "hi": 0.002372082314437195,
+                  "lo": -0.000942058668608521
+                },
+                {
+                  "hi": 0.002471450813688514,
+                  "lo": -0.00101090312377303
+                }
+              ]
+            },
+            "unified-7d_oi": {
+              "max": {
+                "hi": 0.003682014617300746
+              },
+              "mean": {
+                "hi": 0.003557538674598139,
+                "lo": -0.0013548193625909618
+              },
+              "min": {
+                "lo": -0.001421276020323706
+              },
+              "perPair": [
+                {
+                  "hi": 0.0034605341326872565,
+                  "lo": -0.001421276020323706
+                },
+                {
+                  "hi": 0.003530067273806414,
+                  "lo": -0.001269867346172639
+                },
+                {
+                  "hi": 0.003682014617300746,
+                  "lo": -0.0013733147212765405
+                }
+              ]
+            }
+          },
+          "quality": {
+            "guardCorrectMeanDiff": {
+              "n": 3,
+              "reason": null,
+              "value": 0
+            },
+            "source": "cli/<stepId>.json scored against makeTask(seed) ground truth",
+            "workCorrectMeanDiff": {
+              "n": 3,
+              "reason": null,
+              "value": 0
+            }
+          },
+          "resumeDelayMs": {
+            "max": 23433,
+            "mean": 19760.666666666668,
+            "min": 16984,
+            "n": 3
+          }
+        },
+        "pairs": [
+          {
+            "arms": {
+              "current_policy": {
+                "arm": "current_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.004895340448244492,
+                    "lo": 0.004486004010023549,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.0018130890549053669,
+                    "lo": 0.0005607505012529436,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.002797337398996852,
+                    "lo": 0.000996889780005233,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/current_policy/17",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "reexplainNeeded": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 6448,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 512,
+                  "cacheRead": 1961334,
+                  "cacheWrite1h": 12456,
+                  "cacheWrite5m": 0,
+                  "requests": 13,
+                  "uncachedInput": 26
+                },
+                "warm": {
+                  "misses": 0,
+                  "pings": 4
+                }
+              },
+              "shadow_candidate_policy": {
+                "arm": "shadow_candidate_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.007800491847211857,
+                    "lo": 0.006192276204029158,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.0028890710545229096,
+                    "lo": 0.0007740345255036448,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.00445742391269249,
+                    "lo": 0.001376061378673146,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/4",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/1",
+                    "value": false
+                  },
+                  "reexplainNeeded": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/3",
+                    "value": 1
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 25313,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 2431,
+                  "cacheRead": 178888,
+                  "cacheWrite1h": 77160,
+                  "cacheWrite5m": 0,
+                  "requests": 12,
+                  "uncachedInput": 24
+                },
+                "warm": null
+              }
+            },
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "groundTruth": {
+              "seed": 677450089,
+              "ticket": "WX-3305"
+            },
+            "pair": 1,
+            "shared": {
+              "billedModelOutput": 8,
+              "cacheRead": 4022,
+              "cacheWrite1h": 146490,
+              "cacheWrite5m": 0,
+              "requests": 2,
+              "uncachedInput": 4
+            }
+          },
+          {
+            "arms": {
+              "current_policy": {
+                "arm": "current_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.004653655797516957,
+                    "lo": 0.004417385250535843,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.0017235762213025764,
+                    "lo": 0.0005521731563169804,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.002659231884295404,
+                    "lo": 0.0009816411667857429,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/current_policy/44",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "reexplainNeeded": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 2532,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 62,
+                  "cacheRead": 1957377,
+                  "cacheWrite1h": 11860,
+                  "cacheWrite5m": 0,
+                  "requests": 13,
+                  "uncachedInput": 26
+                },
+                "warm": {
+                  "misses": 0,
+                  "pings": 4
+                }
+              },
+              "shadow_candidate_policy": {
+                "arm": "shadow_candidate_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.007895489771036275,
+                    "lo": 0.006252140421552443,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.002924255470754176,
+                    "lo": 0.0007815175526940554,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.004511708440592157,
+                    "lo": 0.001389364538122765,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/31",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/28",
+                    "value": false
+                  },
+                  "reexplainNeeded": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/30",
+                    "value": 1
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 25965,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 2507,
+                  "cacheRead": 178776,
+                  "cacheWrite1h": 77924,
+                  "cacheWrite5m": 0,
+                  "requests": 12,
+                  "uncachedInput": 24
+                },
+                "warm": null
+              }
+            },
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "groundTruth": {
+              "seed": 301903378,
+              "ticket": "WX-8516"
+            },
+            "pair": 2,
+            "shared": {
+              "billedModelOutput": 8,
+              "cacheRead": 4022,
+              "cacheWrite1h": 146378,
+              "cacheWrite5m": 0,
+              "requests": 2,
+              "uncachedInput": 4
+            }
+          },
+          {
+            "arms": {
+              "current_policy": {
+                "arm": "current_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.004871369631069249,
+                    "lo": 0.004463836865176528,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.001804210974470092,
+                    "lo": 0.000557979608147066,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.002783639789182428,
+                    "lo": 0.0009919637478170062,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/current_policy/71",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "reexplainNeeded": {
+                    "reason": "not_applicable",
+                    "value": null
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 2477,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 513,
+                  "cacheRead": 1958363,
+                  "cacheWrite1h": 12231,
+                  "cacheWrite5m": 0,
+                  "requests": 13,
+                  "uncachedInput": 26
+                },
+                "warm": {
+                  "misses": 0,
+                  "pings": 4
+                }
+              },
+              "shadow_candidate_policy": {
+                "arm": "shadow_candidate_policy",
+                "metersEq": {
+                  "unified-5h": {
+                    "blockers": [],
+                    "hi": 0.008179462138956066,
+                    "lo": 0.006346462805576494,
+                    "meter": "unified-5h"
+                  },
+                  "unified-7d": {
+                    "blockers": [],
+                    "hi": 0.00302943042183558,
+                    "lo": 0.0007933078506970618,
+                    "meter": "unified-7d"
+                  },
+                  "unified-7d_oi": {
+                    "blockers": [],
+                    "hi": 0.0046739783651177525,
+                    "lo": 0.0014103250679058873,
+                    "meter": "unified-7d_oi"
+                  }
+                },
+                "quality": {
+                  "artifactsMissing": [],
+                  "guardCorrect": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/58",
+                    "value": true
+                  },
+                  "handoffLossy": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/55",
+                    "value": false
+                  },
+                  "reexplainNeeded": {
+                    "reason": null,
+                    "stepId": "policy-effect/shadow_candidate_policy/57",
+                    "value": 1
+                  },
+                  "source": "cli/<stepId>.json",
+                  "workCorrect": {
+                    "reason": null,
+                    "scored": 8,
+                    "total": 8,
+                    "value": 8
+                  }
+                },
+                "resumeDelayMs": 19461,
+                "state": "complete",
+                "totals": {
+                  "billedModelOutput": 2992,
+                  "cacheRead": 178813,
+                  "cacheWrite1h": 78940,
+                  "cacheWrite5m": 0,
+                  "requests": 12,
+                  "uncachedInput": 24
+                },
+                "warm": null
+              }
+            },
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "groundTruth": {
+              "seed": 1941042524,
+              "ticket": "WX-7938"
+            },
+            "pair": 3,
+            "shared": {
+              "billedModelOutput": 8,
+              "cacheRead": 4022,
+              "cacheWrite1h": 146415,
+              "cacheWrite5m": 0,
+              "requests": 2,
+              "uncachedInput": 4
+            }
+          }
+        ],
+        "states": [
+          "complete"
+        ],
+        "status": "valid"
+      },
       "hypotheses": [],
-      "reason": "big_context_rewrite",
+      "pool": {
+        "excluded": [
+          "20260925-161302#1"
+        ],
+        "included": [
+          "20260927-052028#1"
+        ]
+      },
+      "reason": null,
       "recordedMachineVerdict": {
-        "reason": "big_context_rewrite",
-        "status": "aborted"
+        "reason": null,
+        "status": "valid"
       },
-      "recordedVerdict": {
-        "reason": "big_context_rewrite",
-        "run": null,
-        "seq": 32,
-        "source": "live",
-        "status": "aborted"
-      },
-      "status": "aborted",
+      "status": "valid",
       "window": {
         "baselineResets": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "clean": true,
         "experiment": "policy-effect",
         "reasons": [],
-        "requests": 2,
+        "requests": 83,
         "resetEpochs": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "sourceKind": "measured",
         "stepParity": {
-          "intents": 2,
+          "intents": 83,
           "missingRequest": [],
-          "requests": 2,
-          "results": 2,
+          "requests": 83,
+          "results": 83,
           "unannounced": []
         },
-        "unknownUsageFields": []
+        "unknownUsageFields": [],
+        "windows": 2
       }
     },
     "restore-decomposition": {
-      "findings": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": "big_context_rewrite",
+            "status": "aborted"
+          },
+          "pooled": false,
+          "reason": "big_context_rewrite",
+          "recordedVerdict": {
+            "reason": "big_context_rewrite",
+            "run": 1,
+            "seq": 16,
+            "source": "live",
+            "status": "aborted"
+          },
+          "run": 1,
+          "runId": "20260925-161302",
+          "status": "aborted",
+          "units": [
+            {
+              "clean": false,
+              "reasons": [
+                "anomalies_present"
+              ],
+              "requests": 3,
+              "unit": 1
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": false,
+            "experiment": "restore-decomposition",
+            "reasons": [
+              "anomalies_present"
+            ],
+            "requests": 3,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "unknown",
+            "stepParity": {
+              "intents": 3,
+              "missingRequest": [],
+              "requests": 3,
+              "results": 3,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 2,
+          "findings": null,
+          "machineVerdict": {
+            "reason": "big_context_rewrite",
+            "status": "aborted"
+          },
+          "pooled": false,
+          "reason": "big_context_rewrite",
+          "recordedVerdict": {
+            "reason": "big_context_rewrite",
+            "run": 2,
+            "seq": 38,
+            "source": "live",
+            "status": "aborted"
+          },
+          "run": 2,
+          "runId": "20260925-161302",
+          "status": "aborted",
+          "units": [
+            {
+              "clean": false,
+              "reasons": [
+                "anomalies_present"
+              ],
+              "requests": 2,
+              "unit": 2
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": false,
+            "experiment": "restore-decomposition",
+            "reasons": [
+              "anomalies_present"
+            ],
+            "requests": 2,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "unknown",
+            "stepParity": {
+              "intents": 2,
+              "missingRequest": [],
+              "requests": 2,
+              "results": 2,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": true,
+          "reason": null,
+          "run": 1,
+          "runId": "20260927-052028",
+          "status": "valid",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 20,
+              "unit": 1
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": true,
+            "experiment": "restore-decomposition",
+            "reasons": [],
+            "requests": 20,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 20,
+              "missingRequest": [],
+              "requests": 20,
+              "results": 20,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 2,
+          "findings": {
+            "conversionProvenance": {
+              "billedModelOutput": "prior_ratio_0.5_to_2.5_x_write_high_end_raised_to_evidence_upper_bound",
+              "billedModelOutputEvidenceUpperBound": 0.000040969520507349455,
+              "cacheRead": "reported_unverified_prior_range_5390000_5550000_tokens_per_tick",
+              "cacheReadPriorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+              "cacheWrite1h": "measured_this_run",
+              "cacheWrite5m": "not_measured_on_this_lane",
+              "meterMultiplier": [
+                1,
+                1
+              ],
+              "uncachedInput": "unknown_bounded_by_cacheWrite1h"
+            },
+            "experiment": "restore-decomposition",
+            "phasesTracked": [
+              "ctx_create",
+              "resume_raw",
+              "park_parent",
+              "restore_child",
+              "useful_work",
+              "warm",
+              "observe"
+            ],
+            "runs": [
+              {
+                "attempt": {
+                  "attempt": 2,
+                  "runId": "20260927-052028"
+                },
+                "byArmPhase": {
+                  "park_path": {
+                    "park_parent": {
+                      "billedModelOutput": 1192,
+                      "cacheRead": 145419,
+                      "cacheWrite1h": 1098,
+                      "cacheWrite5m": 0,
+                      "requests": 1,
+                      "uncachedInput": 2
+                    },
+                    "restore_child": {
+                      "billedModelOutput": 876,
+                      "cacheRead": 13248,
+                      "cacheWrite1h": 2752,
+                      "cacheWrite5m": 0,
+                      "requests": 3,
+                      "uncachedInput": 6
+                    },
+                    "useful_work": {
+                      "billedModelOutput": 306,
+                      "cacheRead": 54615,
+                      "cacheWrite1h": 8028,
+                      "cacheWrite5m": 0,
+                      "requests": 6,
+                      "uncachedInput": 12
+                    }
+                  },
+                  "raw_path": {
+                    "resume_raw": {
+                      "billedModelOutput": 20,
+                      "cacheRead": 146517,
+                      "cacheWrite1h": 1267,
+                      "cacheWrite5m": 0,
+                      "requests": 1,
+                      "uncachedInput": 2
+                    },
+                    "useful_work": {
+                      "billedModelOutput": 249,
+                      "cacheRead": 906478,
+                      "cacheWrite1h": 7981,
+                      "cacheWrite5m": 0,
+                      "requests": 6,
+                      "uncachedInput": 12
+                    }
+                  },
+                  "shared": {
+                    "ctx_create": {
+                      "billedModelOutput": 4,
+                      "cacheRead": 0,
+                      "cacheWrite1h": 146406,
+                      "cacheWrite5m": 0,
+                      "requests": 1,
+                      "uncachedInput": 2
+                    },
+                    "observe": {
+                      "billedModelOutput": 4,
+                      "cacheRead": 4022,
+                      "cacheWrite1h": 0,
+                      "cacheWrite5m": 0,
+                      "requests": 1,
+                      "uncachedInput": 2
+                    }
+                  }
+                },
+                "byMeter": {
+                  "unified-5h": {
+                    "park": {
+                      "blockers": [],
+                      "hi": 0.0023660796554858857,
+                      "lo": 0.0013627988027176566,
+                      "meter": "unified-5h"
+                    },
+                    "raw": {
+                      "blockers": [],
+                      "hi": 0.002840525930216181,
+                      "lo": 0.0025999933086344605,
+                      "meter": "unified-5h"
+                    }
+                  },
+                  "unified-7d": {
+                    "park": {
+                      "blockers": [],
+                      "hi": 0.0008763257983281057,
+                      "lo": 0.00017034985033970707,
+                      "meter": "unified-7d"
+                    },
+                    "raw": {
+                      "blockers": [],
+                      "hi": 0.0010520466408208077,
+                      "lo": 0.00032499916357930757,
+                      "meter": "unified-7d"
+                    }
+                  },
+                  "unified-7d_oi": {
+                    "park": {
+                      "blockers": [],
+                      "hi": 0.001352045517420506,
+                      "lo": 0.0003028441783817015,
+                      "meter": "unified-7d_oi"
+                    },
+                    "raw": {
+                      "blockers": [],
+                      "hi": 0.0016231576744092462,
+                      "lo": 0.0005777762908076579,
+                      "meter": "unified-7d_oi"
+                    }
+                  }
+                },
+                "childResumeMisses": [],
+                "converted": {
+                  "park": {
+                    "blockers": [],
+                    "hi": 0.0023660796554858857,
+                    "lo": 0.0013627988027176566,
+                    "meter": "unified-5h"
+                  },
+                  "raw": {
+                    "blockers": [],
+                    "hi": 0.002840525930216181,
+                    "lo": 0.0025999933086344605,
+                    "meter": "unified-5h"
+                  }
+                },
+                "gate": null,
+                "mode": "resume-sysfile",
+                "phases": {
+                  "ctx_create": {
+                    "billedModelOutput": 4,
+                    "cacheRead": 0,
+                    "cacheWrite1h": 146406,
+                    "cacheWrite5m": 0,
+                    "requests": 1,
+                    "uncachedInput": 2
+                  },
+                  "observe": {
+                    "billedModelOutput": 4,
+                    "cacheRead": 4022,
+                    "cacheWrite1h": 0,
+                    "cacheWrite5m": 0,
+                    "requests": 1,
+                    "uncachedInput": 2
+                  },
+                  "park_parent": {
+                    "billedModelOutput": 1192,
+                    "cacheRead": 145419,
+                    "cacheWrite1h": 1098,
+                    "cacheWrite5m": 0,
+                    "requests": 1,
+                    "uncachedInput": 2
+                  },
+                  "restore_child": {
+                    "billedModelOutput": 876,
+                    "cacheRead": 13248,
+                    "cacheWrite1h": 2752,
+                    "cacheWrite5m": 0,
+                    "requests": 3,
+                    "uncachedInput": 6
+                  },
+                  "resume_raw": {
+                    "billedModelOutput": 20,
+                    "cacheRead": 146517,
+                    "cacheWrite1h": 1267,
+                    "cacheWrite5m": 0,
+                    "requests": 1,
+                    "uncachedInput": 2
+                  },
+                  "useful_work": {
+                    "billedModelOutput": 555,
+                    "cacheRead": 961093,
+                    "cacheWrite1h": 16009,
+                    "cacheWrite5m": 0,
+                    "requests": 12,
+                    "uncachedInput": 24
+                  }
+                },
+                "quality": {
+                  "groundTruth": {
+                    "seed": 1208553661,
+                    "source": "makeTask(seed) from experiment_started",
+                    "ticket": "WX-5042"
+                  },
+                  "park_path": {
+                    "artifactsMissing": [],
+                    "guardCorrect": {
+                      "reason": null,
+                      "stepId": "restore-decomposition/park_path/104",
+                      "value": true
+                    },
+                    "handoffLossy": {
+                      "reason": null,
+                      "stepId": "restore-decomposition/park_path/101",
+                      "value": false
+                    },
+                    "reexplainNeeded": {
+                      "reason": null,
+                      "stepId": "restore-decomposition/park_path/103",
+                      "value": 1
+                    },
+                    "source": "cli/<stepId>.json",
+                    "workCorrect": {
+                      "reason": null,
+                      "scored": 6,
+                      "total": 6,
+                      "value": 6
+                    }
+                  },
+                  "raw_path": {
+                    "artifactsMissing": [],
+                    "guardCorrect": {
+                      "reason": null,
+                      "stepId": "restore-decomposition/raw_path/111",
+                      "value": true
+                    },
+                    "handoffLossy": {
+                      "reason": "not_applicable",
+                      "value": null
+                    },
+                    "reexplainNeeded": {
+                      "reason": "not_applicable",
+                      "value": null
+                    },
+                    "source": "cli/<stepId>.json",
+                    "workCorrect": {
+                      "reason": null,
+                      "scored": 6,
+                      "total": 6,
+                      "value": 6
+                    }
+                  }
+                },
+                "resumeDelayMs": {
+                  "flagAboveMs": 120000,
+                  "park": 21021,
+                  "raw": 1814
+                },
+                "run": 2,
+                "totals": {
+                  "park": {
+                    "billedModelOutput": 2374,
+                    "cacheRead": 213282,
+                    "cacheWrite1h": 11878,
+                    "cacheWrite5m": 0,
+                    "requests": 10,
+                    "uncachedInput": 20
+                  },
+                  "raw": {
+                    "billedModelOutput": 269,
+                    "cacheRead": 1052995,
+                    "cacheWrite1h": 9248,
+                    "cacheWrite5m": 0,
+                    "requests": 7,
+                    "uncachedInput": 14
+                  },
+                  "shared": {
+                    "billedModelOutput": 8,
+                    "cacheRead": 4022,
+                    "cacheWrite1h": 146406,
+                    "cacheWrite5m": 0,
+                    "requests": 2,
+                    "uncachedInput": 4
+                  }
+                }
+              }
+            ],
+            "status": "valid"
+          },
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": false,
+          "reason": "anomalies_present",
+          "run": 2,
+          "runId": "20260927-052028",
+          "status": "contaminated",
+          "units": [
+            {
+              "clean": false,
+              "reasons": [
+                "anomalies_present"
+              ],
+              "requests": 19,
+              "unit": 2
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": false,
+            "experiment": "restore-decomposition",
+            "reasons": [
+              "anomalies_present"
+            ],
+            "requests": 19,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "unknown",
+            "stepParity": {
+              "intents": 19,
+              "missingRequest": [],
+              "requests": 19,
+              "results": 19,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        }
+      ],
+      "findings": {
+        "conversionProvenance": {
+          "billedModelOutput": "prior_ratio_0.5_to_2.5_x_write_high_end_raised_to_evidence_upper_bound",
+          "billedModelOutputEvidenceUpperBound": 0.000040969520507349455,
+          "cacheRead": "reported_unverified_prior_range_5390000_5550000_tokens_per_tick",
+          "cacheReadPriorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
+          "cacheWrite1h": "measured_this_run",
+          "cacheWrite5m": "not_measured_on_this_lane",
+          "meterMultiplier": [
+            1,
+            1
+          ],
+          "uncachedInput": "unknown_bounded_by_cacheWrite1h"
+        },
+        "experiment": "restore-decomposition",
+        "phasesTracked": [
+          "ctx_create",
+          "resume_raw",
+          "park_parent",
+          "restore_child",
+          "useful_work",
+          "warm",
+          "observe"
+        ],
+        "runs": [
+          {
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
+            "byArmPhase": {
+              "park_path": {
+                "park_parent": {
+                  "billedModelOutput": 1251,
+                  "cacheRead": 145509,
+                  "cacheWrite1h": 1159,
+                  "cacheWrite5m": 0,
+                  "requests": 1,
+                  "uncachedInput": 2
+                },
+                "restore_child": {
+                  "billedModelOutput": 661,
+                  "cacheRead": 9105,
+                  "cacheWrite1h": 6633,
+                  "cacheWrite5m": 0,
+                  "requests": 3,
+                  "uncachedInput": 6
+                },
+                "useful_work": {
+                  "billedModelOutput": 965,
+                  "cacheRead": 18210,
+                  "cacheWrite1h": 45728,
+                  "cacheWrite5m": 0,
+                  "requests": 6,
+                  "uncachedInput": 12
+                }
+              },
+              "raw_path": {
+                "resume_raw": {
+                  "billedModelOutput": 20,
+                  "cacheRead": 146668,
+                  "cacheWrite1h": 1326,
+                  "cacheWrite5m": 0,
+                  "requests": 1,
+                  "uncachedInput": 2
+                },
+                "useful_work": {
+                  "billedModelOutput": 35,
+                  "cacheRead": 907854,
+                  "cacheWrite1h": 7946,
+                  "cacheWrite5m": 0,
+                  "requests": 6,
+                  "uncachedInput": 12
+                }
+              },
+              "shared": {
+                "ctx_create": {
+                  "billedModelOutput": 4,
+                  "cacheRead": 0,
+                  "cacheWrite1h": 146496,
+                  "cacheWrite5m": 0,
+                  "requests": 1,
+                  "uncachedInput": 2
+                },
+                "observe": {
+                  "billedModelOutput": 4,
+                  "cacheRead": 4022,
+                  "cacheWrite1h": 0,
+                  "cacheWrite5m": 0,
+                  "requests": 1,
+                  "uncachedInput": 2
+                },
+                "resume_raw": {
+                  "billedModelOutput": 4,
+                  "cacheRead": 145509,
+                  "cacheWrite1h": 1048,
+                  "cacheWrite5m": 0,
+                  "requests": 1,
+                  "uncachedInput": 2
+                }
+              }
+            },
+            "byMeter": {
+              "unified-5h": {
+                "park": {
+                  "blockers": [],
+                  "hi": 0.0059891845426537785,
+                  "lo": 0.004427527167010805,
+                  "meter": "unified-5h"
+                },
+                "raw": {
+                  "blockers": [],
+                  "hi": 0.002757696815437044,
+                  "lo": 0.0025965283512526666,
+                  "meter": "unified-5h"
+                }
+              },
+              "unified-7d": {
+                "park": {
+                  "blockers": [],
+                  "hi": 0.0022182164972791773,
+                  "lo": 0.0005534408958763506,
+                  "meter": "unified-7d"
+                },
+                "raw": {
+                  "blockers": [],
+                  "hi": 0.0010213691909026087,
+                  "lo": 0.0003245660439065833,
+                  "meter": "unified-7d"
+                }
+              },
+              "unified-7d_oi": {
+                "park": {
+                  "blockers": [],
+                  "hi": 0.0034223911672307305,
+                  "lo": 0.0009838949260024012,
+                  "meter": "unified-7d_oi"
+                },
+                "raw": {
+                  "blockers": [],
+                  "hi": 0.0015758267516783107,
+                  "lo": 0.0005770063002783703,
+                  "meter": "unified-7d_oi"
+                }
+              }
+            },
+            "childResumeMisses": [],
+            "converted": {
+              "park": {
+                "blockers": [],
+                "hi": 0.0059891845426537785,
+                "lo": 0.004427527167010805,
+                "meter": "unified-5h"
+              },
+              "raw": {
+                "blockers": [],
+                "hi": 0.002757696815437044,
+                "lo": 0.0025965283512526666,
+                "meter": "unified-5h"
+              }
+            },
+            "gate": {
+              "cacheRead": 145509,
+              "cacheWrite1h": 1048,
+              "stepId": "restore-decomposition/shared/1"
+            },
+            "mode": "resume-sysfile",
+            "phases": {
+              "ctx_create": {
+                "billedModelOutput": 4,
+                "cacheRead": 0,
+                "cacheWrite1h": 146496,
+                "cacheWrite5m": 0,
+                "requests": 1,
+                "uncachedInput": 2
+              },
+              "observe": {
+                "billedModelOutput": 4,
+                "cacheRead": 4022,
+                "cacheWrite1h": 0,
+                "cacheWrite5m": 0,
+                "requests": 1,
+                "uncachedInput": 2
+              },
+              "park_parent": {
+                "billedModelOutput": 1251,
+                "cacheRead": 145509,
+                "cacheWrite1h": 1159,
+                "cacheWrite5m": 0,
+                "requests": 1,
+                "uncachedInput": 2
+              },
+              "restore_child": {
+                "billedModelOutput": 661,
+                "cacheRead": 9105,
+                "cacheWrite1h": 6633,
+                "cacheWrite5m": 0,
+                "requests": 3,
+                "uncachedInput": 6
+              },
+              "resume_raw": {
+                "billedModelOutput": 24,
+                "cacheRead": 292177,
+                "cacheWrite1h": 2374,
+                "cacheWrite5m": 0,
+                "requests": 2,
+                "uncachedInput": 4
+              },
+              "useful_work": {
+                "billedModelOutput": 1000,
+                "cacheRead": 926064,
+                "cacheWrite1h": 53674,
+                "cacheWrite5m": 0,
+                "requests": 12,
+                "uncachedInput": 24
+              }
+            },
+            "quality": {
+              "groundTruth": {
+                "seed": 1196026084,
+                "source": "makeTask(seed) from experiment_started",
+                "ticket": "WX-1360"
+              },
+              "park_path": {
+                "artifactsMissing": [],
+                "guardCorrect": {
+                  "reason": null,
+                  "stepId": "restore-decomposition/park_path/5",
+                  "value": true
+                },
+                "handoffLossy": {
+                  "reason": null,
+                  "stepId": "restore-decomposition/park_path/2",
+                  "value": false
+                },
+                "reexplainNeeded": {
+                  "reason": null,
+                  "stepId": "restore-decomposition/park_path/4",
+                  "value": 1
+                },
+                "source": "cli/<stepId>.json",
+                "workCorrect": {
+                  "reason": null,
+                  "scored": 6,
+                  "total": 6,
+                  "value": 6
+                }
+              },
+              "raw_path": {
+                "artifactsMissing": [],
+                "guardCorrect": {
+                  "reason": null,
+                  "stepId": "restore-decomposition/raw_path/12",
+                  "value": true
+                },
+                "handoffLossy": {
+                  "reason": "not_applicable",
+                  "value": null
+                },
+                "reexplainNeeded": {
+                  "reason": "not_applicable",
+                  "value": null
+                },
+                "source": "cli/<stepId>.json",
+                "workCorrect": {
+                  "reason": null,
+                  "scored": 6,
+                  "total": 6,
+                  "value": 6
+                }
+              }
+            },
+            "resumeDelayMs": {
+              "flagAboveMs": 120000,
+              "park": 18835,
+              "raw": 3200
+            },
+            "run": 1,
+            "totals": {
+              "park": {
+                "billedModelOutput": 2877,
+                "cacheRead": 172824,
+                "cacheWrite1h": 53520,
+                "cacheWrite5m": 0,
+                "requests": 10,
+                "uncachedInput": 20
+              },
+              "raw": {
+                "billedModelOutput": 55,
+                "cacheRead": 1054522,
+                "cacheWrite1h": 9272,
+                "cacheWrite5m": 0,
+                "requests": 7,
+                "uncachedInput": 14
+              },
+              "shared": {
+                "billedModelOutput": 12,
+                "cacheRead": 149531,
+                "cacheWrite1h": 147544,
+                "cacheWrite5m": 0,
+                "requests": 3,
+                "uncachedInput": 6
+              }
+            }
+          }
+        ],
+        "status": "valid"
+      },
       "hypotheses": [],
-      "reason": "big_context_rewrite",
+      "pool": {
+        "excluded": [
+          "20260925-161302#1",
+          "20260925-161302#2",
+          "20260927-052028#2"
+        ],
+        "included": [
+          "20260927-052028#1"
+        ]
+      },
+      "reason": null,
       "recordedMachineVerdict": {
-        "reason": "big_context_rewrite",
-        "status": "aborted"
+        "reason": null,
+        "status": "valid"
       },
-      "recordedVerdict": {
-        "reason": "big_context_rewrite",
-        "run": 1,
-        "seq": 16,
-        "source": "live",
-        "status": "aborted"
-      },
-      "status": "aborted",
+      "status": "valid",
       "window": {
         "baselineResets": [
           1790370600,
-          1790370600
+          1790513400
         ],
         "clean": false,
         "experiment": "restore-decomposition",
         "reasons": [
           "anomalies_present"
         ],
-        "requests": 5,
+        "requests": 44,
         "resetEpochs": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "sourceKind": "unknown",
         "stepParity": {
-          "intents": 5,
+          "intents": 44,
           "missingRequest": [],
-          "requests": 5,
-          "results": 5,
+          "requests": 44,
+          "results": 44,
           "unannounced": []
         },
-        "unknownUsageFields": []
+        "unknownUsageFields": [],
+        "windows": 2
       }
     },
     "ttl-1h-unique-prefix": {
+      "attempts": [
+        {
+          "attempt": 1,
+          "findings": {
+            "experiment": "ttl-1h-unique-prefix",
+            "n": 2,
+            "reason": null,
+            "renewsAt55min": "unknown",
+            "runs": [
+              {
+                "attempt": {
+                  "attempt": 1,
+                  "runId": "20260925-161302"
+                },
+                "control": {
+                  "check": "MISS",
+                  "prefix": "B",
+                  "write": {
+                    "cacheWrite1h": 59703,
+                    "cacheWrite5m": 0,
+                    "valid": true
+                  }
+                },
+                "reason": null,
+                "run": 1,
+                "status": "valid",
+                "timing": {
+                  "ok": true,
+                  "steps": [
+                    {
+                      "atOffsetMs": 0,
+                      "deltaMs": 418,
+                      "prefix": "A",
+                      "role": "write",
+                      "stepId": "ttl-1h-unique-prefix/treatment/0",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 30000,
+                      "deltaMs": 416,
+                      "prefix": "B",
+                      "role": "write",
+                      "stepId": "ttl-1h-unique-prefix/control/1",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 3300000,
+                      "deltaMs": 482,
+                      "prefix": "A",
+                      "role": "ping",
+                      "stepId": "ttl-1h-unique-prefix/treatment/4",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 6600000,
+                      "deltaMs": 474,
+                      "prefix": "A",
+                      "role": "check",
+                      "stepId": "ttl-1h-unique-prefix/treatment/6",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 6630000,
+                      "deltaMs": 419,
+                      "prefix": "B",
+                      "role": "check",
+                      "stepId": "ttl-1h-unique-prefix/control/7",
+                      "withinTolerance": true
+                    }
+                  ],
+                  "t0": 1790353144484,
+                  "toleranceMs": 90000
+                },
+                "treatment": {
+                  "check": "HIT",
+                  "ping": "HIT",
+                  "prefix": "A",
+                  "write": {
+                    "cacheWrite1h": 59602,
+                    "cacheWrite5m": 0,
+                    "valid": true
+                  }
+                }
+              },
+              {
+                "attempt": {
+                  "attempt": 1,
+                  "runId": "20260925-161302"
+                },
+                "control": {
+                  "check": "MISS",
+                  "prefix": "D",
+                  "write": {
+                    "cacheWrite1h": 59723,
+                    "cacheWrite5m": 0,
+                    "valid": true
+                  }
+                },
+                "reason": null,
+                "run": 2,
+                "status": "valid",
+                "timing": {
+                  "ok": true,
+                  "steps": [
+                    {
+                      "atOffsetMs": 300000,
+                      "deltaMs": 443,
+                      "prefix": "C",
+                      "role": "write",
+                      "stepId": "ttl-1h-unique-prefix/treatment/2",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 330000,
+                      "deltaMs": 424,
+                      "prefix": "D",
+                      "role": "write",
+                      "stepId": "ttl-1h-unique-prefix/control/3",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 3600000,
+                      "deltaMs": 417,
+                      "prefix": "C",
+                      "role": "ping",
+                      "stepId": "ttl-1h-unique-prefix/treatment/5",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 6900000,
+                      "deltaMs": 446,
+                      "prefix": "C",
+                      "role": "check",
+                      "stepId": "ttl-1h-unique-prefix/treatment/8",
+                      "withinTolerance": true
+                    },
+                    {
+                      "atOffsetMs": 6930000,
+                      "deltaMs": 403,
+                      "prefix": "D",
+                      "role": "check",
+                      "stepId": "ttl-1h-unique-prefix/control/9",
+                      "withinTolerance": true
+                    }
+                  ],
+                  "t0": 1790353144484,
+                  "toleranceMs": 90000
+                },
+                "treatment": {
+                  "check": "HIT",
+                  "ping": "HIT",
+                  "prefix": "C",
+                  "write": {
+                    "cacheWrite1h": 59627,
+                    "cacheWrite5m": 0,
+                    "valid": true
+                  }
+                }
+              }
+            ],
+            "schedule": {
+              "offsetsMs": [
+                {
+                  "atOffsetMs": 0,
+                  "prefix": "A",
+                  "role": "write"
+                },
+                {
+                  "atOffsetMs": 30000,
+                  "prefix": "B",
+                  "role": "write"
+                },
+                {
+                  "atOffsetMs": 300000,
+                  "prefix": "C",
+                  "role": "write"
+                },
+                {
+                  "atOffsetMs": 330000,
+                  "prefix": "D",
+                  "role": "write"
+                },
+                {
+                  "atOffsetMs": 3300000,
+                  "prefix": "A",
+                  "role": "ping"
+                },
+                {
+                  "atOffsetMs": 3600000,
+                  "prefix": "C",
+                  "role": "ping"
+                },
+                {
+                  "atOffsetMs": 6600000,
+                  "prefix": "A",
+                  "role": "check"
+                },
+                {
+                  "atOffsetMs": 6630000,
+                  "prefix": "B",
+                  "role": "check"
+                },
+                {
+                  "atOffsetMs": 6900000,
+                  "prefix": "C",
+                  "role": "check"
+                },
+                {
+                  "atOffsetMs": 6930000,
+                  "prefix": "D",
+                  "role": "check"
+                }
+              ],
+              "toleranceMs": 90000
+            },
+            "status": "valid",
+            "thresholds": {
+              "hitCacheRead": 56160,
+              "hitMaxWrite1h": 2000,
+              "missMinWrite1h": 53460
+            },
+            "ttlAtLeast110Min": null,
+            "verdict": "renews_at_55min"
+          },
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": false,
+          "reason": "anomalies_present",
+          "run": null,
+          "runId": "20260925-161302",
+          "status": "contaminated",
+          "units": [
+            {
+              "clean": false,
+              "reasons": [
+                "anomalies_present"
+              ],
+              "requests": 5,
+              "unit": 1
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 5,
+              "unit": 2
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790370600
+            ],
+            "clean": false,
+            "experiment": "ttl-1h-unique-prefix",
+            "reasons": [
+              "anomalies_present"
+            ],
+            "requests": 10,
+            "resetEpochs": [
+              1790370600
+            ],
+            "sourceKind": "unknown",
+            "stepParity": {
+              "intents": 10,
+              "missingRequest": [],
+              "requests": 10,
+              "results": 10,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        },
+        {
+          "attempt": 1,
+          "findings": null,
+          "machineVerdict": {
+            "reason": null,
+            "status": "valid"
+          },
+          "pooled": true,
+          "reason": null,
+          "run": null,
+          "runId": "20260927-052028",
+          "status": "valid",
+          "units": [
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 5,
+              "unit": 1
+            },
+            {
+              "clean": true,
+              "reasons": [],
+              "requests": 5,
+              "unit": 2
+            }
+          ],
+          "window": {
+            "baselineResets": [
+              1790513400
+            ],
+            "clean": true,
+            "experiment": "ttl-1h-unique-prefix",
+            "reasons": [],
+            "requests": 10,
+            "resetEpochs": [
+              1790513400
+            ],
+            "sourceKind": "measured",
+            "stepParity": {
+              "intents": 10,
+              "missingRequest": [],
+              "requests": 10,
+              "results": 10,
+              "unannounced": []
+            },
+            "unknownUsageFields": []
+          }
+        }
+      ],
       "findings": {
         "experiment": "ttl-1h-unique-prefix",
         "n": 2,
         "reason": null,
-        "renewsAt55min": "unknown",
+        "renewsAt55min": "measured",
         "runs": [
           {
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
             "control": {
               "check": "MISS",
               "prefix": "B",
               "write": {
-                "cacheWrite1h": 59703,
+                "cacheWrite1h": 59682,
                 "cacheWrite5m": 0,
                 "valid": true
               }
@@ -501,7 +2984,7 @@
               "steps": [
                 {
                   "atOffsetMs": 0,
-                  "deltaMs": 418,
+                  "deltaMs": 428,
                   "prefix": "A",
                   "role": "write",
                   "stepId": "ttl-1h-unique-prefix/treatment/0",
@@ -509,7 +2992,7 @@
                 },
                 {
                   "atOffsetMs": 30000,
-                  "deltaMs": 416,
+                  "deltaMs": 426,
                   "prefix": "B",
                   "role": "write",
                   "stepId": "ttl-1h-unique-prefix/control/1",
@@ -517,7 +3000,7 @@
                 },
                 {
                   "atOffsetMs": 3300000,
-                  "deltaMs": 482,
+                  "deltaMs": 481,
                   "prefix": "A",
                   "role": "ping",
                   "stepId": "ttl-1h-unique-prefix/treatment/4",
@@ -525,7 +3008,7 @@
                 },
                 {
                   "atOffsetMs": 6600000,
-                  "deltaMs": 474,
+                  "deltaMs": 527,
                   "prefix": "A",
                   "role": "check",
                   "stepId": "ttl-1h-unique-prefix/treatment/6",
@@ -533,14 +3016,14 @@
                 },
                 {
                   "atOffsetMs": 6630000,
-                  "deltaMs": 419,
+                  "deltaMs": 414,
                   "prefix": "B",
                   "role": "check",
                   "stepId": "ttl-1h-unique-prefix/control/7",
                   "withinTolerance": true
                 }
               ],
-              "t0": 1790353144484,
+              "t0": 1790503493385,
               "toleranceMs": 90000
             },
             "treatment": {
@@ -548,18 +3031,22 @@
               "ping": "HIT",
               "prefix": "A",
               "write": {
-                "cacheWrite1h": 59602,
+                "cacheWrite1h": 59800,
                 "cacheWrite5m": 0,
                 "valid": true
               }
             }
           },
           {
+            "attempt": {
+              "attempt": 1,
+              "runId": "20260927-052028"
+            },
             "control": {
               "check": "MISS",
               "prefix": "D",
               "write": {
-                "cacheWrite1h": 59723,
+                "cacheWrite1h": 59641,
                 "cacheWrite5m": 0,
                 "valid": true
               }
@@ -572,7 +3059,7 @@
               "steps": [
                 {
                   "atOffsetMs": 300000,
-                  "deltaMs": 443,
+                  "deltaMs": 453,
                   "prefix": "C",
                   "role": "write",
                   "stepId": "ttl-1h-unique-prefix/treatment/2",
@@ -580,7 +3067,7 @@
                 },
                 {
                   "atOffsetMs": 330000,
-                  "deltaMs": 424,
+                  "deltaMs": 401,
                   "prefix": "D",
                   "role": "write",
                   "stepId": "ttl-1h-unique-prefix/control/3",
@@ -588,7 +3075,7 @@
                 },
                 {
                   "atOffsetMs": 3600000,
-                  "deltaMs": 417,
+                  "deltaMs": 443,
                   "prefix": "C",
                   "role": "ping",
                   "stepId": "ttl-1h-unique-prefix/treatment/5",
@@ -596,7 +3083,7 @@
                 },
                 {
                   "atOffsetMs": 6900000,
-                  "deltaMs": 446,
+                  "deltaMs": 414,
                   "prefix": "C",
                   "role": "check",
                   "stepId": "ttl-1h-unique-prefix/treatment/8",
@@ -604,14 +3091,14 @@
                 },
                 {
                   "atOffsetMs": 6930000,
-                  "deltaMs": 403,
+                  "deltaMs": 415,
                   "prefix": "D",
                   "role": "check",
                   "stepId": "ttl-1h-unique-prefix/control/9",
                   "withinTolerance": true
                 }
               ],
-              "t0": 1790353144484,
+              "t0": 1790503493385,
               "toleranceMs": 90000
             },
             "treatment": {
@@ -619,7 +3106,7 @@
               "ping": "HIT",
               "prefix": "C",
               "write": {
-                "cacheWrite1h": 59627,
+                "cacheWrite1h": 59624,
                 "cacheWrite5m": 0,
                 "valid": true
               }
@@ -691,65 +3178,241 @@
         "verdict": "renews_at_55min"
       },
       "hypotheses": [],
-      "reason": "anomalies_present",
+      "pool": {
+        "excluded": [
+          "20260925-161302#1"
+        ],
+        "included": [
+          "20260927-052028#1"
+        ]
+      },
+      "reason": null,
       "recordedMachineVerdict": {
         "reason": null,
         "status": "valid"
       },
-      "status": "contaminated",
+      "status": "valid",
       "window": {
         "baselineResets": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "clean": false,
         "experiment": "ttl-1h-unique-prefix",
         "reasons": [
           "anomalies_present"
         ],
-        "requests": 10,
+        "requests": 20,
         "resetEpochs": [
-          1790370600
+          1790370600,
+          1790513400
         ],
         "sourceKind": "unknown",
         "stepParity": {
-          "intents": 10,
+          "intents": 20,
           "missingRequest": [],
-          "requests": 10,
-          "results": 10,
+          "requests": 20,
+          "results": 20,
           "unannounced": []
         },
-        "unknownUsageFields": []
+        "unknownUsageFields": [],
+        "windows": 2
       }
     }
   },
-  "generatedFrom": {
-    "cli": {
-      "artifacts": 3,
-      "source": "cli/<stepId>.json (assistant text is untrusted data, compared only against ground truth)"
+  "inputs": [
+    {
+      "campaign": null,
+      "generatedFrom": {
+        "cli": {
+          "artifacts": 3,
+          "source": "cli/<stepId>.json (assistant text is untrusted data, compared only against ground truth)"
+        },
+        "events": {
+          "records": 62,
+          "sha256": "0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84",
+          "skipped": 0
+        },
+        "requests": {
+          "records": 22,
+          "sha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
+          "skipped": 0
+        },
+        "summary": {
+          "exitCode": 3,
+          "v": "idle-live-summary/1"
+        }
+      },
+      "integrity": {
+        "malformedEventRows": 0,
+        "malformedRequestRows": 0,
+        "ok": true,
+        "rule": "a request row that does not parse voids every attempt of its own run: it cannot be attributed"
+      },
+      "runId": "20260925-161302",
+      "spend": {
+        "unified-5h": {
+          "endUtil": 0.16,
+          "observedEq": 0.16,
+          "perWindow": [
+            {
+              "endUtil": 0.16,
+              "observedEq": 0.16,
+              "resetEpoch": 1790370600,
+              "startUtil": 0
+            }
+          ],
+          "present": true,
+          "startUtil": 0,
+          "upperEq": 0.17,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 1
+        },
+        "unified-7d": {
+          "endUtil": 0.03,
+          "observedEq": 0.02,
+          "perWindow": [
+            {
+              "endUtil": 0.03,
+              "observedEq": 0.02,
+              "resetEpoch": 1790683200,
+              "startUtil": 0.01
+            }
+          ],
+          "present": true,
+          "startUtil": 0.01,
+          "upperEq": 0.03,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 1
+        },
+        "unified-7d_oi": {
+          "endUtil": 0.04,
+          "observedEq": 0.04,
+          "perWindow": [
+            {
+              "endUtil": 0.04,
+              "observedEq": 0.04,
+              "resetEpoch": 1790683200,
+              "startUtil": 0
+            }
+          ],
+          "present": true,
+          "startUtil": 0,
+          "upperEq": 0.05,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 1
+        }
+      }
     },
-    "events": {
-      "records": 62,
-      "sha256": "0ba89423479b803f737132621b3691f6a66226af3f431baf8a404d7f7fa39e84",
-      "skipped": 0
-    },
-    "requests": {
-      "records": 22,
-      "sha256": "05ea9e7aca8203bece685c8c277a6bf936bbbff61ef1a4ab1782e941f37a8886",
-      "skipped": 0
-    },
-    "summary": {
-      "exitCode": 3,
-      "v": "idle-live-summary/1"
+    {
+      "campaign": null,
+      "generatedFrom": {
+        "cli": {
+          "artifacts": 97,
+          "source": "cli/<stepId>.json (assistant text is untrusted data, compared only against ground truth)"
+        },
+        "events": {
+          "records": 514,
+          "sha256": "7e6d17dad7b5f847d8b70799c3cb864b09bae50bff0327842730ee449808fb8e",
+          "skipped": 0
+        },
+        "requests": {
+          "records": 248,
+          "sha256": "df39a125431893862db4b3036816d938fe5c08387caac84e36e384adc51868df",
+          "skipped": 0
+        },
+        "summary": {
+          "exitCode": 0,
+          "v": "idle-live-summary/1"
+        }
+      },
+      "integrity": {
+        "malformedEventRows": 0,
+        "malformedRequestRows": 0,
+        "ok": true,
+        "rule": "a request row that does not parse voids every attempt of its own run: it cannot be attributed"
+      },
+      "runId": "20260927-052028",
+      "spend": {
+        "unified-5h": {
+          "endUtil": 0.23,
+          "observedEq": 0.23,
+          "perWindow": [
+            {
+              "endUtil": 0,
+              "observedEq": 0,
+              "resetEpoch": 1790513400,
+              "startUtil": 0
+            },
+            {
+              "endUtil": 0.17,
+              "observedEq": 0,
+              "resetEpoch": 1790495400,
+              "startUtil": 0.17
+            },
+            {
+              "endUtil": 0.23,
+              "observedEq": 0.23,
+              "resetEpoch": 1790513400,
+              "startUtil": 0
+            }
+          ],
+          "present": true,
+          "startUtil": 0,
+          "upperEq": 0.26,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 3
+        },
+        "unified-7d": {
+          "endUtil": 0.17,
+          "observedEq": 0.04,
+          "perWindow": [
+            {
+              "endUtil": 0.17,
+              "observedEq": 0.04,
+              "resetEpoch": 1790683200,
+              "startUtil": 0.13
+            }
+          ],
+          "present": true,
+          "startUtil": 0.13,
+          "upperEq": 0.05,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 1
+        },
+        "unified-7d_oi": {
+          "endUtil": 0.12,
+          "observedEq": 0.07,
+          "perWindow": [
+            {
+              "endUtil": 0.12,
+              "observedEq": 0.07,
+              "resetEpoch": 1790683200,
+              "startUtil": 0.05
+            }
+          ],
+          "present": true,
+          "startUtil": 0.05,
+          "upperEq": 0.08,
+          "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
+          "windows": 1
+        }
+      }
     }
-  },
+  ],
   "integrity": {
     "malformedEventRows": 0,
     "malformedRequestRows": 0,
     "ok": true,
-    "rule": "a request row that does not parse voids every experiment: it cannot be attributed"
+    "rule": "a request row that does not parse voids every attempt of its own run: it cannot be attributed"
+  },
+  "merge": {
+    "inputs": 2,
+    "order": "oldest_first_by_evidence_timestamps_non_overlapping",
+    "rule": "every attempt of every run is reported; only clean terminal attempts (valid or upper_bound) are pooled into the findings, the coefficient records and the policy answer"
   },
   "policyAnswer": {
-    "action": "NO_DECISION",
+    "action": "LET_EXPIRE",
     "actionSource": "evaluateIdleCost",
     "baseline": {
       "futureWorkDifferentialEq": 0,
@@ -762,24 +3425,25 @@
     },
     "coefficientEnds": {
       "high": {
-        "billedModelOutput": 2.4509803921568627e-7,
+        "billedModelOutput": 4.0969520507349455e-7,
         "cacheRead": 1.8552875695732838e-9,
-        "cacheWrite1h": 9.80392156862745e-8,
+        "cacheWrite1h": 8.385979116050432e-8,
         "cacheWrite5m": null,
-        "uncachedInput": 9.80392156862745e-8
+        "uncachedInput": 8.385979116050432e-8
       },
       "low": {
-        "billedModelOutput": 3.4965034965034967e-8,
+        "billedModelOutput": 3.7447642970752575e-8,
         "cacheRead": 1.801801801801802e-9,
-        "cacheWrite1h": 6.993006993006993e-8,
+        "cacheWrite1h": 7.489528594150515e-8,
         "cacheWrite5m": null,
         "uncachedInput": 0
       },
       "provenance": {
-        "billedModelOutput": "prior_ratio_0.5_to_2.5_x_write",
+        "billedModelOutput": "prior_ratio_0.5_to_2.5_x_write_high_end_raised_to_evidence_upper_bound",
+        "billedModelOutputEvidenceUpperBound": 0.000040969520507349455,
         "cacheRead": "reported_unverified_prior_range_5390000_5550000_tokens_per_tick",
         "cacheReadPriorEvidenceRef": "quota-test/2026-09-19/REPORT.md",
-        "cacheWrite1h": "prior_range_only",
+        "cacheWrite1h": "measured_this_run",
         "cacheWrite5m": "not_measured_on_this_lane",
         "meterMultiplier": [
           1,
@@ -789,7 +3453,74 @@
       }
     },
     "engine": "evaluateIdleCost",
-    "evaluatedAt": null,
+    "evaluatedAt": {
+      "high": {
+        "blockers": [],
+        "candidateCosts": {
+          "KEEP_WARM": null,
+          "LET_EXPIRE": null,
+          "PARK": null,
+          "WAIT": null
+        },
+        "costs": {
+          "coldFullEq": 0.012286930466251856,
+          "coldSharedEq": 0.012286930466251856,
+          "coldWarmEq": 0.012286930466251856,
+          "futureWorkDifferentialEq": 0,
+          "parkNowEq": 0.0008798509580453262,
+          "parkQualityEq": 0,
+          "rawWarmEq": 0.0007513236245166564,
+          "restoreWarmEq": 0.0008444460773891329,
+          "sharedLossEq": 0,
+          "skillRestoreEq": 0,
+          "warmEq": 0.00030413361183736354
+        },
+        "engineVersion": "idle-cost-engine/1.0.0",
+        "evidenceStatus": "uncertain",
+        "forecast": null,
+        "guardReasons": [],
+        "reasonCode": "no_calibrated_forecast",
+        "recommendedAction": "LET_EXPIRE",
+        "spendGate": {
+          "allowed": true,
+          "reasons": []
+        },
+        "vAppliedEq": 0
+      },
+      "low": {
+        "blockers": [],
+        "candidateCosts": {
+          "KEEP_WARM": null,
+          "LET_EXPIRE": null,
+          "PARK": null,
+          "WAIT": null
+        },
+        "costs": {
+          "coldFullEq": 0.010972009599858622,
+          "coldSharedEq": 0.010972009599858622,
+          "coldWarmEq": 0.010972009599858622,
+          "futureWorkDifferentialEq": 0,
+          "parkNowEq": 0.00039582901614099435,
+          "parkQualityEq": 0,
+          "rawWarmEq": 0.0007051451973014764,
+          "restoreWarmEq": 0.0005379387290590765,
+          "sharedLossEq": 0,
+          "skillRestoreEq": 0,
+          "warmEq": 0.0002915188434242659
+        },
+        "engineVersion": "idle-cost-engine/1.0.0",
+        "evidenceStatus": "uncertain",
+        "forecast": null,
+        "guardReasons": [],
+        "reasonCode": "no_calibrated_forecast",
+        "recommendedAction": "LET_EXPIRE",
+        "spendGate": {
+          "allowed": true,
+          "reasons": []
+        },
+        "vAppliedEq": 0
+      }
+    },
     "forecast": null,
     "forecastReason": "no_calibrated_forecast: q is never invented; the entries below are labelled hypothetical scenarios",
     "limits": {
@@ -804,10 +3535,12 @@
     "notes": [
       "V = 0 baseline: no future-work differential is claimed",
       "quality is reported as states and scores, never monetised into parkQualityEq",
-      "no cost model: phase costs missing for warm, ctxCreate, parkParent, restoreChild, resumeRaw",
-      "coefficients are the reported prior RANGE only: this evidence did not measure T",
-      "output coefficient not identified: no bound was computed (experiment_not_valid:short_output)",
-      "evidence_incomplete: restore-decomposition:aborted,policy-effect:aborted"
+      "cost model built from restore 20260927-052028 run 1 phase sums",
+      "restore-decomposition: priced from pooled attempt(s) 20260927-052028#1 only; excluded 20260925-161302#1, 20260925-161302#2, 20260927-052028#2",
+      "policy-effect: priced from pooled attempt(s) 20260927-052028#1 only; excluded 20260925-161302#1",
+      "write coefficient measured by this run",
+      "output coefficient is an upper bound only (blocks_disjoint)",
+      "output coefficient range: the prior ratio's high end is raised to this evidence's upper bound k_out < 0.000040969520507349455 ticks per output token; the low end stays the prior's"
     ],
     "options": {
       "intervalMs": 3000000,
@@ -819,89 +3552,226 @@
     },
     "phaseCostsEq": {
       "ctxCreate": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.012286930466251856,
+        "lo": 0.010972009599858622,
+        "meter": "unified-5h"
       },
       "parkParent": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.0008798509580453262,
+        "lo": 0.00039582901614099435,
+        "meter": "unified-5h"
       },
       "restoreChild": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.0008444460773891329,
+        "lo": 0.0005379387290590765,
+        "meter": "unified-5h"
       },
       "resumeRaw": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.0007513236245166564,
+        "lo": 0.0007051451973014764,
+        "meter": "unified-5h"
       },
       "usefulWorkPark": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.004264887507219319,
+        "lo": 0.0034937594218107347,
+        "meter": "unified-5h"
       },
       "usefulWorkRaw": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.0023660257914202495,
+        "lo": 0.002232201582568149,
+        "meter": "unified-5h"
       },
       "warm": {
-        "hi": null,
-        "lo": null
+        "blockers": [],
+        "hi": 0.00030413361183736354,
+        "lo": 0.0002915188434242659,
+        "meter": "unified-5h"
       }
     },
-    "reason": "evidence_incomplete",
-    "scenarios": []
+    "reason": "both_range_ends_agree",
+    "scenarios": [
+      {
+        "action": "WAIT",
+        "forecast": {
+          "neverReturnsProbability": 0,
+          "returns": [
+            {
+              "afterMs": 7200000,
+              "probability": 1
+            }
+          ]
+        },
+        "high": {
+          "action": "WAIT",
+          "costs": {
+            "KEEP_WARM": 0.0016637244600287472,
+            "LET_EXPIRE": 0.012286930466251856,
+            "PARK": 0.001724297035434459,
+            "WAIT": 0.0013595908481913836
+          },
+          "expectedCostEq": 0.0013595908481913836,
+          "notes": [],
+          "rootSpendEq": 0
+        },
+        "id": "q1_return_after_2h",
+        "labelledAs": "hypothetical",
+        "low": {
+          "action": "WAIT",
+          "costs": {
+            "KEEP_WARM": 0.0012252865886243367,
+            "LET_EXPIRE": 0.010972009599858622,
+            "PARK": 0.0009337677452000709,
+            "WAIT": 0.0009337677452000709
+          },
+          "expectedCostEq": 0.0009337677452000709,
+          "notes": [],
+          "rootSpendEq": 0
+        },
+        "promoted": false,
+        "reason": "both_range_ends_agree"
+      },
+      {
+        "action": "WAIT",
+        "forecast": {
+          "neverReturnsProbability": 0.5,
+          "returns": [
+            {
+              "afterMs": 7200000,
+              "probability": 0.5
+            }
+          ]
+        },
+        "high": {
+          "action": "WAIT",
+          "costs": {
+            "KEEP_WARM": 0.0012880626477704189,
+            "LET_EXPIRE": 0.006143465233125928,
+            "PARK": 0.0013020739967398926,
+            "WAIT": 0.0009839290359330553
+          },
+          "expectedCostEq": 0.0009839290359330553,
+          "notes": [],
+          "rootSpendEq": 0
+        },
+        "id": "q0.5_return_after_2h",
+        "labelledAs": "hypothetical",
+        "low": {
+          "action": "WAIT",
+          "costs": {
+            "KEEP_WARM": 0.0009563172240947985,
+            "LET_EXPIRE": 0.005486004799929311,
+            "PARK": 0.0006647983806705326,
+            "WAIT": 0.0006647983806705326
+          },
+          "expectedCostEq": 0.0006647983806705326,
+          "notes": [],
+          "rootSpendEq": 0
+        },
+        "promoted": false,
+        "reason": "both_range_ends_agree"
+      }
+    ]
   },
-  "runId": "20260925-161302",
+  "runId": "20260925-161302+20260927-052028",
+  "runIds": [
+    "20260925-161302",
+    "20260927-052028"
+  ],
   "spend": {
     "unified-5h": {
-      "endUtil": 0.16,
-      "observedEq": 0.16,
+      "endUtil": 0.23,
+      "observedEq": 0.39,
       "perWindow": [
         {
           "endUtil": 0.16,
           "observedEq": 0.16,
           "resetEpoch": 1790370600,
+          "runId": "20260925-161302",
+          "startUtil": 0
+        },
+        {
+          "endUtil": 0,
+          "observedEq": 0,
+          "resetEpoch": 1790513400,
+          "runId": "20260927-052028",
+          "startUtil": 0
+        },
+        {
+          "endUtil": 0.17,
+          "observedEq": 0,
+          "resetEpoch": 1790495400,
+          "runId": "20260927-052028",
+          "startUtil": 0.17
+        },
+        {
+          "endUtil": 0.23,
+          "observedEq": 0.23,
+          "resetEpoch": 1790513400,
+          "runId": "20260927-052028",
           "startUtil": 0
         }
       ],
       "present": true,
       "startUtil": 0,
-      "upperEq": 0.17,
+      "upperEq": 0.43,
       "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-      "windows": 1
+      "windows": 4
     },
     "unified-7d": {
-      "endUtil": 0.03,
-      "observedEq": 0.02,
+      "endUtil": 0.17,
+      "observedEq": 0.06,
       "perWindow": [
         {
           "endUtil": 0.03,
           "observedEq": 0.02,
           "resetEpoch": 1790683200,
+          "runId": "20260925-161302",
           "startUtil": 0.01
+        },
+        {
+          "endUtil": 0.17,
+          "observedEq": 0.04,
+          "resetEpoch": 1790683200,
+          "runId": "20260927-052028",
+          "startUtil": 0.13
         }
       ],
       "present": true,
       "startUtil": 0.01,
-      "upperEq": 0.03,
+      "upperEq": 0.08,
       "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-      "windows": 1
+      "windows": 2
     },
     "unified-7d_oi": {
-      "endUtil": 0.04,
-      "observedEq": 0.04,
+      "endUtil": 0.12,
+      "observedEq": 0.11,
       "perWindow": [
         {
           "endUtil": 0.04,
           "observedEq": 0.04,
           "resetEpoch": 1790683200,
+          "runId": "20260925-161302",
           "startUtil": 0
+        },
+        {
+          "endUtil": 0.12,
+          "observedEq": 0.07,
+          "resetEpoch": 1790683200,
+          "runId": "20260927-052028",
+          "startUtil": 0.05
         }
       ],
       "present": true,
       "startUtil": 0,
-      "upperEq": 0.05,
+      "upperEq": 0.13,
       "upperRule": "observed + 0.01 per reset window (the gauge only shows floor(cumulative/0.01))",
-      "windows": 1
+      "windows": 2
     }
   },
   "unknowns": [
@@ -910,13 +3780,17 @@
     "cacheRead coefficient: the 5390000-5550000 tokens per tick figure is a reported_unverified prior range from quota-test/2026-09-19/REPORT.md, not measured by this run",
     "return forecast q: not measured; the planner entries are labelled hypothetical scenarios, never facts",
     "skillRestoreEq / sharedLossEq / parkQualityEq: not measured; entered as 0 baselines in the engine model",
-    "T (tokens per 5h write tick): not identified by this evidence; the prior range 102K-143K is reported_unverified",
-    "k_out (ticks per output token): not identified by this evidence (experiment_not_valid:short_output)",
-    "fable-write-tick: aborted (cap_exceeded)",
-    "output-quota: aborted (short_output)",
-    "ttl-1h-unique-prefix: contaminated (anomalies_present)",
-    "restore-decomposition: aborted (big_context_rewrite)",
-    "policy-effect: aborted (big_context_rewrite)"
+    "k_out (ticks per output token): not identified by this evidence (blocks_disjoint)",
+    "output-quota: upper_bound (blocks_disjoint)",
+    "fable-write-tick attempt 20260925-161302#1: aborted (cap_exceeded) - excluded from the pooled analysis",
+    "output-quota attempt 20260925-161302#1: aborted (short_output) - excluded from the pooled analysis",
+    "ttl-1h-unique-prefix attempt 20260925-161302#1: contaminated (anomalies_present) - excluded from the pooled analysis",
+    "restore-decomposition attempt 20260925-161302#1 (run 1): aborted (big_context_rewrite) - excluded from the pooled analysis",
+    "restore-decomposition attempt 20260925-161302#2 (run 2): aborted (big_context_rewrite) - excluded from the pooled analysis",
+    "restore-decomposition attempt 20260927-052028#2 (run 2): contaminated (anomalies_present) - excluded from the pooled analysis",
+    "policy-effect attempt 20260925-161302#1: aborted (big_context_rewrite) - excluded from the pooled analysis",
+    "restore run 1@20260927-052028 raw_path handoffLossy: not_applicable",
+    "restore run 1@20260927-052028 raw_path reexplainNeeded: not_applicable"
   ],
   "v": "idle-live-analysis/1"
 }
