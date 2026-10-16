@@ -2,6 +2,8 @@
 
 English | [한국어](README.ko.md)
 
+> **No longer developed.** The cost of a handoff (what the fresh session spends rebuilding context) is hard to predict, so development stopped here. The code is left as is.
+
 Senpi/OMO extension that hands a long-running main session off to a fresh
 session once its context passes a token budget, plus a JSONL event log and a
 static trend dashboard. `docs/microworld.html` is the reference visualization of

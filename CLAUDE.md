@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+This repository is no longer developed: handoff cost is hard to predict. Change it only to keep the notice in README.md / README.ko.md accurate.
+
 ## What this is
 
 A single-file Senpi/OMO extension: `extension/rollover.ts` hands a long-running OMO main session off to a fresh session once context passes a token budget, plus a JSONL event log and a static dashboard. README.md is the authoritative spec: state machine, signals, goal pause, skill continuity, event log schema. Read it before changing behavior. `docs/field-notes.md` records live defects and why each design decision exists; `docs/microworld.html` is the reference visualization.
