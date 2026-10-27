@@ -3,7 +3,7 @@
 //
 //   watching ──tokens ≥ budget | reread ratio──▶ armed
 //   armed    ──(turn_end | agent_settled) ∧ Σ child wake==0 ∧ !pending──▶ handoff_requested
-//   handoff_requested ──agent_settled ∧ <successor> found ∧ Σ child wake==0 ∧ !pending──▶ rollover (/rollover now)
+//   handoff_requested ──agent_settled ∧ <successor> found ∧ Σ child wake==0 ∧ !pending──▶ rollover (/rollover now; idle: park_exit + ctx.shutdown())
 //   (successor found but children live → rollover_deferred, re-checked on every agent_settled/turn_end)
 //
 // Signals: before_agent_start (context-budget system prompt block), message_end (usage), wake_source_state (shared pi.events bus),
@@ -159,15 +159,17 @@ export function extractSuccessor(text: string): string | null {
   return s ? s : null
 }
 
+export const handoffFile = (cwd: string, sessionId: string): string => join(cwd, ".omo", "rollover", `handoff-${sessionId}.md`)
+
 export function handoffPrompt(cwd: string, sessionId: string, goalPaused: boolean, activeSkill: string | null = null, reason: "budget" | "reread" | "idle" = "budget"): string {
-  const file = join(cwd, ".omo", "rollover", `handoff-${sessionId}.md`)
+  const file = handoffFile(cwd, sessionId)
   // The successor's system prompt lists skill names only; the body loads only when senpi expands an invocation token.
   const skillLine = activeSkill
     ? `The <successor> block must START with the line \`$skill:${activeSkill}\` (that exact token, nothing before it), then the handoff instructions: a new session only sees skill names, so this token is what loads the ${activeSkill} instructions again.`
     : ""
   return [
     reason === "idle"
-      ? "[rollover] No user input for a while; parking this session. Stop working; hand off now."
+      ? "[rollover] No user input for a while; parking this session. Stop working; hand off now. omo exits once the handoff is written; the handoff file is the resume point."
       : "[rollover] This session's context is over budget. Stop working; hand off now.",
     reason === "idle"
       ? "If your last reply asked the user something or is waiting on a decision, add a `Waiting on user` section with the question verbatim and make the successor's first line re-ask it."
@@ -496,8 +498,20 @@ export function createRollover(pi: any, deps: Deps = {}) {
     st.state = "rollover"
     log(ctx, "successor_found", { chars: found.length })
     persist(sid(ctx))
+    if (st.reason === "idle") { parkExit(ctx); return true }
     pi.sendUserMessage("/rollover now", { expandPromptTemplates: true })
     return true
+  }
+
+  // Idle park ends the process instead of spawning a successor: a fresh session would only sit idle
+  // again, and the handoff file is the resume point. ctx.shutdown() emits session_shutdown{reason:"quit"}.
+  function parkExit(ctx: any) {
+    const handoff = handoffFile(cwdOf(ctx), sid(ctx))
+    log(ctx, "park_exit", { handoff })
+    st.state = "rolled_over"
+    persist(sid(ctx))
+    ctx.ui?.notify?.(`rollover: parked idle; handoff at ${handoff}. Exiting.`, "info")
+    ctx.shutdown()
   }
 
   pi.on("session_start", async (_ev: any, ctx: any) => {

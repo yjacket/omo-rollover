@@ -129,6 +129,10 @@ wrong; `message_end.provider` now logs it directly).
   keeps a dead session looking alive; parking hands off once and stops paying. Deferral is deliberately not TTL-based: the timer checks wall-clock idleness
   (lastUserAt/lastActivityAt), not cache expiry — a session with live children or pending messages
   skips parking regardless of how warm the cache is (wake_unknown never parks).
+- Why an idle park exits instead of rolling over (study 01a0b463, 2026-09-18): the park landed at 275K and the
+  successor sat at 33K waiting for the user — a fresh idle session, just cheaper. Nothing needs a live process
+  while the user is away; the handoff file is the resume point, so the landing now calls `ctx.shutdown()`
+  (`park_exit`). Budget/reread rollovers still open a successor: those sessions have work in flight.
 
 ## Settings in use at the end of the observation
 
