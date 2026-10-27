@@ -18,7 +18,7 @@ const within = (p, ms = 3000) => {
 
 function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(join(tmpdir(), "rollover-")), pause = async () => ({ ok: true, method: "fake" }), resume = async () => ({ ok: true, method: "fake" }), goalStatus = async () => null, isIdle = true, pending = false } = {}) {
   const rt = { isIdle, pending } // mutable runtime surface: tests flip these mid-scenario
-  const handlers = {}, bus = {}, sent = [], commands = {}, notes = []
+  const handlers = {}, bus = {}, sent = [], commands = {}, notes = [], shutdowns = []
   const pi = {
     on: (ev, h) => (handlers[ev] = h),
     events: { on: (ev, h) => (bus[ev] = h) },
@@ -38,6 +38,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
       await withSession({ sessionManager: { getSessionId: () => "s2" }, sendUserMessage: async (t, o) => sent.push({ text: t, session: "s2", opts: o }) })
       return { cancelled: false }
     },
+    shutdown: () => shutdowns.push(true),
   }
   let clock = 0
   const timer = { fns: [], setInterval: (fn) => { const h = { fn, unref() {} }; timer.fns.push(h); return h }, clearInterval: (h) => { h.fn = null }, tick: async () => { for (const f of timer.fns) await f.fn?.() } }
@@ -51,7 +52,7 @@ function harness({ env = {}, branch = [], cwd = "C:/work", dir = mkdtempSync(joi
   const spawn = () => fire("tool_call", { toolName: "task_create", input: {} })
   const lines = () => (existsSync(join(dir, "sessions", "s1.jsonl")) ? readFileSync(join(dir, "sessions", "s1.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [])
   const advance = (ms) => { clock += ms }
-  return { dir, ctx, ext, handlers, sent, commands, notes, fire, message, wake, spawn, lines, advance, timer, rt }
+  return { dir, ctx, ext, handlers, sent, commands, notes, shutdowns, fire, message, wake, spawn, lines, advance, timer, rt }
 }
 
 test("child session is inert: no handlers, no commands, no log", () => {
@@ -358,7 +359,9 @@ test("reload with a persisted rollover state redispatches /rollover now", async 
   const branch = []
   const h = harness({ branch })
   h.wake(0)
-  await h.commands.rollover.handler("park", h.ctx)
+  await h.commands.rollover.handler("on", h.ctx)
+  await h.message(160_000)
+  await h.fire("agent_settled") // armed -> handoff_requested
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } })
   await h.fire("agent_settled")
   assert.equal(h.ext.st.state, "rollover")
@@ -542,7 +545,7 @@ test("/rollover park: idle-style arm + handoff, refused while children run", asy
   assert.equal(h2.notes.at(-1).k, "error")
 })
 
-test("idle reason persists; idle successor kickoff ends with the wait line", async () => {
+test("idle reason persists; idle landing exits the process instead of spawning a successor", async () => {
   const branch = []
   const h = harness({ branch })
   h.wake(0)
@@ -552,11 +555,24 @@ test("idle reason persists; idle successor kickoff ends with the wait line", asy
   await r.fire("session_start")
   assert.equal(r.ext.st.reason, "idle")
   branch.push({ type: "message", message: { role: "assistant", content: "<successor>Read handoff-s1.md.</successor>" } })
+  r.wake(0)
   await r.fire("agent_settled")
-  await r.commands.rollover.handler("now", r.ctx)
-  const kick = r.sent.at(-1)
-  assert.equal(kick.session, "s2")
-  assert.match(kick.text, /\[rollover\]/)
+  assert.equal(r.shutdowns.length, 1, "ctx.shutdown() called once")
+  assert.equal(r.sent.length, 0, "no /rollover now, no successor kickoff")
+  assert.equal(r.ext.st.state, "rolled_over")
+  const exit = r.lines().find((l) => l.ev === "park_exit")
+  assert.ok(exit, "park_exit logged")
+  assert.match(exit.handoff, /handoff-s1\.md$/)
+  assert.ok(!r.lines().some((l) => l.ev === "rollover"), "no rollover event")
+  // a budget handoff still lands through /rollover now
+  const b = harness({ branch: [{ type: "message", message: { role: "assistant", content: "<successor>go</successor>" } }] })
+  await b.commands.rollover.handler("on", b.ctx)
+  b.wake(0)
+  await b.message(160_000)
+  await b.fire("agent_settled") // armed -> handoff_requested
+  await b.fire("agent_settled") // successor found -> dispatch
+  assert.equal(b.shutdowns.length, 0)
+  assert.equal(b.sent.at(-1).text, "/rollover now")
 })
 
 test("typed command during the resume await cannot send the cancelled handoff", async () => {

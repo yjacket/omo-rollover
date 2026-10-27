@@ -13,6 +13,7 @@ watching ──컨텍스트 ≥ 예산 (또는 opt-in: reread 비율 ≥ max가 
 watching ──idle 타이머 (사용자 입력 없음 ≥ idleMinutes ∧ 컨텍스트 ≥ idleMinTokens ∧ isIdle ∧ Σ 자식 wake == 0)──▶ armed(reason=idle)
 armed    ──(turn_end | agent_settled | idle tick) ∧ Σ 자식 wake == 0 ∧ !hasPendingMessages──▶ handoff_requested
 handoff_requested ──(agent_settled | turn_end) ∧ 마지막 assistant 응답에 <successor> 있음 ∧ Σ 자식 wake == 0 ∧ !hasPendingMessages──▶ rollover
+rollover ──reason ≠ idle──▶ /rollover now (새 세션)      rollover ──reason = idle──▶ park_exit + ctx.shutdown() (omo 종료)
 ```
 
 - **armed**: goal을 일시정지하고(아래 "Goal 일시정지" 참고), `tool_call` 훅에서
@@ -208,7 +209,7 @@ sh install.sh        # Git Bash / *nix
 - `/rollover auto|on|off` – `auto`(기본)는 자율 세션(활성 goal, 또는 `AUTONOMOUS_SKILLS` = ulw-execute, ulw-loop, ultrawork, mass-ulw, hyperplan 중 하나의 스킬)에서만 handoff를 강제하고 그 외에는 예산 도달 시 경고만 한다. `on`은 항상 강제. `off`는 비활성화
 - `/rollover now` – 지금 handoff(마지막 응답에 `<successor>` 블록 필요. 자식 실행 중이면 거부)
 - `/rollover now force` – 자식이 실행 중이어도 handoff(자식은 고아가 된다)
-- `/rollover park` – 수동 idle 방식 handoff: 후속 세션이 보고하고 사용자를 기다린다
+- `/rollover park` – 수동 idle 방식 handoff: handoff 파일을 쓴 뒤 omo가 종료된다(후속 세션 없음)
 - `/rollover limit <K> [save]` – 세션 토큰 예산(천 단위). `save`는 `config.json`에도 기록
 - `/rollover idle <minutes>|off` – idle 주차 임계값(분 단위, "Idle 주차" 참고). 인자 없는 `/rollover idle`은 유효값과 시계를 보여준다
 
@@ -238,8 +239,13 @@ handoff를 arm한다. 기본 off인 이유는 도구 루프에서 오발동하�
 100K), `idleGraceMinutes`(기본 5) 동안 활동 없음, 에이전트가 busy 아님, 대기
 메시지 없음, 자식 wake 합 0(unknown이면 절대 주차하지 않음). 주차는
 `arm(ctx, "idle")` 후 `handoff_requested{at:"idle"}`이고, handoff 프롬프트는
-세션이 주차 중이라고 말하며 후속 세션의 kickoff는 "5줄 이하로 보고한 뒤
-사용자를 기다려라"로 끝난다. idle로 armed된 상태에서 interactive/rpc 입력이
+세션이 주차 중이며 handoff를 쓰고 나면 omo가 종료된다고 말한다. `<successor>`
+블록이 도착하면 idle 주차는 세션을 띄우지 않는다: `park_exit{handoff}`를
+기록하고 `rolled_over`를 영속화한 뒤 `ctx.shutdown()`을 호출한다(senpi가
+`session_shutdown{reason:"quit"}`을 emit하므로 summary 행도 기록된다). 후속
+세션을 띄워봐야 다시 idle 상태로 앉아 있을 뿐이고, 재개 지점은
+`.omo/rollover/handoff-<id>.md`다. 주차된 세션에서 타이핑한 `/rollover now`는
+여전히 수동으로 후속 세션을 연다. idle로 armed된 상태에서 interactive/rpc 입력이
 오면 시도를 `watching`으로 되돌린다(`idle_aborted`): 보관 중이던 successor는
 버리고 이 확장이 만든 goal 일시정지는 재개한다(`goal_resume`). 타이핑한
 `/rollover` 명령은 input 훅을 우회하지만 사용자 시계는 갱신하므로, 아직
@@ -320,7 +326,7 @@ usage 관측을 중복 제거하고, returned/ended/right_censored 에피소드�
 `idle_park{sinceUserMin,sinceActivityMin,context,childWake}`, `idle_skip{why,sinceUserMin,sinceActivityMin,context,childWake}`(조치 가능한 why만, 변경당 한 번), `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
-`state_restored{state}`, `rollover{newSession,parentSession}`,
+`state_restored{state}`, `rollover{newSession,parentSession}`, `park_exit{handoff}`(idle 주차 착지: rollover 대신 omo 종료),
 `idle_cost_shadow{...}`(idle 관측마다 shadow 판단 레코드 하나, 스키마 `idle-shadow/1`. `idleCostMode`가 `shadow`일 때만),
 `idle_shadow_error{reasonCode}`(shadow 어댑터/싱크 실패. `shadowDiagnostics()`에 집계되며 정책에 영향 없음).
 `~/.omo/rollover/summary.jsonl`에는 rollover와 세션 종료마다 한 줄이 추가된다

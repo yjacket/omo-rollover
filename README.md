@@ -14,6 +14,7 @@ watching ──context ≥ budget (or, opt-in, reread ratio ≥ max for 3 messag
 watching ──idle timer (no user input ≥ idleMinutes ∧ context ≥ idleMinTokens ∧ isIdle ∧ Σ child wake == 0)──▶ armed(reason=idle)
 armed    ──(turn_end | agent_settled | idle tick) ∧ Σ child wake == 0 ∧ !hasPendingMessages──▶ handoff_requested
 handoff_requested ──(agent_settled | turn_end) ∧ <successor> in last assistant reply ∧ Σ child wake == 0 ∧ !hasPendingMessages──▶ rollover
+rollover ──reason ≠ idle──▶ /rollover now (new session)      rollover ──reason = idle──▶ park_exit + ctx.shutdown() (omo exits)
 ```
 
 - **armed**: goal paused (see "Goal pause" below), spawning tools blocked via `tool_call`
@@ -208,7 +209,7 @@ Copies `extension/rollover.ts` to `~/.omo/agent/extensions/`. Then
 - `/rollover auto|on|off` – `auto` (default) forces the handoff only in autonomous sessions (active goal, or a skill in `AUTONOMOUS_SKILLS` = ulw-execute, ulw-loop, ultrawork, mass-ulw, hyperplan) and otherwise warns at budget; `on` always forces; `off` disables
 - `/rollover now` – hand off now (needs a `<successor>` block in the last reply; refused while children run)
 - `/rollover now force` – hand off even with children running (they are orphaned)
-- `/rollover park` – manual idle-style handoff: the successor reports and waits for the user
+- `/rollover park` – manual idle-style handoff: writes the handoff file, then omo exits (no successor session)
 - `/rollover limit <K> [save]` – session token budget in thousands; `save` also writes `config.json`
 - `/rollover idle <minutes>|off` – idle-park threshold in whole minutes (see "Idle park"); bare `/rollover idle` shows the effective value and clocks
 
@@ -240,8 +241,14 @@ has been idle: no user-typed input for `idleMinutes` (default 50), context >=
 agent not busy, no pending messages, and the
 child wake sum is 0 (unknown never parks). Parking is `arm(ctx, "idle")` then
 `handoff_requested{at:"idle"}`; the handoff prompt says the session is being
-parked and the successor's kickoff ends with "report in <= 5 lines, then wait
-for the user". Interactive/rpc input while armed-for-idle aborts the attempt
+parked and that omo exits once the handoff is written. When the `<successor>`
+block lands, an idle park does not spawn a session: it logs
+`park_exit{handoff}`, persists `rolled_over`, and calls `ctx.shutdown()`
+(senpi emits `session_shutdown{reason:"quit"}`, so the summary row is written).
+A successor session would only sit idle again; the handoff file under
+`.omo/rollover/handoff-<id>.md` is the resume point. A typed `/rollover now`
+on a parked session still opens a successor manually.
+Interactive/rpc input while armed-for-idle aborts the attempt
 back to `watching` (`idle_aborted`): the held successor is dropped and a goal
 pause this extension made is resumed (`goal_resume`). A typed `/rollover`
 command bypasses the input hook but still moves the user clock, so it cancels
@@ -331,7 +338,7 @@ armed), `agent_settled{total}`, `armed{reason,context}`, `active_skill{name,sour
 `idle_park{sinceUserMin,sinceActivityMin,context,childWake}`, `idle_skip{why,sinceUserMin,sinceActivityMin,context,childWake}` (actionable whys only, once per change), `idle_aborted`,
 `handoff_requested{at: "turn_end" | "agent_settled" | "idle", context}`,
 `successor_found|successor_missing`, `rollover_deferred{total,wake,reason?}`, `rollover_refused{total}`,
-`state_restored{state}`, `rollover{newSession,parentSession}`,
+`state_restored{state}`, `rollover{newSession,parentSession}`, `park_exit{handoff}` (idle park landed: omo exits instead of rolling over),
 `idle_cost_shadow{...}` (one shadow decision record per idle observation, schema `idle-shadow/1`; only when `idleCostMode` is `shadow`),
 `idle_shadow_error{reasonCode}` (a shadow adapter or sink failure; counted in `shadowDiagnostics()`, never affects policy).
 `~/.omo/rollover/summary.jsonl` gets one line per rollover and session shutdown
